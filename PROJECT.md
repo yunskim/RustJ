@@ -2424,6 +2424,387 @@ This is close to MLIR Linalg's dual “iteration subset ↔ accessed data subset
 
 These are **partial and complementary research results**, not proof that a universal, complete array relational algebra already exists. Do not claim the earlier papers' established novelty for RustJ.
 
+##### 7.1 SPORES primary-source audit: applicable NN fragments and precise completeness (2026-10-11)
+
+**What SPORES established.** SPORES (Wang, Hutchison, Leang, Howe, Suciu) translates a linear-algebra (LA) expression into relational algebra (RA), explores alternatives with equality saturation, extracts a costed plan, and converts it back into LA. It is a concrete predecessor of RustJ's **Equivalent Form Discovery** ambition, **not** a complete optimizer for all neural-network operators or full-J array semantics. Primary texts: [arXiv v2 (2020-12-24)](https://arxiv.org/pdf/2002.07951), [PVLDB edition](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf).
+
+**Precise theorem scope.** The paper's Table 1 defines a **seven-operation LA grammar**: matrix multiply, elementwise multiplication and addition, row/column/global sum aggregations, and transpose; subtraction is represented by `A + (-1)B`. Its `K`-relation interpretation maps elementwise multiplication to join, addition to union, contracted sums to aggregation, and transpose to attribute/binding changes. Six LA↔RA translation rules and seven RA rewrites suffice for its **Theorem 2.3 completeness**: two expressions **inside that modeled language**, equivalent for inputs of **arbitrary dimensions**, are connected through finite rewrite sequences. Its uniqueness argument explicitly depends on arbitrary dimensions rather than one fixed matrix size. The theorem does **not** guarantee bitwise IEEE floating-point equality, all neural operators, all J programs, or that a resource-bounded sampled e-graph actually visits every alternative. Mathematical rule completeness and practical search convergence are different properties.
+
+**Worked sparse low-rank loss and corrected cost interpretation.** In the real-number algebra:
+~~~text
+L = sum((X - u v^T)^2)
+  = sum(X .* X) - 2 * (u^T X v) + (u^T u) * (v^T v)
+
+X: sparse, 1,000,000 × 500,000
+u: 1,000,000; v: 500,000
+Naive outer product: 500,000,000,000 multiplies + dense materialization
+Rewritten: 1,500,000 entries in the two vector self-dots,
+           PLUS u^T X v and sum(X .* X) work tied to X's nnz
+           and the source access/traversal cost.
+~~~
+Thus the contributed report's **"only 1.5 million multiplications for the entire result"** omits sparse cross-term and source-scan work; the important advantage is avoiding a huge dense intermediate. Algebraic distribution/reassociation can change rounding, signed zero, NaN, overflow, promotion and observable J error/effect ordering. Never promote SPORES-style mathematical equality to **Exact-J equivalence** without a separate witnessed numerical/semantic contract.
+
+**Applicability by NN operator family.**
+
+| Scope | SPORES-derived opportunity | RustJ obligations |
+|---|---|---|
+| Linear layers, matrix chains, Gram/low-rank losses, linear sums/reductions | Factorization, distributivity, CSE, sparse-aware plan changes | Extract pure sum-product fragments; prove dtype/shape/numeric/order |
+| Conv linear contractions, attention `QK^T` and `AV` | Sum-product subgraphs after indexing/contract description | Additional padding/window/mask/group/geometry rules; preserve structured Conv, isolate Softmax |
+| ReLU, GELU, Sigmoid, Softmax, LayerNorm, MaxPool | Not generally in the original sum-product grammar | Opaque boundary or separate nonlinear/normalization algebra and exact guards |
+| FFT, Sort, duplicate-index Scatter, indirect Gather, mutable optimizer state | Requires different algorithm, indirect access, update-order or effect model | No imported completeness claim; effect/alias/error obligations |
+| Explicit adjoint primitives | May contain optimizable, independently represented sum-product pieces | Preserve explicit adjoint policy; do not replace with autograd |
+
+**Performance and search qualifications.** The arXiv v2 abstract and discussion state **1.2×–5×** additional improvements over the compared SystemML optimizer, with up to **5×** in ALS. Public descriptions of the publication report **up to 10×**; these figures should be labeled by **version, workload and baseline**, never generalized to RustJ or arbitrary NN graphs. SPORES reports re-deriving **84 hand-written sum-product rewrite/heuristic rules**, not that seven rules suffice for every deep-learning operator. ILP-based extraction captures shared CSE cost but may be expensive; greedy extraction and sampled matches trade full-search/optimality guarantees for compile-time bounds. The paper reports programs whose e-graph exploration did not converge before iteration limits.
+
+**Implementation experiment, not an architecture mandate.** (1) Identify proven pure sum-product subgraphs within existing GraphBasis, using `with`-declared static shape/dtype/facts only as checked hypotheses. (2) Create an **optional** K-relation/index-sum-product analysis projection; store alternatives through the existing GF4 rewrite/provenance/witness machinery. (3) Mark all rules as **Exact-J proven, guarded conditional, mathematical-only, or unsupported**; never select floating-point distributivity simply because it holds over real numbers. (4) Separate bounded rewrite exploration from legality, target capability, resource/cost and final plan selection; measure representative NN cases and counterexamples. **No new mandatory relational IR, SPORES runtime, autograd, implementation acceptance or GF/IO checklist ID is implied.**
+
+##### 7.2 TenSat primary-source review — direct precedent for equivalent-form graph search (2026-10-11)
+
+**Why it matters.** [TenSat, MLSys 2021](https://proceedings.mlsys.org/paper_files/paper/2021/file/cc427d934a7f6c0663e5923f49eba531-Paper.pdf) takes tensor-graph rewrites synthesized/verified by TASO and uses `egg`-based **equality saturation** for `exploration → extraction`. This closely resembles the historical JAXA goal of **Equivalent Form Discovery → witnessed conditional equivalence → cost-based selection**. Unlike SPORES' completeness analysis for a restricted linear-algebra/relational fragment, TenSat focuses on searching **multi-output, shared tensor DAG** alternatives. It neither establishes a universal algebra for J nor independently discovers every tensor identity. The [Rust implementation](https://github.com/uwplse/tensat) includes rule verification, rewrite rules and greedy/ILP extraction; its README still characterizes the optimizer as work in progress, so distinguish paper results from the current artifact's maturity.
+
+**Four mechanisms.** (1) E-classes represent multiple equivalent expressions without destructive rewrite choices, reducing phase-ordering sensitivity. (2) **Multi-pattern rewrites** jointly match multiple outputs, such as `Y1=A@B, Y2=A@C` ↔ `T=A@concat(B,C); (Y1,Y2)=split(T)`: independent greedy selection at each output cannot see the cost benefit from sharing `T`. (3) Shape/layout/split properties are tracked through e-class analysis and checked as rewrite preconditions. (4) **ILP extraction** reasons about whole-DAG node cost and the absence of cycles; legal equalities can still create cycles *within the e-graph*, so TenSat uses pre/post cycle filtering before extracting an executable DAG.
+
+**Performance and precise limits.** Across seven GPU inference benchmarks, the paper reports up to **16% better optimized runtime than TASO** and **48× lower optimization time on average**. These are not general RustJ, CPU, I/O or all-program guarantees. Its “optimal” extraction is conditional on **the finite explored e-graph and a sum-of-independently-measured-operator-times cost model**, not the globally best possible program or wall-clock prediction. Multi-pattern growth can be explosive, cause a one-hour ILP timeout and expose cost-model discrepancies where a more extensively searched graph runs slower. Node/time/iteration and multi-pattern fuel limits are required.
+
+**Full-J semantic caution.** TenSat's `src/rewrites.rs` includes associativity of elementwise addition and matrix multiplication, plus distributivity. Mathematical equality over real numbers does **not** imply equality under J floating-point rounding/NaN/signed-zero, integer overflow and promotion, Rank/Cell/Frame/empty-prototype behavior, first observable error or side-effect/late-NAME order. Merge RustJ e-classes or approve extracted programs only under witnessed/guarded `Equivalent_J(P,Q; Γ)` contracts. Keep an original graph route when a proof is missing. The `with` extension provides static semantic facts, not device/tile/cost policy.
+
+**Existing-gate experiment (no new IDs).** Extend GF4's versioned GraphRewriteCandidate/CompositionRelation *analysis-only* with (a) single-output Map/IndexMap composition and (b) a two-output shared-MatMul/concat/split candidate. Under GF5/GF6 compare greedy and sharing-aware whole-DAG extraction for duplicated work, intermediate-memory use and compiler cost. Negative cases must cover floating-point reassociation, Rank empty-frame/virtual cells, first-error preservation, inconsistent output/shape matching, cycles, stale witnesses and effectful shared producers. Choosing `egg` vs `egglog`, ILP dependencies and executable optimizations remains a separate decision; no existing GF4/GF6 gate is advanced. [EqiForge (2026-09 preprint)](https://arxiv.org/abs/2609.12330) is a newer related research candidate, not verified RustJ evidence.
+
+<a id="eqsat-successors-plan"></a>
+##### 7.3 Practical follow-ups to SPORES: `egg`, relational e-matching and `egglog` (2026-10-12)
+
+**Integrated design (binding contract across §§7.6–7.9).** Importing SPORES' relational LA representation as a universal J IR, reusing its **indexed access relations** for broad J array families, and adopting `egg`/successor techniques for **compression, discovery and extraction of equivalences** are distinct decisions. Keep canonical J Graph IR authoritative; experiment with a **broad optional `RelAccessView` representation** while admitting **unconditional algebraic identities only in independently proven Exact-J scopes**. Connect frontend-driven rule synthesis to [§7.8](#frontend-equality-synthesis), expanded relational coverage and R0/R1/R2 to [§7.9](#spores-relational-integration), and observable error/effect legality to [§7.7](#eqgraph-error-semantics). The cited research papers are complementary, not successive versions of one optimizer.
+
+| Research and primary source | Established contribution | RustJ adaptation / decision |
+|---|---|---|
+| [SPORES, PVLDB 2020](https://doi.org/10.14778/3407790.3407799) | Restricted LA→relational algebra→equality saturation→cost extraction; sparse and CSE-aware sum-product optimization | **Prove exact equalities first** for pure `IndexSumProduct` fragments; progressively extend the **relational access/index representation** to other J array families (§7.9), without mandatory full-J relationalization |
+| [`egg`, POPL 2021](https://doi.org/10.1145/3434304), [Rust library](https://github.com/egraphs-good/egg) | Rebuilding, e-class analyses, conditional rewrites and extraction in a general-purpose Rust e-graph library | **First experiment engine** for bounded alternative discovery beside `GraphRewriteCandidate`; no mandatory Cargo dependency before evidence |
+| [TenSat, MLSys 2021](https://proceedings.mlsys.org/paper_files/paper/2021/file/cc427d934a7f6c0663e5923f49eba531-Paper.pdf) | Non-local multi-output rules, shape-aware exploration and shared-DAG/cycle-aware ILP extraction | Guide multi-consumer pattern/extraction experiments; do **not** import its numerical rewrites without J proofs |
+| [Relational e-matching, POPL 2022](https://doi.org/10.1145/3498696) | Formulates e-matching as relational joins and uses pattern-sensitive query plans | Evaluate **only if** measured matching costs dominate; does not entail adopting a SQL engine |
+| [`egglog`, PLDI 2023](https://doi.org/10.1145/3591239), [implementation](https://github.com/egraphs-good/egglog) | Integrates incremental Datalog-style facts and lattice reasoning with equality saturation, congruence closure and extraction | Compare once shape/Rank/alias/demand fact fixpoints need more expressive rule composition than `egg` e-class analysis; **not** the default engine yet |
+| [Glenside, MAPS 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | Pure tensor access-pattern rewrites and accelerator mapping | Reference for DACC Access/Compute projections and im2col; J Rank/prototype/effects remain separately proved |
+
+**Try `egg` first; decide on `egglog` after comparison.** Existing `src/j_graph_rewrite.rs` is a source-preserving candidate registry with `GraphEquivalenceWitness` and `GraphRewriteProvenance`, not a general-purpose e-graph. `egg` provides the smallest plausible Rust-side bounded-search experiment. SPORES-style axis schemas and access relations feed **typed term/analysis candidates inside the same EqGraph**, rather than a separate mandatory optimizer; without a static Exact-J witness, no E-Class union is authorized. `egglog` may be a better fit when mutually refining analysis relations and fixed-point rules become central; importing both as production dependencies before those needs are demonstrated would enlarge M2/M3 scope without an established benefit. Neither is a mandatory compiler stage.
+
+##### 7.4 Optional RustJ EqSat adapter contract: proof, exploration and extraction stay separate
+
+~~~text
+VerifiedFrontend / J Semantic IR / canonical J Graph IR
+  → eligible closed pure region + source/semantic/error fact snapshot
+  → two optional EqTerm inputs:
+       (a) frontend-guided typed J rule candidates (§7.8)
+       (b) SPORES-inspired RelAccessView / indexed axes (§7.9)
+  → independently proven Exact-J rules + EvidenceEdge; guarded/unknown isolated
+  → bounded egg E-Graph (source J terms + admitted relational alternatives)
+  → verified multi-root/shared-DAG extraction, resources and cost
+  → Verified Logical IR / ExecutionLegality / target route admission
+  → RoutePartition / Schedule / Physical Plan
+  (on proof, budget, extraction or admission failure: original verified graph)
+~~~
+
+- **Candidate scope:** Export only explicitly closed, pure graph regions. Do not unconditionally merge late-bound NAME reads, `1!:` I/O, mutable `StateResource`, state-dependent adjoints or consumers with observable evaluation/error-order differences. Preserve original FunctionEntity/derived modifier/NN extension and independently callable adjoint identity. Even for pure operations prove J-visible dtype/shape, Rank/Cell/Frame, empty-frame prototype/fill, sparse/boxed behavior, fit/tolerance, integer promotion, floating-point exceptions/bit patterns and evaluation multiplicity.
+- **Legality before equality union:** Preserve rule ID/version, origin/span, input occurrences, original `ValueId`, fact snapshot, `FactWitness`, and any guard/fallback. **Do not union two nodes on mathematical equality or matching dtype/shape alone.** Only statically `Exact-J Proven` identities may enter the same unconditional e-class; represent `Guarded` identities as separate conditional candidates valid only under that guard. `egg` itself does **not** prove runtime guards, observable effects or first-error precedence. `Unknown/Disproven` never licenses union or selection.
+- **Analyses and witnesses:** Merge e-class shape/rank/access/dtype/property/source-version facts only through existing `ValueFacts` refinement rules; when alternatives disagree, reject or conservatively lower to `Unknown`. Never collapse incompatible result assembly semantics. Version proofs against graph/rules and reject stale witnesses or invalid facts. **Reverify** a selected candidate at the Graph→Logical boundary.
+- **Budget and fallback:** Separately cap e-node/e-class counts, iterations, pattern matches, multi-pattern expansion, wall-clock time and solver work; use stable rule order and seeds for reproducibility. On timeout, budget exhaustion, missing solver or proof failure, return the **original verified graph route**. Do not destructively replace J Graph IR or add a compulsory algebra layer.
+- **DAG-aware extraction:** The default tree extractor does not properly model shared producers vs recomputation, several graph outputs, live memory peak, backward read regions/I/O, transfer, target routing or fusion opportunity. Reconstruct bounded alternatives as **shared DAGs** and compare `ResourceEstimate` separately from `CostEstimate`. Distinguish greedy/tree extraction, shared-DAG-aware heuristic and optional ILP (e.g. [`egg` LpExtractor](https://docs.rs/egg/latest/egg/struct.LpExtractor.html)). Verify acyclicity, output binding, consumer counts, lifetimes and materialization for extracted plans. ILP and its solver are not baseline prerequisites.
+- **Result ownership:** An EqSat output is an *analysis candidate*, not authorization to execute via the native Logical Optimizer or choose a physical kernel. This work does not create a permissive approximate-numerics mode. Exact observable J errors, empty-frame virtual-cell semantics and full-J fallback remain mandatory.
+
+##### 7.5 Living work items mapped to existing GF/FW/IO acceptance gates
+
+These boxes collect **sub-evidence under existing canonical checklist items**, not new milestone IDs or an independent completion ledger. All are **unimplemented and unverified**; this documentation change does not advance GF4/GF6 implementation acceptance. It must not block M2 frontend convergence, M3 baseline legality or the first M4 single-CPU route.
+
+- [ ] **GF4 / FW-05–09:** Prototype an `egg` adapter preserving Graph IR identity/round-trip, versioned origin, guards and negative `Unknown`/stale-witness rejection.
+- [ ] **GF4:** Compare a small *exact* `IndexMap∘IndexMap` rule and independently pure Map cases first. Add mandatory negative cases for FP reassociation, effect/error reorder, empty-frame prototypes, sparse/boxed representation and dynamic NAME.
+- [ ] **GF4 / GF5a:** Test DACC/`RelAccessView` Window/Reduce/Scan/Conv projections and shared input-demand pullback; **measure representable operation families separately from Exact-J rewritable families**, and follow the R0/R1/R2/negative gates in [§7.9](#spores-relational-integration). Reject the generic-algebra hypothesis if no single sound transfer rule works across **two distinct operation families**.
+- [ ] **GF4 / GF6:** Evaluate multi-output/shared-producer patterns with tree/greedy versus shared-DAG-aware extraction; record output identity, cycles, read bytes, duplicate work, peak materialization and compilation overhead.
+- [ ] **GF6 / IO-09·10:** Claim speed/Work/Depth/I/O/memory benefits only after an executable CPU candidate is verified against the same fixed inputs and target; external routes obey the same legality/semantic gate.
+- [ ] **GF4 / FW-05–09 (later):** A/B compare `egg` with `egglog` on fact refinement, interacting rules, implementation complexity and compilation time; investigate relational e-matching **only after measuring a matching bottleneck**. Record dependency/version/feature-flag adoption separately.
+
+**Documentation-only verification (2026-10-12):** The source links, stage boundaries and linkage to existing acceptance gates were reviewed. No new optimizer code, corpus, J-C oracle, Rust `fmt`/`clippy`/tests or performance benchmark was run for this edit (**UNRUN**). Do not present these research hypotheses as validated J equivalence or a measured RustJ speedup.
+
+<a id="eqgraph-architecture"></a>
+##### 7.6 Architecture decision: add an actual E-Graph alongside canonical J Graph IR (2026-10-12)
+
+**Decision (architecture accepted; implementation pending):** `GraphRewriteCandidate` records individual alternatives but is not a repository of e-classes for recursively combining rewrites and exploring many equivalent graphs. Actual equality saturation requires a dedicated **E-Graph** that groups proven-equivalent terms, maintains congruence closure, and supports extraction with shared-DAG cost semantics. RustJ will add a separate **`EqGraph` (working name, using `egg::EGraph`) as a supported optimization representation** for closed, pure Graph regions. It will **not** replace the canonical J Graph IR nor become a required stage for all interpreter/compiler routes; effectful or unsupported J programs keep the verified original lowering path.
+
+~~~text
+J Semantic IR / canonical J Graph IR (source preserved)
+        ├── original verified lowering / fallback
+        └── eligible pure region + source/fact/effect snapshot
+                  ↓
+             EqGraph adapter → egg::EGraph
+                  ├── ENode(op, typed semantic signature, child EClassIds)
+                  ├── EClass / conservative EClassFacts
+                  ├── RuleId + EvidenceEdge / witness / provenance
+                  └── source ValueId ↔ multi-root EClassId map
+                         ↓ bounded saturation
+                  ├── alternatives (not immediately committed)
+                  └── shared-DAG-aware extraction + verifier
+                         ↓ only if lawful and realizable
+             Verified Logical Array IR → existing routes
+~~~
+
+**Why an E-Graph is distinct from the present candidate registry.** Existing `GraphRewriteCandidate` records source-to-alternative edges and provenance. It does not, by itself, implement **congruence closure, rebuilding, equality saturation, and reusable equivalent classes** across different rewrite sequences. Use the established `egg` EGraph/Runner for these standard mechanics instead of implementing a new union-find/e-class engine. RustJ owns the J-specific term adapter, legality, witnesses, region eligibility, and extraction.
+
+**Minimum interfaces and invariants:**
+1. `EqRegion::eligible`: Export only **closed, pure** regions whose FunctionEntity/Rank/Cell/Frame, type/shape/prototype/fill, observable checks/errors/effects, NAME/locale/version and input occurrences are preserved. Unproven eligibility retains the original route.
+2. `EqTerm/EqClassFacts`: Preserve structured primitive, NN extension and explicit-adjoint identities unless a separate decomposition is proved. Reject e-class unions of incompatible type, shape, Rank, result assembly, ordered reduction or numeric modes. Downgrading conflicting facts to `Unknown` is **not** a legality proof for merging classes.
+3. `EqRule + EvidenceEdge`: Only **statically proven Exact-J equivalences** permit unconditional `union`. Keep guarded transformations as separate conditional candidates unless the guard statically establishes equivalence over the whole exported region; recheck their preconditions during extraction/guarded lowering. Never union on unproved real-number reassociation/distributivity, altered error/effect order or `Unknown` evidence.
+4. `RootMap/Extractor`: Preserve **multiple roots** for source input occurrences and every output `ValueId`. Optimizing one `RecExpr` for AST size is not optimal extraction for multi-output, shared DAGs. Verify output correspondence, acyclicity, liveness, shared-producer materialization, and distinct resource/cost/target feasibility; ILP remains optional.
+5. `EqBudget/Fallback`: Bound iterations, e-node/e-class counts, matches, wall-clock time and multi-pattern expansion. On timeout, proof failure, cost-model uncertainty or exhausted budget, keep the original canonical Graph IR and fallback. Never place concrete schedule, physical layout or device placement in E-Graph semantics.
+
+**Incremental implementation aligned with existing acceptance items:** (A) `GF4 / FW-05–09`: introduce an `egg` adapter in `src/j_graph_eq.rs` or an equivalent isolated module, with typed terms, source/multi-root mapping and verifier; decide crate/feature details in the implementation PR. (B) `GF4`: saturate one *provably exact* identity or IndexMap-composition rule first and test source round-trip, empty-frame/error/numeric counterexamples. (C) `GF4 / GF5a`: add a second rule and cross-family access analysis to demonstrate gains from combined search. (D) `GF6 / IO-09·10`: verify multi-root shared-DAG extraction against actual CPU/reference behavior and costs. (E) Evaluate `egglog` as a replacement/mixed fact engine by A/B testing **only if** there is evidence of a fact-inference bottleneck.
+
+**Status:** Only the **architecture decision and contract are documented**. There is no implemented `EqGraph` module, no `egg` dependency, no executable optimization or measured RustJ speedup from this change. GF4 candidate discovery and the unfinished GF6 extraction acceptance status remain unchanged. Do not preempt M2/M3 correctness or the M4 baseline to implement an unconstrained saturation engine.
+
+<a id="eqgraph-error-semantics"></a>
+##### 7.7 E-Graph error and failure semantics: errors are observable computation results (2026-10-12)
+
+**Review conclusion (design contract; not implemented):** Do not confuse J errors with `egg` rewrite failures or optimization cost. Equal values on successful inputs are **not** enough for `Equivalent_J(P,Q)`. The observable **first error's kind, triggering condition, precedence, and original source blame**, handled failures, and surrounding NAME/`StateResource` effects must also agree. In particular, `Pure` does not imply `Total`: even a pure operation may raise Domain, Index, Length or Rank errors. `GraphFacts` explicitly excludes effects and error/order semantics; **its shape/dtype/rank facts alone cannot authorize an E-Class union**.
+
+**Existing RustJ contracts and gaps:**
+- `src/error.rs` already distinguishes `FailureCategory::{JLanguage,UnsupportedCapability,VerifierDefect,BackendFailure}` and retains `ErrorContext` source spans, enqueue-word blame and definition frames. A genuine J `Error::Limit` must not be conflated with EqSat search time/memory limits. Do not expose a new optimizer error class as a J language error.
+- `src/logical_ir.rs` distinguishes `CallOp.effect`, `possible_errors`, `speculation`, ordered `SemanticCheck`, and `Operation.order_after`; `src/j_graph_composition.rs::ObservableOrder` records complete invocation order. The five current `SemanticErrorKind` variants and `PossibleErrors::unknown` are **conservative analysis state**, not a complete enumeration of every possible J error or a verified error-order trace.
+- `src/logical_executor.rs` implements *narrowly witnessed* zero-frame fill Domain recovery and inhomogeneous-fill retry, which are part of J semantics, **not** permission for arbitrary optimizer suppression/retry. `src/nn_extensions.rs` currently records `error_order_proof=Unverified`; this is not a Total/NoError license.
+
+**Three different failure owners:**
+
+| Owner | Examples | Required outcome |
+|---|---|---|
+| **J semantic errors** | Domain/Length/Rank/Index, NAME lookup, `1!:` I/O, promotion/fill-related failure | Preserve occurrence, original error class, diagnostic blame when observable, handlers, precedence, and state/effects before the error. **Do not re-execute** the original expression after an observed J failure |
+| **Optimization rejection or resource budget** | Missing rule witness, ineligible region, e-node/time/match budget, optional ILP solver unavailable | Choose the original verified route **before J execution**. The lack of a better plan is an optimizer outcome, not a J Domain/Limit error |
+| **Compiler/backend failure** | Conflicting e-class facts, cyclic extracted DAG, invalidly accepted stale witness, admitted kernel failure | Report/record `VerifierDefect` or `BackendFailure`, never silently convert to J Domain. Restart after observable J effects is forbidden absent a separately proven rollback/snapshot boundary |
+
+**Error legality sidecar (conceptual, not a required new Graph IR payload):** Derive an `ErrorEnvelope` / `ErrorFrontier` for each candidate from the original semantic execution.
+
+~~~text
+ErrorEnvelope for exported EqRegion
+  failure_summary: ProvenTotal | MayFail(classes_or_unknown) | Unknown
+  obligation_order: data edges + SemanticCheck.order_after
+                    + full J invocation / hook-fork / Rank cell order
+  fault_sites: stable source ValueId / OpId, spans, word blame, frames
+  observable_prefix: effects, NAME versions, writes, state, handler events
+  conditionality: input/shape/rank-dependent failure predicates and guards
+  multiplicity: number (0/1/N) of evaluations of potentially failing calls
+  witness: rule/version, fact snapshot, guard/fallback and invalidation
+~~~
+
+**An envelope is a set of proof obligations, not a proof in itself.** An extracted alternative must agree not only on JType/Shape/Atoms/fill on successful inputs but also on first observable error, effects completed beforehand, error-handler choice, and source diagnostic mapping when failures occur. Correctness must hold for **all permitted inputs and environments**; a checked guard can narrow that domain. Registry-level `may_error=false` alone is not an independent proof of totality: a `NoObservableError` witness requires relevant rule, operand, range, dtype and shape evidence.
+
+**Three eligibility tiers:**
+1. **T0: Proven total, effect-free, order-independent.** Only then consider ordinary E-Class unions, CSE, reordered evaluation and common-subexpression sharing, and only when their numeric and array semantics are exact. Start the first `egg` implementation **here**; floating-point reassociation still requires a separate numeric proof.
+2. **T1: May fail, but exact error/effect trace is proven.** Allow only carefully delimited rules that retain invocation/evaluation multiplicity, failure order, first-error precedence and source blame. Preserve the original `SemanticCheck` and failure barriers in their ordered positions or through an explicitly verified ordered boundary. Until such a proof exists, treat the potentially failing operation as **opaque** and only export its already-evaluated result from outside the bounded T0 region.
+3. **T2: Unknown, effectful, dynamic, or conditionally guarded without complete proof.** No unconditional E-Class union, removal, duplication or reordering. Guarded alternatives may fall back **before the first J-visible action**, or at an independently proven side-effect-free deoptimization safe point. Never optimistically refine T2 into T0/T1.
+
+**Mandatory counterexamples:** Folding `0 * index(A,i)` to zero removes an Index error; reordering two pure failing calls changes the first Domain/Index error; moving a shape precheck earlier hides the original first failure; CSE changes the number/location of failures; dead-code elimination removes an observable foreign `1!:` read; J right-to-left or Hook/Fork invocation ordering changes; an empty-frame virtual fill cell is replaced with an unconditionally successful constant; EqSat allocation timeout is confused with actual J `Error::Limit`; a failing runtime guard replays partially effectful J execution. Equal successful numeric outputs do **not** legalize these transformations.
+
+**Subtasks under existing GF4/FW/GF6/RK acceptance items (all pending):**
+- [ ] **GF4 / FW-05–09:** Evaluate `effect`, `possible_errors`, `speculation`, `SemanticCheck/order_after`, and `ObservableOrder` **together** for region eligibility. Missing NoError witness excludes T0; retain a fault barrier until T1 is separately proved.
+- [ ] **GF4 / FW-05–09:** Record and verify per-rule `ErrorEnvelope`, evidence edges and original source provenance. An `egg` explanation describes a **rewrite derivation**, not an automatic proof of J semantic correctness. See the [egg example of an unsound division rewrite](https://docs.rs/egg/latest/egg/tutorials/_03_explanations/).
+- [ ] **GF4 / RK:** Compare pinned J-C oracle, RustJ reference and extracted alternatives including **success, failure class/context, effects and state**, with empty-frame fill/retry, boxed/sparse, Reduce/Scan, Hook/Fork, NAME and foreign I/O. Include errors observed by handlers.
+- [ ] **GF6:** Before multi-output/parallel/accelerator extraction, verify the **semantic order graph** and per-lane error priority. If multiple failures occur, expose the same first J error as the original. Permit fallback only before commit or at an independently proven restart boundary.
+- [ ] **GF4 / GF6:** Distinguish budget/timeout, unsupported, failed guard, verifier defect and backend error in diagnostics; test rejection of **unproven re-execution after effects**.
+
+**Verification scope:** This contract was compared with existing code and research but does **not** implement `ErrorEnvelope`, an executable `EqGraph`, an oracle differential test corpus, or runtime checks. Rust/C tests and performance verification for this edit remain **UNRUN**. Do not authorize executable E-Graph optimizations before these obligations are evidenced.
+
+
+<a id="frontend-equality-synthesis"></a>
+##### 7.8 Frontend-guided J equality synthesis: separating source syntax from semantic computation (2026-10-12)
+
+**Architecture decision (design documented; implementation pending).** Do not make manual authoring of hundreds of J rewrite rules a precondition for effective optimization. Reuse RustJ's existing **verified J Syntax, \`FunctionEntity\`, canonical J Graph IR, and Execution Semantic Facts** to synthesize a bounded set of type/Rank/effect-compatible expression candidates. Admit **independently justified** equalities to \`egg\` only after verification. **\`egg\` explores compositions of supplied proven rules**; discovery of new laws, induction of preconditions, and proof of J semantics belong to a separate **Equality Synthesis sidecar**. This is neither a string rewrite engine nor an additional mandatory frontend, lowering, or optimization stage. There is no implemented synthesis pipeline or measured speedup yet.
+
+**Advantages over naked J source syntax.** J words are context-dependent: right-to-left evaluation, tacit trains (hook/fork), valence, function construction via adverbs/conjunctions, explicit Rank, fit, NAME/locale and late binding cannot be reliably inferred from matching source substrings. RustJ's frontend already provides tokens, syntax, source origins and immutable function operand **identities**. Canonical J Graph IR preserves applied monadic/dyadic operations, Graph Basis, nested \`FunctionEntity\` structures, source input occurrences and region branch-completion orders; subsequent Logical IR includes \`CallOp\` access/Rank/Cell/Frame, \`possible_errors\`, \`speculation\`, \`SemanticCheck\`, and \`order_after\`. This permits **well-sorted, typed candidate generation without reimplementing the J parser** and connects the optimizer to existing source and error legality. The frontend does not magically resolve all unknown shape/dtype/NAME/dynamic errors. \`GraphFacts\` alone never proves NoError or J equivalence.
+
+**Maintain distinct information contracts.** \`ParsedSource/FrontendContext\` and \`FunctionEntity\` preserve **the original J expression and callable identity**; \`GraphBasis/Region\` represent **structural semantic computation**; \`Logical CallOp\` and ordered checks provide **later execution legality facts**. Do not collapse all three into an unconditional canonical AST. The same J spelling can denote different behavior with differing NAME versions, locales, captured operands or valence. Retain the source \`FunctionEntity\` and export a **separate abstract term** for equality comparison. Unparsing an extracted graph back to J syntax is an optional diagnostic feature, not a prerequisite for lowering it directly to verified Logical IR.
+
+| Class | Transformation | Status for e-graph admission |
+|---|---|---|
+| **Syntactic desugaring** | Direct definitions or syntax sugar → constructed J function/definition | Frontend's semantic standardization; must preserve source provenance, diagnostics and bindings |
+| **Structural canonicalization** | Resolved valence/primitive, train/Rank/composition → explicit semantic term/Graph | Unifies candidate **representations**; does not authorize replacing their algorithms |
+| **Algebraic equality** | \`A(x) ↔ B(x)\` subject to type/shape/rank/error/number hypotheses | \`egg\` E-Class union only after independent Exact-J proof; guarded/unproved candidates remain separate |
+| **Idiom/implementation specialization** | \`(+/ % #)\` fork routed to \`jtmean\` | Source recognition/performance opportunity, not proof of an unconditional equation or a compulsory Graph IR node replacement |
+| **Argument/representation normalization** | Tessellation argument canonicalization, copy/view, buffer layout | Keep J checks and preconditions; physical realization decisions are downstream, outside the E-Graph |
+
+**Confirmed sources in pinned jsource revision \`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528\`:**
+1. [\`jsrc/cf.c::jtfolk\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c) recognizes the ordinary \`+/ % #\` fork and chooses a dedicated \`f1=jtmean\` implementation. RustJ \`src/j_graph_jsource.rs::is_mean_fork\` already checks \`FunctionEntity::Fork\`/\`ForkSemantics::Ordinary\` and primitive operands \`Slash\`, \`Plus\`, \`Div\`, and \`Pound\`. This is a **working instance of frontend-structured source idiom recognition**, not text matching. Its current output retains \`OpportunityLegality::AwaitingSemanticProofs\` and \`selected=false\`; it does **not** license unconditional \`Mean\` equality in \`egg\`.
+2. [\`jsrc/cc.c::jttesa\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c) validates tessellation argument rank/length/domain and converts the argument into a **standard start/length vector form**. This can seed canonicalization and pattern discovery but is not an independent algebraic identity that can ignore input errors, check order or the target array's rank.
+3. [\`jsrc/cx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c) includes direct-definition processing that converts \`{{...}}\` into a \`9 : '...'\`-style form and rescans the sentence. This exemplifies **syntactic desugaring**. It does not permit compile-time execution or arbitrary suppression of NAME/effect semantics.
+4. RustJ's \`src/j_graph_jsource.rs\` catalogs **16 pinned jsource-derived optimization families** (mean, windows, search, gather, result assembly, copy/view, sparse/ownership, and others). They are useful **pattern discovery seeds** with provenance, but their \`DecisionOwner\` may be ExecutionSemantics, GraphFusion, ExecutionAlgorithm, PhysicalPlanner, or RuntimeBinding. **Do not turn all into \`egg\` rules.** Discovery statuses include analysis-only, existing-analyzer, awaiting-facts and downstream-only.
+5. \`src/j_graph_rewrite.rs\` already records \`FindViaWindowMatch\` / \`JFindCutMatchIdentity\` as a **witnessed source-to-replacement candidate**. Its evidentiary status is different from the mean idiom's recognition-only opportunity. Require rule ID, fact rule, scope and proof review before promoting any candidate to an admitted \`EqRule\`.
+
+**Two-frontier, bounded synthesis pipeline:**
+
+~~~text
+Original J source
+       │ VerifiedFrontend (Program + FrontendContext, source origins)
+       ▼
+J Syntax + FunctionEntity / derived verb identity
+       ├── syntax pattern discovery (pinned jsource idioms, desugaring)
+       │      └── SyntaxPatternCandidate (NOT an equivalence proof)
+       ▼
+Canonical J Graph IR (GraphBasis, applied nodes, preserved regions)
+       ├── typed semantic term export (source graph stays canonical)
+       └── bounded grammar/term enumeration, typed metavariables/occurrences
+                     ▼
+          CandidatePair / conditional rule schema
+                     ▼
+          oracle comparisons / counterexample search
+                     ▼
+           semantic legality + proof/guard review
+             ├── disproved → reject with counterexample
+             ├── unproved/guarded → pending registry (NO e-union)
+             └── independently proven Exact-J → EqRule + witness
+                                                     ↓
+                                             egg::EGraph saturation
+                                                     ↓
+                                      verified multi-root/shared-DAG extraction
+                                                     ↓
+                                            Verified Logical Array IR / fallback
+~~~
+
+**Conceptual interfaces (sidecar contracts, not new required IR payloads).**
+
+~~~text
+TermSignature:
+  sort=(noun | verb | adverb | conjunction | value), valence, primitive_id
+  operand_structure/FunctionEntity, ordered_input_occurrences
+  rank/cell/frame constraints, shape/dtype/JType, prototype/fill
+  numeric tolerance/fit/overflow policy, exact rational/IEEE policy
+  name/locale/source version, source origins
+  effect/possible errors/ordered checks/observed state
+
+SyntaxPatternCandidate:
+  source_signature, normalized_semantic_pattern, jsource_rule/provenance
+  phase = syntax_desugar | structural_recognize | algebraic | downstream
+  owner = frontend | graph_rewrite | execution_semantics | planner
+  proof_status = unknown | counterexample | guarded | independently_proven
+
+EqRuleAdmission:
+  lhs/rhs typed pattern, quantified metavariables and valence
+  required facts, legal context, exception/effect/numeric witness
+  rule version, pinned J/JSOURCE revision, source provenance
+  proof status = ExactJStatic (for unconditional e-class union) | Other
+~~~
+
+An implementation should reference existing \`FunctionEntity\` / \`GraphFacts\` / \`FactWitness\` / \`GraphRewriteCandidate\` / error analyses, rather than freeze this proposal as a mandatory new AST or API. Identical normalized hashes do **not** imply proven equality. Reject stale origins/NAME versions/guards, or changed/repeated input occurrences without proof.
+
+**Candidate synthesis algorithm and implementation order:**
+1. **Seeds:** Ingest explicit J Dictionary identities, already witnessed \`GraphRewriteRule\` candidates and pinned jsource **pattern recognizers** as *distinct source categories*. Never mechanically copy an internal specialized implementation into an unconditional \`LHS=RHS\` equation. Extract generalizable syntactic patterns with explicit provenance.
+2. **Well-sorted grammar:** Generate bounded-depth expressions from \`x\`/\`y\`, constants, structured \`Apply\`, \`RankApply\`, \`Transpose\`, \`Ravel\`, \`Reshape\`, \`Gather\`, \`Reduce\`, \`Scan\`, preserved \`Hook/Fork\` and explicitly registered extended primitives/adjoints. Do not unfold unknown/dynamic \`FunctionEntity\` or invent concrete types for \`Unknown\` facts. Version the actual set of supported grammar constructors.
+3. **Early pruning:** Filter by sort/valence, element type/rank, symbolic shape/frame/cell, arity, primitive domain, prototype/fill and ordered input occurrences. An alias, NAME, or effectful boundary excludes enumeration outside an eligible closed pure region. Never downgrade inconsistent facts to \`Unknown\` to declare legality.
+4. **Observation signatures:** Compare across a deterministic array corpus, including scalar/high-rank, empty-frame/cell, boxed/sparse, mixed type, integer overflow/promotion, NaN and signed zero, tolerance/fit, valid/invalid index, and value-dependent errors. A pinned J-C oracle observes more than numeric values: **JType/Shape/Atoms, first error/handler, source blame, effects and post-error state**. Execute test cases only in isolated, reproducible fixtures; do not mutate the actual host environment while probing effectful J definitions.
+5. **Equivalence *hypotheses*:** Bucket expressions by their matching observed outcomes/fingerprints, then anti-unify common subterms into typed metavariables such as \`?x\`, proposing a conditional \`LHS ↔ RHS\`. A few matching tests establish **hypotheses**, not actual \`egg\` E-Classes. Value-based runtime guards are valid only if proved before the first J-visible action or a separately verified deoptimization boundary.
+6. **Counterexamples and proof:** Differential-test held-out shapes, ranks, types, fills and failures; reject the generalized rule or tighten its scope when a counterexample appears. Completely enumerate genuinely finite domains when possible; use rule-specific algebraic/type/error-order arguments for structural identities. General J program equivalence is not algorithmically decidable: **an oracle pass never automatically upgrades a rule to \`ExactJStatic\`**. Only independently reviewed proven laws enter unconditional \`egg::EGraph::union\`.
+7. **Integration:** Store a reproducible registry of \`RuleId\`, source revision, preconditions, witnesses, numeric mode, effect/error trace and proof status. Supply only admitted \`EqRule\` objects to a bounded \`egg::Runner\`, with a multi-root DAG extractor verifying composed alternatives. Keep cost, target selection and proof status independent. On unknowns or timeout preserve the original source graph.
+
+**Representative vertical slices:**
+- **Structural:** Synthesize \`(|: |: y)\` vs \`y\` as a monadic double-transpose *candidate*. Admit only after J transpose/rank, input-evaluation count and error-negative cases have been proved.
+- **jsource idiom:** Recognize the exact monadic ordinary fork \`(+/ % #) y\` as \`MeanIdiom\` while deferring an algebraic \`Mean(y)\` substitution until full numeric/empty/type/error/Rank proof. If only the executor changes, route that as an ExecutionAlgorithm specialization, not an E-Graph law.
+- **Existing rewrite:** Keep \`x E. y\` vs \`($x) x&-: ;.3 y\` under current \`JFindCutMatchIdentity\` provenance/fact witnesses and inspect actual admissible scope before converting to an \`egg\` rule.
+- **Negative/conditional:** Reject \`0 * index(A,i)\` when zero-folding removes Index errors; floating reassociation, repeated or removed NAME lookups, effectful Fork reordering, and elimination of zero-frame virtual fill behavior. Equal successful numeric samples never authorize changed first errors or effects.
+
+**Reproducibility, budgets and verifier gates.** Bound enumeration depth/width/term count, grammar size, oracle cases/time and \`egg\` node/class/match/iteration limits. Record deterministic seeds, sorted rule IDs, generator version, \`JSOURCE_SOURCE_PIN\`, oracle J revision, frontend/compiler versions and test corpus hash. Operate pattern *discovery* separately from promotion to production *proof-approved* rules. If a fingerprint collides, alias/shape generalization overreaches, a solver times out or upstream canonicalization invalidates a source map, record \`FAIL\` or \`UNRUN\`, and block E-Graph admission. Report **generated candidates, disproved hypotheses, pending hypotheses and proven rules separately**; performance requires end-to-end measurements rather than assumed savings.
+
+**Pending subtasks under the existing acceptance ledger (no new milestone):**
+- [ ] **M2 / GF4:** Implement a \`TermSignature\` export adapter using frontend \`FunctionEntity\` and original source mapping; test hook/fork, modifiers, Rank, valence, late NAME and repeated input occurrence round trips, plus negative tests separating syntax normalization from semantic equality.
+- [ ] **GF4 / FW-05–09:** Classify pinned \`cf.c::jtfolk\`, \`cc.c::jttesa\`, and \`cx.c\` into different transform classes and connect provenance-bearing pattern extraction to \`j_graph_jsource\`; verify forbidden E-Class unions for conditional syntax/algorithm opportunities.
+- [ ] **GF4 / GF5a:** Implement bounded typed-grammar enumeration and anti-unification/generalization; verify pruning of ill-sorted, unknown and effectful candidates, deterministic replay and resource bounds.
+- [ ] **GF4 / RK / FW-05–09:** Add a pinned J-C oracle differential corpus covering success, error, effects, shapes, ranks, empty/boxed/sparse/numeric values and negative counterexamples; separate hypothesis and proof-approved registries.
+- [ ] **GF4 / FW-05–09:** Verify \`EqRuleAdmission::ExactJStatic\` evidence, \`ErrorEnvelope\` and proof/guard requirements, rejecting unconditional union for guarded, uncertain-error/effect or numeric rules.
+- [ ] **GF4 / GF6:** Admit at least one independently verified equality to \`egg\`, preserving original and multi-root provenance through extraction and verified Logical IR round trip; demonstrate original-graph fallback on failure.
+- [ ] **IO-09/10 / GF6:** Distinguish shared-producer liveness, I/O, resource and cost among synthesized alternatives, verify actual execution and measure results; ensure optimizer budgets do not become J \`Error::Limit\`.
+- [ ] **GF4 / GF5a:** Separately measure synthesized-rule contributions against a baseline using only existing proven \`egg\` rules; document a falsification/stop condition if no new provable equalities appear or verification costs outweigh benefits.
+
+**Status (2026-10-12):** Review of pinned jsource and current RustJ frontend/graph source and this **design/checklist documentation are complete**. Candidate generator, semantic-equality oracle harness, independent proof engine, \`egg\` adapter and performance experiments remain **unimplemented/UNRUN**. This remains optional research/optimization sidecar; it does not preempt M2/M3 correctness, the M4 single-CPU baseline, or the canonical separation of Graph Basis from Execution Basis in \`FOUNDATIONS.ko.md\`.
+
+
+<a id="spores-relational-integration"></a>
+##### 7.9 Integrating SPORES' relational access algebra: broad representational coverage vs restricted legal identities (2026-10-12)
+
+**Scope reassessment (architecture decision, not implemented).** SPORES is not merely a matrix multiplication optimization but a compelling starting point for **representing many array computations using indexed relations and reusable optimization laws**. Its [Table 2/Figure 1](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf) covers **seven LA operators**: matrix multiply, elementwise multiply/add, row/column/total sum aggregation and transpose, using join/product, union/add, group-by sum and dimension bind/unbind. §3.3 also explains using opaque/custom operators and optional extra equations for square, minus, divide and fused functions. §4.2 reports that sum-product operations represented **77.4–98.9% of runtime** in the studied SystemML learning workloads. This does **not** measure the fraction of J primitives or J workloads covered; it does show potentially broad coverage **in expensive array computation rather than number of syntactic verbs**.
+
+**Revised integration boundary:** Distinguish (1) **the mathematically proved SPORES relational sum-product identities** from (2) **the broader applicability of relational index/access modeling** and evaluate both. Keep canonical \`GraphBasis\`, \`FunctionEntity\`, J Rank/Cell/Frame and Logical IR unchanged. Export **\`RelAccessView\` (conceptual name)** as an optional adapter/analysis sidecar from eligible *closed pure J Graph regions* into \`EqTerm\`. The shared \`egg::EGraph\` can retain *witnessed* source J terms and relational alternatives for legal, budgeted saturation and shared-DAG-aware extraction. Do not force full J into SQL or a new canonical relational/optimization IR.
+
+**Minimal relational vocabulary plus a full J semantic envelope:**
+
+~~~text
+RelAccessView (optional EqGraph surface; conceptual, not implemented):
+  Schema = (axis identities, finite extents, ordered axes, free/bound indices)
+  Domain = (JType, Shape, ordered atoms, prototype/fill, boxed/sparse semantics)
+  RelInput(array, source ValueId / FunctionEntity / occurrence)
+  RenameAxis / Reindex / AccessMap / IndexJoin / Predicate (guarded)
+  PointwiseApply(op) / Combine(op, reduction-order contract)
+  Aggregate(bound axes, reducer identity and order)
+  OpaqueBoundary(unknown J function, ordered error, effect, NAME, fill)
+  Witness = (scope, input facts, rule proof, origin/version,
+             J error/effect trace, numeric mode, fallback)
+~~~
+
+**Semantic caveat:** SPORES' \`K\`-relations rely on algebraic identities over the real sum-product semiring. Full J does **not** automatically satisfy those equations under IEEE floating rounding/NaN/signed zero, fit/tolerant matching, integer overflow and whole-result promotion, mixed types, Rank virtual fill, ordered reductions, observable first-error precedence and NAME/state effects. The fact that \`RelAccessView\` can *describe* an operation is not proof that a proposed equality is **Exact-J**. Never reorder an aggregation until its specific reduction-order independence is proved. SPORES' restricted mathematical completeness result does **not** imply completeness for full J.
+
+**Coverage and ownership by J operation family (representable ≠ safely rewritable):**
+
+| J family / representative structure | Relational description and search opportunity | Initial admission policy |
+|---|---|---|
+| **Elementwise map**, dyadic arithmetic and broadcast | Index-aligned pointwise computation, join/align, shape-index guards | Exact-J only when type, rounding, fit and failure behavior match. Other unary/map functions can remain opaque |
+| **Sum/Reduce, dot and matrix contraction**, common \`+/\` and sum-product patterns | Join over shared indices followed by aggregation over bound axes; core SPORES case | Prove ordered fold, overflow/promotion and FP semantics. Keep BLAS/NN specialized kernels as separate realizations |
+| **Transpose, axis permutation and broadcasting** | Axis rename/reindex, free-index schema, repeated index extents | Start with structurally proven index permutation retaining original J atom order, rank and shape |
+| **Reshape, ravel, take/drop and gather**, \`$\`, \`,\`, \`{.\`, \`}.\`, \`{\` | Index relations/affine or piecewise access, duplicate selection, bounds/fill domains | **Representation extension** beyond SPORES' theorem; requires bounds/error, padding/fill, prototype, original occurrences |
+| **Window, convolution, sliding reductions** and NN convolution | Input coordinates joined with window offsets, local map/aggregate; compare [Glenside access patterns](https://ztatlock.net/pubs/2021-maps-glenside/) | Prove masks/padding/boundaries, reduction order, channels/groups and numeric errors before enabling rewrites |
+| **Scan, general Rank and cell assembly**, \`\\\`, \`"\`, hook/fork | Ordered prefix relations, Cell/Frame partition and structured branch inputs | **Not interchangeable with unordered group-by sum.** Keep ordered operations and virtual empty-frame cell obligations |
+| **Boxed/sparse, extended NN primitives and explicit adjoints** | Partial indexed value description; retain sparse default/fill, nested boxes, intrinsic identities | Export only proven pure subregions. Opaque barriers otherwise |
+| **Dynamic NAME/locale, assignment, foreign I/O and stateful RNG** | Array-shaped outputs may still have observable state/order | Region barrier; no fallback by repeating observed effects |
+
+**Illustrative matrix contraction (indexed representation does not itself license FP transformations):**
+
+~~~text
+C[i,k] = ordered-sum_j (A[i,j] * B[j,k])
+
+RelInput(A, free={i,j})
+RelInput(B, free={j,k})
+  → IndexJoin(shared j, output {i,j,k})
+  → PointwiseMultiply
+  → Aggregate(bound={j}, free={i,k}, ordered-J semantics)
+  → C  [JType/Shape, origin, exception and numeric witness]
+~~~
+
+\`Transpose(A)\` may be described as axis permutation and \`idx { A\` as an index relation with bounds and fill obligations. Both can be **analyzed** with shared relational constructs, but this says nothing about permission to suppress gather errors or reassociate the matrix-product accumulation. In particular, absent tuples representing numeric zero for mathematical sparse relations is not equivalent to J sparse default/fill or empty-result dtype/prototype without independent proof.
+
+**Role alongside Frontend-guided Equality Synthesis and egg:**
+
+~~~text
+VerifiedFrontend + canonical J Graph
+     ├─ original J term + source/effect/error guardrail
+     ├─ typed J equality-synthesis candidate generator (§7.8)
+     └─ optional RelAccessView from eligible pure regions
+                 │
+        syntax + shape/Rank/index schema + typed conditions
+                 ↓
+        candidate relational identities / counterexample search
+                 ↓ independent Exact-J admission (§7.7)
+        EqGraph(egg) holds J terms and relational alternatives
+                 ↓ bounded saturation + legal multi-root extraction
+        Verified Logical IR / unchanged original fallback
+~~~
+
+**Three incremental implementation horizons (claim completeness/performance only after proof/measurement):**
+1. **R0 / structural index semantics:** Implement a source-preserving round trip for \`Transpose\`/axis renaming and scalar or elementwise Map. Preserve free/bound axes, J dtype/shape, ordered atoms, source occurrences and error witnesses. Do not build a full SQL engine or materialized \`K\`-relation runtime; only experiment with one already-proved identity for E-Class union.
+2. **R1 / SPORES core:** Add elementwise sum/product, join, constrained aggregate and matrix multiplication for *pure admissible* \`IndexSumProduct\`, comparing compatible shape/sparse/cardinality/work/I/O costs. Mathematical identities prohibited by J FP, integer overflow/promotion or empty-frame behavior remain **guarded or rejected**. Prove common-access reuse with at least two distinct J operation families.
+3. **R2 / broader J arrays:** Extend gather/reindex, windows/convolution, NN extensions, scans and general Rank only where their distinct index, order, error and empty-frame semantics are proved. These families are **outside SPORES' completeness theorem**. §7.8's rule candidate synthesis can use the same schema; the extractor selects only realizable shared-DAG plans that pass resource, liveness, sparse/fill, runtime and semantic verification.
+
+**Invariants and verification:** Before union or extraction, verify per-E-Class axis schemas (rename via alpha-equivalence), free/bound axes, JType/Shape/Rank/fill/zero-frame, source \`ValueId\`/\`FunctionEntity\`/origin/version, numeric mode and \`ErrorEnvelope\`. Never resolve conflicting facts by downgrading them to \`Unknown\` and merging anyway. Reject guards that execute too late to preserve J's first error or would require re-running observed effects. Separate \`ResourceEstimate\` (feasibility/limits) and \`CostEstimate\` (predicted time/I/O); after extraction require verified Logical IR and target route legality.
+
+**Pending subtasks mapped to existing GF/FW/IO/RK acceptance gates:**
+- [ ] **GF4 / FW-05–09:** Implement source J Graph ↔ \`RelAccessView\` export/import preserving free/bound index alpha-equivalence, original occurrences, J shape/type/fill/error witnesses and original graph on failure.
+- [ ] **GF4 / GF5a:** Establish separate metrics for **representation coverage vs legally rewritable coverage** over SPORES' seven LA operators plus J Map/Reduce/Transpose/Broadcast.
+- [ ] **GF4 / RK / FW:** Reject unsound \`K\`-relation unions with tests for FP/NaN/signed zero, integer promotion, virtual empty-frame fill, boxed/sparse, ordered fold and gather bounds.
+- [ ] **GF4 / GF6:** Test one *witnessed* J-term ↔ relational-term \`egg\` translation, shared-DAG extraction and original fallback on timeout or conflicting facts.
+- [ ] **GF5a / IO-09/10:** Measure sparse/cardinality, materialization/read bytes, Work/Depth and I/O; evaluate the added value of optional ILP extraction independently.
+- [ ] **GF4 / GF6:** Falsifiably test whether identical relational schema/access laws produce **new, valid** alternatives in at least two distinct operation families. If not, keep the proven SPORES sum-product core and stop broadening mandatory relational representations.
+
+**Status:** Primary SPORES Table 2/§3.3/§4.2 and Glenside comparisons and this **design contract** are documented. \`RelAccessView\`, its importer/exporter, \`egg\` connection, J error proofs, differential corpus and performance measurements are **unimplemented/UNRUN**. This supplements §7.3's narrow initial *equational law* scope with broader **representation opportunities**, without promoting mathematical identities to universal J laws or preempting M2/M3 semantic correctness and M4 single-CPU baseline.
+
+
 ##### 8. RustJ placement, experimental design and falsification criteria
 
 **Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
