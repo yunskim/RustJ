@@ -40,6 +40,7 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | 실제 Fork의 두 전치 소비자에서 공통 원본 요구 영역의 합집합 검증 | 분리·중첩 가능성이 있는 직사각형들을 정확한 region-set으로 유지하여 bounding hull의 과잉 범위를 정확하다고 주장하지 않음 | fanout 요구 손실 또는 비직사각형 합집합을 단일 박스로 오인 | PR #81 병합 · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
 | graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests | 검증되지 않은 join·다른 목표·무효 요구 거부 | 각 요청은 같은 원본 ValueId까지 독립적으로 증명되어야 하며 미증명 join/범위 위반/빈 요청 거부 | 조인 간선에서 추정 접근 관계 또는 거짓 요청 합집합 생성 | PR #81 병합 · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
 | graph_fanout_consumer_occurrences_match_original_edges | 원본 Fork/Hook의 소비자 입력 간선과 슬롯을 열거 | Fork 동일 source의 두 Right 소비자와 Hook Left/Right 재사용 및 무효 ValueId 거부를 원본 Apply 연결에 따라 보존 | 소비자 누락·중복 사용 소실 또는 Left/Right 출처 혼동 | PR #87 CI 대기 |
+| graph_declared_fanout_requests_do_not_imply_all_consumer_demand | 호출자 영역 요청과 원본 소비자 operand 간선의 완전성 진단 | Fork 일부·중복 요청의 누락을 보고하고 Hook Left/Right를 구분하며 지원되지 않은 dyad 입력은 명시적으로 미증명 처리 | 부분 선언을 전체 demand로 오인하거나 슬롯/영역 범위 검증 실패 | R0.7 PR CI 대기 |
 
 ## 다음에 필요한 독립 증거
 
@@ -153,3 +154,21 @@ Apply 입력 참조로 열거한다.
 요구 영역을 명시하고, 독립적인 R0.4 접근 관계가 모든 경로에 존재해야 한다.
 NAME 버전/효과·Rank·오류·prototype/fill 실행은 이 구조 분석으로 축약할 수
 없으며, 어떤 EqGraph/물리 I/O 최적화도 허용하지 않는다.
+
+## R0.7 선언된 소비자 영역과 원본 Graph 사용 범위 대조 (2026-10-13)
+
+`Plan::graph_declared_fanout_coverage(source, declared)`는 원본 Graph의
+`GraphUseOccurrence` 간선 전체를 R0.6으로 열거하고, 호출자가 제시한
+`GraphUseDemand { use_site, output_region }`의 출처·Shape·Rank·범위를
+각각 검증한다. 결과 `GraphFanoutCoverage`는 `all_uses`,
+`declared`, `missing`, `unproved_access`를 별도 기록한다.
+
+- 같은 소비자의 박스를 중복으로 선언해도 다른 누락된 소비자를 채운
+  것으로 계산하지 않는다. 왼쪽/오른쪽 슬롯은 서로 다른 사용이다.
+- 요청이 모든 *정적 원본 간선*을 포함해도 직접 단항 Map·Transpose
+  증거가 없는 간선은 `unproved_access`에 남는다.
+- `all_structural_uses_declared()`는 **간선 선언 범위 확인**일 뿐,
+  실행이 필요한 영역의 완전성·실제 partial evaluation 정당화가 아니다.
+
+NAME/효과/Rank/프로토타입/fill/첫 오류 순서, 실제 byte-I/O 절감 및
+EqGraph 동치 허가는 별도의 증명 의무로 유지한다.

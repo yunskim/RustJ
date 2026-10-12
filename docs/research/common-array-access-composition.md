@@ -40,6 +40,7 @@ Reshape are deliberately out of scope.
 | graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | Exact union of requests from two transpose consumers of a real fork | Keep each separately witnessed rectangular demand, never mislabel bounding hull as exact | Dropped fanout region or unsound exact-hull claim | PR #81 merged · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
 | graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests | Reject unsupported join, unrelated target and malformed requests | Every demand must prove a path to the same original ValueId; reject join/bad bounds/empty input | Fabricated access across join or invalid set aggregation | PR #81 merged · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
 | graph_fanout_consumer_occurrences_match_original_edges | Enumerate exact original Fork/Hook Apply input occurrences | Preserve two right-operand fork consumers, left/right hook reuse, and reject invalid ValueId | Lost fanout operand use, slot/source misattribution or guessed execution demand | PR #87 CI pending |
+| graph_declared_fanout_requests_do_not_imply_all_consumer_demand | Diagnose completeness of caller-declared boxes against original operand uses | Preserve missing fork uses despite duplicates, distinguish hook left/right, and explicitly flag unsupported dyadic access | Treating partial declarations as exhaustive or inventing an unsupported input access | R0.7 PR CI pending |
 
 ## Separate evidence still required
 
@@ -153,3 +154,21 @@ or an automatically derived set of demanded boxes. R0.5
 and independently witnessed R0.4 backward Map/Transpose paths. NAME versions,
 effects/errors, rank/prototype/fill and observable execution obligations are
 untouched; no physical I/O pruning, scheduling or EqGraph legality follows.
+
+## R0.7 Caller-declared consumer boxes vs original Graph-use coverage (2026-10-13)
+
+`Plan::graph_declared_fanout_coverage(source, declared)` enumerates
+original operand occurrences from R0.6, validating each caller-supplied
+`GraphUseDemand { use_site, output_region }` by source, consumer shape,
+rank and bounds. `GraphFanoutCoverage` reports separate `all_uses`,
+`declared`, `missing` and `unproved_access` collections.
+
+- Duplicated requests for one consumer do **not** cover another missing
+  consumer; left/right slots retain distinct identities.
+- Even when all *structural* uses are declared, unsupported dyadic or
+  otherwise unproved accesses stay explicitly in `unproved_access`.
+- `all_structural_uses_declared()` speaks only to **syntactic edge
+  declaration coverage**, never to exhaustive execution demand.
+
+NAME/effects, Rank, prototype/fill and first-error behavior, physical byte
+I/O savings and EqGraph equivalence remain independently unproved.
