@@ -247,7 +247,15 @@ fn graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts() {
     let mut engine = rustj::Engine::new();
     engine.eval("a=: i. 2 3").unwrap();
 
-    for source in ["1 + a", "|. a", ", a", "a", "1 { a", "+/ a"] {
+    for source in [
+        "1 + a",
+        "|. a",
+        ", a",
+        "a",
+        "1 { a",
+        "+/ a",
+        "-\"1 a",
+    ] {
         let graph = engine.analyze_j_graph(source).unwrap();
         assert!(
             graph.static_value_access(graph.result.unwrap()).is_none(),
