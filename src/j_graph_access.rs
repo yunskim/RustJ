@@ -186,7 +186,6 @@ impl Plan {
     }
 }
 
-
 /// Source-identifiable unary pointwise map with a logical identity access map.
 ///
 /// The primitive may still fail on some inputs. No rewrite, check elimination,
@@ -244,10 +243,8 @@ impl Plan {
         {
             return None;
         }
-        let access = StaticAxisAccess::new(
-            input_shape.clone(),
-            (0..input_shape.len()).collect(),
-        ).ok()?;
+        let access =
+            StaticAxisAccess::new(input_shape.clone(), (0..input_shape.len()).collect()).ok()?;
         Some(GraphPointwiseAccess {
             input: *right,
             output,
