@@ -6987,7 +6987,7 @@ rewritten:
 
 | 연구와 1차 자료 | 실제 기여 | RustJ에 적용할 범위와 도입 판단 |
 |---|---|---|
-| [SPORES, PVLDB 2020](https://doi.org/10.14778/3407790.3407799) | 제한된 LA→관계대수→등가 포화→비용 추출; 합·곱 최적화와 희소성·CSE 상호작용 | 순수 `IndexSumProduct` 부분영역에 한해 **선택적 관계 투영**을 실험. full-J 관계형 변환은 불채택 |
+| [SPORES, PVLDB 2020](https://doi.org/10.14778/3407790.3407799) | 제한된 LA→관계대수→등가 포화→비용 추출; 합·곱 최적화와 희소성·CSE 상호작용 | **동치 법칙 검증은** 순수 `IndexSumProduct`부터 시작. 관계형 **접근·인덱스 표현**은 다른 J 배열 연산으로 단계적으로 확장(§7.9); full-J 강제 관계형 변환은 불채택 |
 | [`egg`, POPL 2021](https://doi.org/10.1145/3434304), [Rust 라이브러리](https://github.com/egraphs-good/egg) | e-graph의 rebuilding, e-class analysis, 조건부 rewrite 및 extraction용 범용 Rust 엔진 | **첫 실험 엔진 후보**. 기존 `GraphRewriteCandidate` 옆에서만 bounded exploration; Cargo 필수 의존성 추가는 실험 결과 이후 결정 |
 | [TenSat, MLSys 2021](https://proceedings.mlsys.org/paper_files/paper/2021/file/cc427d934a7f6c0663e5923f49eba531-Paper.pdf) | 비지역적 다중 출력 규칙, shape-aware exploration, 공유 DAG의 비용/순환 제약을 가진 ILP extraction | 다중 consumer/합쳐진 출력에 대한 탐색·추출 **설계 참고**. TenSat 수치 규칙을 그대로 이식하지 않음 |
 | [Relational e-matching, POPL 2022](https://doi.org/10.1145/3498696) | e-matching을 관계형 join 질의로 보고 pattern 구조에 맞는 실행 계획을 사용 | 여러 graph pattern이 실제 병목으로 확인된 뒤에만 검토. RustJ가 SQL 엔진을 가져야 한다는 뜻 아님 |
@@ -7223,6 +7223,93 @@ EqRuleAdmission:
 - [ ] **GF4 / GF5a** 기존 규칙만 적용한 \`egg\` baseline 대비 synthesized rule 추가의 별도 증가 효과를 측정하고, 새로운 확정 동치 규칙이 없거나 검증 비용이 과도하면 자동 합성 확대를 중단하는 반증 조건을 기록한다.
 
 **현황(2026-10-12):** jsource pinned source 및 기존 RustJ Frontend/Graph 모듈 대조와 이 설계·체크리스트 문서화만 **PASS**. 자동 생성기/semantic equality oracle harness/independent proof/\`egg\` adapter, 성능 측정은 **미구현·UNRUN**이다. M2/M3 정확성, M4 단일 CPU baseline에 앞서 필수 stage로 올리지 않는다. \`FOUNDATIONS.ko.md\`의 원본 J 의미론과 Graph Basis/Execution Basis 구분에 어긋나지 않도록 이 연구는 **선택적 analysis/optimization sidecar**로 둔다.
+
+
+<a id="spores-relational-integration"></a>
+##### 7.9 SPORES 관계형 접근 대수 통합: 넓은 표현 범위와 제한된 동치 법칙을 분리 (2026-10-12)
+
+**범위 재평가(설계 결정, 구현 미완료).** SPORES는 단지 행렬곱 최적화가 아니라 **일반적인 배열 계산을 인덱스가 있는 관계로 보고 공통 규칙을 만드는 강력한 출발점**이다. 원 논문의 [Table 2/Figure 1](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf)은 matrix multiply, elementwise multiply/add, row/column/total sum aggregation, transpose의 **7개 LA 연산**을 join/product·union/add·group-by sum과 축 이름 bind/unbind로 표현한다. §3.3은 square/minus/divide 등 사용자 함수·fused operator를 불투명하게 유지하거나 추가 규칙으로 연결하는 확장을 서술한다. §4.2는 선택된 SystemML 학습 workload에서 **sum-product 연산 실행 시간 비중 77.4–98.9%**를 보고한다. 이것은 J 전체 primitive 수나 J workload 전체의 커버리지 통계는 아니다. 다만 **연산 종류보다 실제 계산 비용 측면에서 폭넓은 적용 가능성**이 있다는 근거다.
+
+**수정한 통합 결정:** RustJ는 (1) SPORES의 **엄밀히 증명된 관계형 sum-product 동치 규칙**과 (2) 그 원리를 일반화한 **관계형 접근/인덱스 표현 가능성**을 분리하여 둘 다 검토한다. 기존 \`GraphBasis\`, \`FunctionEntity\`, J Rank/Cell/Frame 및 논리 IR을 바꾸지 않고, 적격한 *pure closed region*에서만 **\`RelAccessView\`(개념명)**를 선택적인 J Graph → \`EqTerm\` adapter/analysis sidecar로 만든다. \`egg::EGraph\`가 Source Graph term ↔ RelAccess term의 **검증된 연결**을 보관하고 비용·공유 DAG 추출을 수행한다. 전체 J를 SQL/관계형 canonical IR로 변환하거나 새로운 필수 optimizer stage를 두지 않는다.
+
+**표현의 최소 관계적 어휘와 J semantic envelope:**
+
+~~~text
+RelAccessView (optional EqGraph surface; conceptual, not implemented):
+  Schema = (axis identities, finite extents, ordered axes, free/bound indices)
+  Domain = (JType, Shape, ordered atoms, prototype/fill, boxed/sparse semantics)
+  RelInput(array, source ValueId / FunctionEntity / occurrence)
+  RenameAxis / Reindex / AccessMap / IndexJoin / Predicate (guarded)
+  PointwiseApply(op) / Combine(op, reduction-order contract)
+  Aggregate(bound axes, reducer identity and order)
+  OpaqueBoundary(unknown J function, ordered error, effect, NAME, fill)
+  Witness = (scope, input facts, rule proof, origin/version,
+             J error/effect trace, numeric mode, fallback)
+~~~
+
+**중요한 의미론 조건:** SPORES의 \`K\`-relation은 실수의 \`(+,×)\` 반군/반환 의미론을 이용해 algebraic distributivity/reassociation을 적용할 수 있다. 그러나 J에서는 floating IEEE rounding/NaN/±0, tolerant equality/fit, overflow→whole-result promotion, 타입 혼합, Rank virtual fill, ordered reduction, observable first error/NAME 상태 때문에 같은 법칙이 일반적으로 성립하지 않는다. \`RelAccessView\`의 축/접근 관계가 *기술 가능*하다는 사실과 특정 rewrite가 **Exact-J 증명**을 갖는다는 사실을 혼동하지 않는다. 어떤 입력에서 sum aggregate의 순서가 자유롭다는 증명이 없으면 축을 재배열하는 관계대수 규칙을 적용하지 않는다. 원 논문의 수학적 완전성을 J의 오류·숫자 의미론으로 확대 주장하지 않는다.
+
+**J 연산군별 통합 범위와 소유권(표현 가능성 ≠ 안전한 재작성):**
+
+| J 연산군 / 예시 구조 | 관계형 표현/탐색 기회 | 초기 승격 정책 |
+|---|---|---|
+| **Elementwise map**: \`+\`, \`*\`, dyadic scalar primitive, broadcast | 공유 인덱스에 pointwise apply, join/align, shape-index/domain guard | 타입/반올림/fit/오류가 같은 연산만 Exact-J. 비합·비곱 함수는 opaque callable로 보존 가능 |
+| **Sum/Reduce / dot / matrix contraction**: \`+/\`, \`+/ .*\`의 전형적 축 계약 등 | bound index에 대해 join → aggregate. 합·곱 부분영역은 SPORES의 핵심 | ordered fold·정수 승격·FP 재결합 불변성 증명 필요. 외부 BLAS/NN primitive는 별도 realization 후보로 보존 |
+| **Transpose / permutation / broadcast axes**: \`|:\`, \`$:\`이 아닌 shape-dependent argument forms | 축 rename/reindex, free-index schema, 반복 축 대응 | 전치의 축 순서·Rank 조건과 atom order를 정확히 유지하는 구조적 변환부터 실험 |
+| **Reshape / ravel / take / drop / gather**: \`$\`, \`,\`, \`{.\`, \`}.\`, \`{\` | index relation / affine-or-piecewise access, duplicate selection, bounds/fill domain | \`IndexJoin/AccessMap\`로 **표현 확장**. OOB, padding/fill, prototype, source occurrence 때문에 SPORES의 7-op 정리로 자동 합법화하지 않음 |
+| **Window / convolution / sliding reduce**: \`;\.\`, \`\\\`, \`/\` 조합 / NN convolution | 입력 인덱스 + offset index / join + local map/aggregate; [Glenside access patterns](https://ztatlock.net/pubs/2021-maps-glenside/) 참고 | predicate/mask, boundary behavior, padding, reduction order, channel/groups, numerical error 검증 시에만 rule 활성 |
+| **Scan / general Rank / cell assembly**: \`\\\`, \`"\`, hook/fork | prefix index relation, Cell/Frame partition, structured branch input | **단순 unordered sum-aggregate로 축약 금지**. 순서/빈 frame virtual cell/결과 조립에 대한 별도 primitive + evidence가 필요 |
+| **Boxed/sparse/extended NN + adjoints** | index/value relations는 부분 설명 가능, sparse fill/default value·nested box 구조 또는 structural intrinsic 유지 | 순수한 내부 계산 일부만 export; opaque boundary/semantic witness 없는 전체 분해·병합 금지 |
+| **NAME / dynamic locale / assignment / foreign I/O / RNG state** | 계산 결과가 array여도 관찰 순서·state 의존 | region barrier. 앞서 J-visible 효과가 있으면 원본 재실행을 통한 fallback 금지 |
+
+**예: matrix contraction은 관계대수로 표기할 수 있으나 FP 변환까지 합법화되지는 않는다.**
+
+~~~text
+C[i,k] = ordered-sum_j (A[i,j] * B[j,k])
+
+RelInput(A, free={i,j})
+RelInput(B, free={j,k})
+  → IndexJoin(shared j, output {i,j,k})
+  → PointwiseMultiply
+  → Aggregate(bound={j}, free={i,k}, ordered-J semantics)
+  → C  [JType/Shape, origin, exception and numeric witness]
+~~~
+
+전치 \`Transpose(A)\`는 보통 축 label의 permutation으로, gather \`idx { A\`는 index relation과 bounds/fill 의무로 기술할 수 있다. 이 둘을 같은 관계적 어휘로 **분석**하는 것은 가능하지만 gather 오류를 소거하거나 matrix product 합산 순서를 바꾸는 것이 허용된다는 뜻은 아니다. 희소 배열의 missing tuple을 numeric zero로 해석하는 것도 J sparse fill/empty result dtype/prototype과 같다는 증명 전에는 불허한다.
+
+**Frontend Equality Synthesis와 SPORES/egg의 역할 연결:**
+
+~~~text
+VerifiedFrontend + canonical J Graph
+     ├─ original J term + source/effect/error guardrail
+     ├─ typed J equality-synthesis candidate generator (§7.8)
+     └─ optional RelAccessView from eligible pure regions
+                │
+       Syntax + shape/Rank/index schema and typed conditions
+                ↓
+       Candidate RelAccess identities / counterexample search
+                ↓ independently reviewed Exact-J admission (§7.7)
+       EqGraph(egg) holds both J terms and relational alternatives
+                ↓ bounded saturation and legal multi-root extraction
+       Verified Logical IR / unchanged original fallback
+~~~
+
+**세 단계의 확대 전략(완전성·성능은 실증할 때만 주장):**
+1. **R0 / 첫 구현: 구조적 인덱스 의미론.** \`Transpose\`/axis rename, scalar or elementwise map의 **표현 왕복**부터; 자유/바운드 축·J dtype/shape·ordered atoms/입력 occurrence/오류 증거 유지. \`RelAccessView\`를 첫날부터 완전한 SQL 엔진이나 \`K\`-relation runtime으로 구현하지 않는다. 등가 e-union은 이미 증명된 identity 하나만 실험한다.
+2. **R1 / SPORES core:** pure admissible \`IndexSumProduct\`에 elementwise add/multiply, join, constrained aggregate, matmul을 접목하고 일관된 shape/sparse/cardinality/work/IO cost를 비교한다. FP/overflow/zero-frame 등의 J 반례로 차단되는 수학적 규칙은 **guarded or rejected**로 남긴다. 실제로 두 개 이상의 서로 다른 J 연산군에서 동일 schema/access 법칙이 재사용될 때 공통 대수의 유용성이 입증된다.
+3. **R2 / broader arrays:** gather/reindex/window/conv/NN extension/scan/Rank를 독립적 접근·순서 규칙이 입증된 범위에서 점진 추가. 이 단계는 SPORES 논문의 completeness 결과 **밖**이다. 규칙 발견 §7.8의 후보 생성기가 같은 schema를 쓰고, \`egg\` 추출기는 공유 DAG·sparse/fill 및 resource/cost의 실제 이익으로 채택 여부를 결정한다.
+
+**다중 불변조건 및 verifier:** \`E-Class\`의 축 schema(이름 변경은 alpha-equivalence 검사), free/bound 축, JType/Shape/Rank/fill/zero-frame, source ValueId/FunctionEntity/origin/version, numeric mode와 \`ErrorEnvelope\`를 함께 검증한다. E-class facts 충돌을 \`Unknown\`으로 합쳐 union하지 않는다. \`Predicate\`/guard가 J 첫 오류보다 늦거나 효과가 발생한 뒤 fallback하면 거절한다. \`ResourceEstimate\`(가능성/메모리 상한)와 \`CostEstimate\`(예상 시간/IO)는 분리하고 추출 후 Logical IR 및 target route verification을 통과해야 한다.
+
+**기존 GF/FW/IO/RK acceptance에 귀속할 미완료 작업:**
+- [ ] **GF4 / FW-05–09** source Graph↔\`RelAccessView\` exporter/importer와 Free/Bound axis alpha-equivalence, source occurrences, J shape/type/fill/error witnesses round trip; 실패 시 기존 Graph 보존.
+- [ ] **GF4 / GF5a** 7개 SPORES LA 연산의 관계적 표현 가능성 매트릭스와 J Map/Reduce/Transpose/Broadcast 분해를 직접 테스트해 **representation coverage / legal rewrite coverage**를 따로 계측.
+- [ ] **GF4 / RK / FW** FP/NaN/±0, integer promotion, empty-frame virtual fill, boxed/sparse, ordered fold, gather bounds의 counterexample로 잘못된 \`K\`-relation union 차단.
+- [ ] **GF4 / GF6** \`egg\`에서 source term↔relational term **witnessed** 변환과 작은 공유 DAG 추출, timeout/facts conflict의 검증된 원본 fallback 실험.
+- [ ] **GF5a / IO-09/10** sparse/cardinality, materialization/read bytes, work/depth + IO의 실측 비교와 장기적으로 필요한 ILP extractor의 이득을 별도 평가.
+- [ ] **GF4 / GF6** 두 개 이상의 서로 다른 연산군에서 동일 schema/access 변환 규칙이 *새롭고 적법한* 후보를 만드는지 반증 가능한 실험. 그렇지 않으면 순수 SPORES core만 채택하고 더 넓은 relational IR 강제 확대는 중단.
+
+**현황:** SPORES 원문 Table 2/§3.3/§4.2 및 Glenside와 기존 RustJ 설계의 비교·문서화만 완료. \`RelAccessView\`, exporter, e-graph 연동, J 오류 증명, differential oracle, 성능 실험은 **미구현·UNRUN**. 이 계약은 §7.3의 초기 core-equality 범위를 부정하는 것이 아니라 **표현의 잠재적 커버리지와 합법적 최적화 커버리지를 분리**한다. M2/M3 correctness 및 M4 baseline은 우선이다.
 
 
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
