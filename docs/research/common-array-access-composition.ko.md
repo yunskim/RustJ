@@ -39,6 +39,7 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 
 | graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | 실제 Fork의 두 전치 소비자에서 공통 원본 요구 영역의 합집합 검증 | 분리·중첩 가능성이 있는 직사각형들을 정확한 region-set으로 유지하여 bounding hull의 과잉 범위를 정확하다고 주장하지 않음 | fanout 요구 손실 또는 비직사각형 합집합을 단일 박스로 오인 | PR #81 병합 · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
 | graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests | 검증되지 않은 join·다른 목표·무효 요구 거부 | 각 요청은 같은 원본 ValueId까지 독립적으로 증명되어야 하며 미증명 join/범위 위반/빈 요청 거부 | 조인 간선에서 추정 접근 관계 또는 거짓 요청 합집합 생성 | PR #81 병합 · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
+| graph_fanout_consumer_occurrences_match_original_edges | 원본 Fork/Hook의 소비자 입력 간선과 슬롯을 열거 | Fork 동일 source의 두 Right 소비자와 Hook Left/Right 재사용 및 무효 ValueId 거부를 원본 Apply 연결에 따라 보존 | 소비자 누락·중복 사용 소실 또는 Left/Right 출처 혼동 | PR #87 CI 대기 |
 
 ## 다음에 필요한 독립 증거
 
@@ -136,3 +137,19 @@ Shape/Rank에 맞는 반열린 직사각형 값 영역만 받는다. R0.3에서 
 상위 join 전체가 부분 실행 가능하거나 빈 영역에서 오류·fill/prototype을
 생략해도 된다는 뜻이 아니며, 실제 물리 byte/IO 범위 최적화나
 EqGraph 동치 결합을 허용하지 않는다.
+
+## R0.6 원본 Graph의 값 소비 간선 열거 (2026-10-13)
+
+`Plan::graph_use_occurrences(value)`는 전체 Plan 검증을 거친 뒤 각
+`NodeKind::Apply`의 **원본 operand 참조**를 조사한다.
+`GraphUseOccurrence { consumer, operand: Left | Right }` 목록은 실제
+소비 Apply의 `ValueId`와 피연산자 슬롯을 보존한다. 동일 값이 두 번
+쓰이면 서로 다른 사용으로 기록하며, Hook/Fork의 원래 연결도 별도의
+Apply 입력 참조로 열거한다.
+
+이것은 **정적 Graph 간선 구조의 완전한 열거**이지 실제 실행 여부 또는
+필요한 값 영역을 자동 추론하는 분석이 아니다. R0.5의
+`witnessed_value_demand_union`은 여전히 호출자가 각 소비자 출력과
+요구 영역을 명시하고, 독립적인 R0.4 접근 관계가 모든 경로에 존재해야 한다.
+NAME 버전/효과·Rank·오류·prototype/fill 실행은 이 구조 분석으로 축약할 수
+없으며, 어떤 EqGraph/물리 I/O 최적화도 허용하지 않는다.

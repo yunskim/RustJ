@@ -457,3 +457,52 @@ fn graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests() {
             .is_none()
     );
 }
+
+#[test]
+fn graph_fanout_consumer_occurrences_match_original_edges() {
+    use rustj::j_graph_access::{GraphUseOccurrence, GraphUseOperand};
+    use rustj::j_graph_ir::{RegionKind, ValueId};
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+
+    let fork = engine.analyze_j_graph("(|: + |:) a").unwrap();
+    fork.verify().unwrap();
+    let (_, region) = fork.region_for_result(fork.result.unwrap()).unwrap();
+    let RegionKind::Fork { branch_results, .. } = &region.kind else {
+        panic!("expected original fork branch graph");
+    };
+    let source = region.inputs[0];
+    let uses = fork.graph_use_occurrences(source).unwrap();
+    assert_eq!(uses.len(), 2);
+    for &consumer in branch_results {
+        assert!(uses.contains(&GraphUseOccurrence {
+            consumer,
+            operand: GraphUseOperand::Right,
+        }));
+    }
+    // A syntactic join is not a direct, witnessed unary demand transfer.
+    assert!(
+        fork.graph_use_occurrences(fork.result.unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(fork.graph_use_occurrences(ValueId(usize::MAX)).is_none());
+
+    let hook = engine.analyze_j_graph("(- +) a").unwrap();
+    hook.verify().unwrap();
+    let (_, region) = hook.region_for_result(hook.result.unwrap()).unwrap();
+    let RegionKind::Hook { .. } = &region.kind else {
+        panic!("expected original hook graph");
+    };
+    let uses = hook.graph_use_occurrences(region.inputs[0]).unwrap();
+    assert_eq!(uses.len(), 2);
+    assert!(
+        uses.iter()
+            .any(|use_site| use_site.operand == GraphUseOperand::Left)
+    );
+    assert!(
+        uses.iter()
+            .any(|use_site| use_site.operand == GraphUseOperand::Right)
+    );
+}
