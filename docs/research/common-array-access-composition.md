@@ -34,6 +34,9 @@ Reshape are deliberately out of scope.
 | graph_monadic_map_and_transpose_share_region_pullback | Validate shared region pullback from original unary Map→Transpose Graph | Preserve input ValueIds, independent operation witnesses, empty demand and composed/sequential agreement | Incorrect cross-family coordinate law or mismatched input occurrence | PR #75 merged · main `0c95dbf` CI PASS ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38321242397), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38321242471)) |
 | graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts | Reject unsupported operations and contradictory contracts/facts | No invented access for Dyad, Rank, Reverse, Ravel, Gather, Reduce, NAME result, missing/contradictory facts | Unsafe admission to the common access contract | PR #75 merged · main `0c95dbf` CI PASS ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38321242397), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38321242471)) |
 
+| graph_value_demand_closure_across_witnessed_chain | Trace unary Map→Transpose→Map logical value-demand from original J Graph | Preserve every ValueId and exact output-to-source regions, empty demand, scalar, NAME source | Skipped graph edge, wrong map or lost source identity | R0.4 PR CI pending |
+| graph_value_demand_stops_at_unproved_operation_and_invalid_box | Protect unproved internal operation and invalid box boundaries | Stop before reverse/dyad/reduction/rank, reject invalid rank/bounds or unknown result shape | Fabricated smaller input-demand through unsupported operation | R0.4 PR CI pending |
+
 ## Separate evidence still required
 
 - R0.2 projects direct monadic `|:` J Graph nodes into coordinate access; other StaticReindex operations, ranked/dyadic transpose and full J execution equivalence still need independent witnesses.
@@ -93,3 +96,23 @@ Prototype/fill, Rank/Cell/Frame, NAME/effect and first-error precedence
 are separate obligations; this interface does not permit partial execution,
 physical I/O pruning, fusion or EqGraph union. Dyads, ranked operations,
 Gather, dynamic names and unknown shapes require independent evidence.
+
+## R0.4 Conservative backward value demand across original Graph ValueIds (2026-10-13)
+
+`Plan::value_demand_trace(output, box)` first verifies the full Plan and
+checks the requested logical rectangular box against its result shape. It
+follows only R0.3's separately witnessed direct unary Map and Transpose edges
+backwards along **original ValueIds**, recording ordered
+`GraphDemandAtValue { value, region }` steps.
+
+- Input/literal/versioned NAME `ReadNoun` end at `Source`.
+- Any other Apply (including Rank/Reduce/Reverse) ends at
+  `UnprovedOperation` **on that operation's output**; input demand below
+  the barrier is **unknown**, never inferred from the last recorded box.
+- Invalid box/rank/unknown output shape fail closed to `None`.
+
+This is only a **logical per-ValueId coordinate-demand trace**. Original
+nodes, NAME ordering, error effects and all computation obligations remain
+untouched; empty demand does not authorize skipping any fill/prototype work.
+Fanout/branch closure, physical byte/I/O demands, costs, Exact-J observational
+equality and EqGraph union require independent evidence.
