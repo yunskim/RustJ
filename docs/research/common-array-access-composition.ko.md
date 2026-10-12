@@ -34,6 +34,9 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | graph_monadic_map_and_transpose_share_region_pullback | 원본 Graph의 단항 Map→Transpose 공통 박스 역추적 확인 | 원본 ValueId·두 연산별 독립 증거·빈 값 영역·합성/순차 결과 일치 | 서로 다른 축 관계의 합성 오류 또는 중간 입력 경로 오인 | PR #75 병합 완료 · main `0c95dbf` CI PASS ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38321242397), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38321242471)) |
 | graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts | 허용하지 않은 연산·모순된 Shape/Rank/계약 거부 | Dyad, Rank, Reverse, Ravel, Gather, Reduce, NAME 결과 및 불완전한 facts에서 임의 증거 미생성 | 잘못된 공통 접근 계약의 안전하지 않은 승인 | PR #75 병합 완료 · main `0c95dbf` CI PASS ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38321242397), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38321242471)) |
 
+| graph_value_demand_closure_across_witnessed_chain | 원본 J Graph의 단항 Map→Transpose→Map 체인 요구 영역 역추적 | ValueId별 출력→입력 사각 영역·빈 요구 영역·scalar가 정확히 전달되고 NAME 읽기에서 종료 | 누락된 Graph 간선, 잘못된 좌표 관계 또는 원본 출처 손실 | R0.4 PR CI 대기 |
+| graph_value_demand_stops_at_unproved_operation_and_invalid_box | 불확실한 중간 연산·유효하지 않은 영역 경계 보호 | Reverse·Dyad·Reduce·Rank에서는 불명확한 입력으로 역추적하지 않으며 범위·rank 오류를 거부 | 지원하지 않는 연산의 입력을 임의 축소하거나 무효 요구 영역 수락 | R0.4 PR CI 대기 |
+
 ## 다음에 필요한 독립 증거
 
 - 실제 monadic `|:`의 Graph→정적 축 접근 투영은 R0.2에서 도입. 다른 StaticReindex, dyadic/ranked `|:` 및 전체 실행 의미론은 별도 증거 필요
@@ -92,3 +95,23 @@ Map→Transpose의 역추적은 각 단계에 적용한 역추적과 합성 접�
 Rank/Cell/Frame, NAME·효과의 최초 관찰 순서 때문에 이 결과만으로
 실제 부분 평가·I/O 축소·fusion·EqGraph 병합을 허용할 수 없다.
 Dyad, Rank, Gather, 동적 이름, 불명확한 Shape는 해당 증거 없이 확장하지 않는다.
+
+## R0.4 원본 그래프 ValueId별 보수적 역방향 demand 추적 (2026-10-13)
+
+`Plan::value_demand_trace(output, box)`는 **전체 Plan을 검증**한 후 출력
+Shape/Rank에 맞는 반열린 직사각형 값 영역만 받는다. R0.3에서 독립적으로
+증명한 직접 단항 Map·Transpose 간선을 원본 `ValueId`로 역방향 방문해,
+방문한 `GraphDemandAtValue { value, region }`를 출력부터 입력 순서로 기록한다.
+
+- 입력·리터럴·versioned NAME `ReadNoun`에서는 `Source`로 종료한다.
+- 다른 Apply, Rank/Reduce/Reverse 등의 미증명 간선에서는
+  `UnprovedOperation`으로 **그 연산의 출력에서** 중단한다.
+  그 아래의 입력 요구 영역은 **알 수 없다**. 마지막 기록된 출력 박스를
+  미증명 연산의 입력 박스라고 해석하면 안 된다.
+- 유효 범위 위반/출력 Shape 불명은 실패 폐쇄(`None`) 처리한다.
+
+이 결과는 **개별 ValueId의 논리 값 좌표 요구 추적**이다. 원본 노드·에러·NAME
+순서와 모든 계산 의무는 전혀 바꾸지 않는다. 비어 있는 요구 영역이 어떤
+연산 또는 fill/prototype 작업의 제거를 뜻하지 않는다. fanout/branch,
+실제 I/O byte 범위, 물리 비용, Exact-J 관찰 동치 및 EqGraph union은
+별도의 실험과 합법성 증명을 기다린다.

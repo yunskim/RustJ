@@ -281,3 +281,92 @@ fn graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts() {
     }
     assert!(bad_access_contract.static_value_access(result).is_none());
 }
+
+#[test]
+fn graph_value_demand_closure_across_witnessed_chain() {
+    use rustj::{j_graph_access::GraphDemandStop, j_graph_ir::NodeKind};
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let graph = engine.analyze_j_graph("- |: - a").unwrap();
+    graph.verify().unwrap();
+    let output = graph.result.unwrap();
+    let requested = [1..3, 0..2];
+    let trace = graph.value_demand_trace(output, &requested).unwrap();
+
+    assert_eq!(trace.requested_output, output);
+    assert_eq!(trace.stop, GraphDemandStop::Source);
+    assert_eq!(trace.steps.len(), 4);
+    assert_eq!(trace.steps[0].value, output);
+    assert_eq!(trace.steps[0].region, vec![1..3, 0..2]);
+    assert_eq!(trace.steps[1].region, vec![1..3, 0..2]);
+    assert_eq!(trace.steps[2].region, vec![0..2, 1..3]);
+    assert_eq!(trace.steps[3].region, vec![0..2, 1..3]);
+    assert!(matches!(
+        &graph.nodes[trace.steps[3].value.0].kind,
+        NodeKind::ReadNoun { name, .. } if name == "a"
+    ));
+
+    let empty = graph.value_demand_trace(output, &[1..1, 0..2]).unwrap();
+    assert_eq!(empty.stop, GraphDemandStop::Source);
+    assert_eq!(empty.steps[3].region, vec![0..2, 1..1]);
+
+    let scalar = rustj::Engine::new().analyze_j_graph("- 3").unwrap();
+    let scalar_trace = scalar
+        .value_demand_trace(scalar.result.unwrap(), &[])
+        .unwrap();
+    assert_eq!(scalar_trace.stop, GraphDemandStop::Source);
+    assert_eq!(scalar_trace.steps.len(), 2);
+    assert!(scalar_trace.steps.iter().all(|step| step.region.is_empty()));
+}
+
+#[test]
+fn graph_value_demand_stops_at_unproved_operation_and_invalid_box() {
+    use rustj::{j_graph_access::GraphDemandStop, j_graph_ir::NodeKind};
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let graph = engine.analyze_j_graph("- |. a").unwrap();
+    graph.verify().unwrap();
+    let output = graph.result.unwrap();
+    let trace = graph.value_demand_trace(output, &[0..2, 1..3]).unwrap();
+    assert_eq!(trace.stop, GraphDemandStop::UnprovedOperation);
+    assert_eq!(trace.steps.len(), 2);
+    assert_eq!(trace.steps[1].region, vec![0..2, 1..3]);
+    assert!(matches!(
+        &graph.nodes[trace.steps[1].value.0].kind,
+        NodeKind::Apply { .. }
+    ));
+
+    for source in ["1 + a", "+/ a", "-\"1 a"] {
+        let unsupported = engine.analyze_j_graph(source).unwrap();
+        let result = unsupported.result.unwrap();
+        let shape = unsupported.nodes[result.0].facts.shape.as_ref().unwrap();
+        let full: Vec<_> = shape.iter().map(|&extent| 0..extent).collect();
+        let trace = unsupported.value_demand_trace(result, &full).unwrap();
+        assert_eq!(trace.stop, GraphDemandStop::UnprovedOperation);
+        assert_eq!(trace.steps.len(), 1);
+    }
+
+    assert!(graph.value_demand_trace(output, &[0..4, 0..2]).is_none());
+    let wrong_rank = 0..2;
+    assert!(
+        graph
+            .value_demand_trace(output, std::slice::from_ref(&wrong_rank))
+            .is_none()
+    );
+    let descending = std::ops::Range { start: 2, end: 1 };
+    assert!(
+        graph
+            .value_demand_trace(output, &[descending, 0..2])
+            .is_none()
+    );
+
+    let mut unknown_shape = graph;
+    unknown_shape.nodes[output.0].facts.shape = None;
+    assert!(
+        unknown_shape
+            .value_demand_trace(output, &[0..2, 0..3])
+            .is_none()
+    );
+}

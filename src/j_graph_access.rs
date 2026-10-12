@@ -274,3 +274,92 @@ impl Plan {
         })
     }
 }
+
+/// Why a backward logical value-demand trace cannot be extended further.
+///
+/// An unproved operation remains a barrier even when its result box is known.
+/// Neither variant permits skipping execution of any original J graph node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphDemandStop {
+    /// An original input, literal or versioned NAME read was reached.
+    Source,
+    /// The last value is the *output* of an unproved operation; its input
+    /// requirements are entirely unknown, not inferred from this box.
+    UnprovedOperation,
+}
+
+/// A precisely known rectangular *logical value* demand at one original
+/// J Graph ValueId. No storage byte, layout or execution implication.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphDemandAtValue {
+    pub value: ValueId,
+    pub region: Vec<Range<usize>>,
+}
+
+/// Backward demand across a chain of individually witnessed unary edges.
+/// Steps are ordered output first, ending at a source or a blocked output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphValueDemandTrace {
+    pub requested_output: ValueId,
+    pub steps: Vec<GraphDemandAtValue>,
+    pub stop: GraphDemandStop,
+}
+
+impl Plan {
+    /// Follow witnessed Map/Transpose *value-coordinate* edges backwards.
+    ///
+    /// This is an observationally inert analysis projection. It deliberately
+    /// stops before unsupported operations instead of guessing their input
+    /// region. In particular, an empty demanded box cannot erase J error,
+    /// fill/prototype, ordered NAME, rank/cell/frame or effect obligations.
+    pub fn value_demand_trace(
+        &self,
+        output: ValueId,
+        output_region: &[Range<usize>],
+    ) -> Option<GraphValueDemandTrace> {
+        self.verify().ok()?;
+        let node = self.nodes.get(output.0)?;
+        let shape = node.facts.shape.as_ref()?;
+        if shape.len() != output_region.len()
+            || shape
+                .iter()
+                .zip(output_region)
+                .any(|(extent, range)| range.start > range.end || range.end > *extent)
+        {
+            return None;
+        }
+
+        let mut current = output;
+        let mut region = output_region.to_vec();
+        let mut steps = vec![GraphDemandAtValue {
+            value: current,
+            region: region.clone(),
+        }];
+        loop {
+            let Some(edge) = self.static_value_access(current) else {
+                let stop = match &self.nodes[current.0].kind {
+                    NodeKind::Input { .. } | NodeKind::Literal(_) | NodeKind::ReadNoun { .. } => {
+                        GraphDemandStop::Source
+                    }
+                    _ => GraphDemandStop::UnprovedOperation,
+                };
+                return Some(GraphValueDemandTrace {
+                    requested_output: output,
+                    steps,
+                    stop,
+                });
+            };
+            // J Graph verification requires producer-before-consumer ordering;
+            // reject any inconsistent/cyclic relation rather than looping.
+            if edge.output != current || edge.input.0 >= current.0 {
+                return None;
+            }
+            region = edge.access.pullback_region(&region).ok()?;
+            current = edge.input;
+            steps.push(GraphDemandAtValue {
+                value: current,
+                region: region.clone(),
+            });
+        }
+    }
+}
