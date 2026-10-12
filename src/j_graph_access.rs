@@ -185,3 +185,92 @@ impl Plan {
         })
     }
 }
+
+/// The two independently recognized families sharing the same logical
+/// output-to-input coordinate projection and box-demand pullback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphValueAccessKind {
+    UnaryMap,
+    MonadicTranspose,
+}
+
+/// A single-edge *value-coordinate* demand projection for an original J Graph
+/// occurrence. Neither family permits skipping J-visible errors, prototype/fill
+/// evaluation, NAME/effects or any original intermediate call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphValueAccess {
+    pub kind: GraphValueAccessKind,
+    pub input: ValueId,
+    pub output: ValueId,
+    pub access: StaticAxisAccess,
+}
+
+impl Plan {
+    /// Project an exactly witnessed atomic unary Map or monadic transpose
+    /// onto the *same* static coordinate and rectangular-demand algebra.
+    ///
+    /// Eligibility is structural and shape-only. An identity Map access does
+    /// not prove that evaluating unrequested elements can be skipped: a J Map
+    /// may error there, and empty-frame prototype work is independently visible.
+    pub fn static_value_access(&self, output: ValueId) -> Option<GraphValueAccess> {
+        if let Some(transpose) = self.static_transpose_access(output) {
+            return Some(GraphValueAccess {
+                kind: GraphValueAccessKind::MonadicTranspose,
+                input: transpose.input,
+                output: transpose.output,
+                access: transpose.access,
+            });
+        }
+
+        self.verify().ok()?;
+        let node = self.nodes.get(output.0)?;
+        let NodeKind::Apply {
+            function,
+            form,
+            basis,
+            contract,
+            valence,
+            left,
+            right,
+            ..
+        } = &node.kind
+        else {
+            return None;
+        };
+        let FunctionHead::PrimitiveVerb(primitive_id) = &function.head else {
+            return None;
+        };
+        let primitive = crate::contracts::for_primitive(*primitive_id, Valence::Monad);
+        if !function.operands.is_empty()
+            || !matches!(form, GraphForm::Atomic)
+            || *valence != Valence::Monad
+            || left.is_some()
+            || basis.layers.as_slice() != [GraphBasisKind::Elementwise]
+            || contract.iteration != crate::j_graph_ir::IterationContract::Elementwise
+            || contract.access != AccessContract::CorrespondingElements
+            || primitive.class != crate::contracts::OperationClass::Map
+            || primitive.shape_rule != crate::contracts::ShapeRule::PreserveRight
+            || primitive.effect != crate::contracts::Effect::Pure
+        {
+            return None;
+        }
+
+        let input_node = self.nodes.get(right.0)?;
+        let input_shape = input_node.facts.shape.as_ref()?;
+        let output_shape = node.facts.shape.as_ref()?;
+        if input_node.facts.rank != Some(input_shape.len())
+            || node.facts.rank != Some(output_shape.len())
+            || input_shape != output_shape
+        {
+            return None;
+        }
+        let axes: Vec<usize> = (0..input_shape.len()).collect();
+        let access = StaticAxisAccess::new(input_shape.clone(), axes).ok()?;
+        Some(GraphValueAccess {
+            kind: GraphValueAccessKind::UnaryMap,
+            input: *right,
+            output,
+            access,
+        })
+    }
+}

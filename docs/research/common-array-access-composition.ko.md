@@ -31,12 +31,15 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | graph_monadic_transpose_projects_witnessed_axis_access | 실제 monadic `|:` J Graph의 역축 관계 추출 | 입력·출력 Shape/Rank 증거 및 원본 ValueId 보존, 두 번의 전치 합성 후 영역 역추적 확인 | 잘못된 Graph 노드를 정적 전치로 분류하거나 접근 축 방향을 잘못 계산 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 | graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | 다른 Reindex·ReadNoun 및 불완전 facts 거부 | Reverse/Ravel/단순 명칭 및 Unknown/불일치 Shape·Rank에 witness를 부여하지 않음 | 추측한 의미론을 최적화의 근거로 허용 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
+| graph_monadic_map_and_transpose_share_region_pullback | 원본 Graph의 단항 Map→Transpose 공통 박스 역추적 확인 | 원본 ValueId·두 연산별 독립 증거·빈 값 영역·합성/순차 결과 일치 | 서로 다른 축 관계의 합성 오류 또는 중간 입력 경로 오인 | R0.3 PR CI 대기 |
+| graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts | 허용하지 않은 연산·모순된 Shape/Rank/계약 거부 | Dyad, Reverse, Ravel, Gather, Reduce, NAME 결과 및 불완전한 facts에서 임의 증거 미생성 | 잘못된 공통 접근 계약의 안전하지 않은 승인 | R0.3 PR CI 대기 |
+
 ## 다음에 필요한 독립 증거
 
 - 실제 monadic `|:`의 Graph→정적 축 접근 투영은 R0.2에서 도입. 다른 StaticReindex, dyadic/ranked `|:` 및 전체 실행 의미론은 별도 증거 필요
 - 메모리/I/O 지역에 대한 안전한 backward demand 전파
 - J-C 오라클로 fill/prototype, check/error order 및 Rank 의미 동치 확인
-- 두 연산 계열 이상에서 동일한 region transformer 재사용
+- 두 연산 계열(Map·Transpose)의 동일한 논리 영역 역추적은 R0.3에서 시험; 실제 물리 I/O 절감과 J 관찰 동치는 아직 별도 증거 필요
 - 그 뒤에만 GF4/FW-05–09의 Rewrite/EqGraph 근거 후보로 승격
 
 **현재 증명 범위: 좌표와 shape.** 실제 J 동치나 성능 이득은 미검증.
@@ -67,3 +70,25 @@ Graph access witness와 J 의미론 검증이 이어져야 한다.
 EqGraph E-Class union 및 check 제거 권한을 부여하지 않는다.
 `|.`, `,`, 동적/불일치 Shape, Rank가 적용된 전치, dyadic `|:`에는
 동일한 근거를 추측해서 붙이지 않는다.
+
+## R0.3 공통 좌표·영역 역추적: Unary Map × Transpose (2026-10-13)
+
+`Plan::static_value_access(ValueId)`는 원본 J Graph에서 다음 두 연산 계열의
+**논리 값 좌표 접근 관계만** 같은 `StaticAxisAccess`로 투영한다.
+
+- **직접 단항 Map**: primitive `FunctionHead`, Atomic Monad, 정확한
+  `Elementwise/CorrespondingElements` 계약, primitive의 `Map/Pure/PreserveRight`
+  규칙, 알려진 일치 Shape/Rank가 모두 필요하다. 축 관계는 항등이다.
+- **직접 단항 Transpose (`|:`)**: R0.2의 기존 증거를 사용한다. 축 관계는
+  역순 전단사 순열이다.
+
+출력 값 영역의 역추적은 두 계열 모두 동일한 `pullback_region`을 적용하며,
+Map→Transpose의 역추적은 각 단계에 적용한 역추적과 합성 접근에 적용한
+역추적이 일치해야 한다. 이것은 **공통 value-demand 좌표 전달 법칙**이며,
+두 primitive 함수의 동치 또는 재배열 가능성에 대한 증명이 아니다.
+
+단항 Map의 모든 요소가 오류 없이 평가된다고 보장하지 않는다.
+선택되지 않은 요소에서 발생할 수 있는 J 오류, prototype/fill,
+Rank/Cell/Frame, NAME·효과의 최초 관찰 순서 때문에 이 결과만으로
+실제 부분 평가·I/O 축소·fusion·EqGraph 병합을 허용할 수 없다.
+Dyad, Rank, Gather, 동적 이름, 불명확한 Shape는 해당 증거 없이 확장하지 않는다.
