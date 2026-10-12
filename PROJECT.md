@@ -2554,6 +2554,57 @@ J Semantic IR / canonical J Graph IR (source preserved)
 
 **Status:** Only the **architecture decision and contract are documented**. There is no implemented `EqGraph` module, no `egg` dependency, no executable optimization or measured RustJ speedup from this change. GF4 candidate discovery and the unfinished GF6 extraction acceptance status remain unchanged. Do not preempt M2/M3 correctness or the M4 baseline to implement an unconstrained saturation engine.
 
+<a id="eqgraph-error-semantics"></a>
+##### 7.7 E-Graph error and failure semantics: errors are observable computation results (2026-10-12)
+
+**Review conclusion (design contract; not implemented):** Do not confuse J errors with `egg` rewrite failures or optimization cost. Equal values on successful inputs are **not** enough for `Equivalent_J(P,Q)`. The observable **first error's kind, triggering condition, precedence, and original source blame**, handled failures, and surrounding NAME/`StateResource` effects must also agree. In particular, `Pure` does not imply `Total`: even a pure operation may raise Domain, Index, Length or Rank errors. `GraphFacts` explicitly excludes effects and error/order semantics; **its shape/dtype/rank facts alone cannot authorize an E-Class union**.
+
+**Existing RustJ contracts and gaps:**
+- `src/error.rs` already distinguishes `FailureCategory::{JLanguage,UnsupportedCapability,VerifierDefect,BackendFailure}` and retains `ErrorContext` source spans, enqueue-word blame and definition frames. A genuine J `Error::Limit` must not be conflated with EqSat search time/memory limits. Do not expose a new optimizer error class as a J language error.
+- `src/logical_ir.rs` distinguishes `CallOp.effect`, `possible_errors`, `speculation`, ordered `SemanticCheck`, and `Operation.order_after`; `src/j_graph_composition.rs::ObservableOrder` records complete invocation order. The five current `SemanticErrorKind` variants and `PossibleErrors::unknown` are **conservative analysis state**, not a complete enumeration of every possible J error or a verified error-order trace.
+- `src/logical_executor.rs` implements *narrowly witnessed* zero-frame fill Domain recovery and inhomogeneous-fill retry, which are part of J semantics, **not** permission for arbitrary optimizer suppression/retry. `src/nn_extensions.rs` currently records `error_order_proof=Unverified`; this is not a Total/NoError license.
+
+**Three different failure owners:**
+
+| Owner | Examples | Required outcome |
+|---|---|---|
+| **J semantic errors** | Domain/Length/Rank/Index, NAME lookup, `1!:` I/O, promotion/fill-related failure | Preserve occurrence, original error class, diagnostic blame when observable, handlers, precedence, and state/effects before the error. **Do not re-execute** the original expression after an observed J failure |
+| **Optimization rejection or resource budget** | Missing rule witness, ineligible region, e-node/time/match budget, optional ILP solver unavailable | Choose the original verified route **before J execution**. The lack of a better plan is an optimizer outcome, not a J Domain/Limit error |
+| **Compiler/backend failure** | Conflicting e-class facts, cyclic extracted DAG, invalidly accepted stale witness, admitted kernel failure | Report/record `VerifierDefect` or `BackendFailure`, never silently convert to J Domain. Restart after observable J effects is forbidden absent a separately proven rollback/snapshot boundary |
+
+**Error legality sidecar (conceptual, not a required new Graph IR payload):** Derive an `ErrorEnvelope` / `ErrorFrontier` for each candidate from the original semantic execution.
+
+~~~text
+ErrorEnvelope for exported EqRegion
+  failure_summary: ProvenTotal | MayFail(classes_or_unknown) | Unknown
+  obligation_order: data edges + SemanticCheck.order_after
+                    + full J invocation / hook-fork / Rank cell order
+  fault_sites: stable source ValueId / OpId, spans, word blame, frames
+  observable_prefix: effects, NAME versions, writes, state, handler events
+  conditionality: input/shape/rank-dependent failure predicates and guards
+  multiplicity: number (0/1/N) of evaluations of potentially failing calls
+  witness: rule/version, fact snapshot, guard/fallback and invalidation
+~~~
+
+**An envelope is a set of proof obligations, not a proof in itself.** An extracted alternative must agree not only on JType/Shape/Atoms/fill on successful inputs but also on first observable error, effects completed beforehand, error-handler choice, and source diagnostic mapping when failures occur. Correctness must hold for **all permitted inputs and environments**; a checked guard can narrow that domain. Registry-level `may_error=false` alone is not an independent proof of totality: a `NoObservableError` witness requires relevant rule, operand, range, dtype and shape evidence.
+
+**Three eligibility tiers:**
+1. **T0: Proven total, effect-free, order-independent.** Only then consider ordinary E-Class unions, CSE, reordered evaluation and common-subexpression sharing, and only when their numeric and array semantics are exact. Start the first `egg` implementation **here**; floating-point reassociation still requires a separate numeric proof.
+2. **T1: May fail, but exact error/effect trace is proven.** Allow only carefully delimited rules that retain invocation/evaluation multiplicity, failure order, first-error precedence and source blame. Preserve the original `SemanticCheck` and failure barriers in their ordered positions or through an explicitly verified ordered boundary. Until such a proof exists, treat the potentially failing operation as **opaque** and only export its already-evaluated result from outside the bounded T0 region.
+3. **T2: Unknown, effectful, dynamic, or conditionally guarded without complete proof.** No unconditional E-Class union, removal, duplication or reordering. Guarded alternatives may fall back **before the first J-visible action**, or at an independently proven side-effect-free deoptimization safe point. Never optimistically refine T2 into T0/T1.
+
+**Mandatory counterexamples:** Folding `0 * index(A,i)` to zero removes an Index error; reordering two pure failing calls changes the first Domain/Index error; moving a shape precheck earlier hides the original first failure; CSE changes the number/location of failures; dead-code elimination removes an observable foreign `1!:` read; J right-to-left or Hook/Fork invocation ordering changes; an empty-frame virtual fill cell is replaced with an unconditionally successful constant; EqSat allocation timeout is confused with actual J `Error::Limit`; a failing runtime guard replays partially effectful J execution. Equal successful numeric outputs do **not** legalize these transformations.
+
+**Subtasks under existing GF4/FW/GF6/RK acceptance items (all pending):**
+- [ ] **GF4 / FW-05–09:** Evaluate `effect`, `possible_errors`, `speculation`, `SemanticCheck/order_after`, and `ObservableOrder` **together** for region eligibility. Missing NoError witness excludes T0; retain a fault barrier until T1 is separately proved.
+- [ ] **GF4 / FW-05–09:** Record and verify per-rule `ErrorEnvelope`, evidence edges and original source provenance. An `egg` explanation describes a **rewrite derivation**, not an automatic proof of J semantic correctness. See the [egg example of an unsound division rewrite](https://docs.rs/egg/latest/egg/tutorials/_03_explanations/).
+- [ ] **GF4 / RK:** Compare pinned J-C oracle, RustJ reference and extracted alternatives including **success, failure class/context, effects and state**, with empty-frame fill/retry, boxed/sparse, Reduce/Scan, Hook/Fork, NAME and foreign I/O. Include errors observed by handlers.
+- [ ] **GF6:** Before multi-output/parallel/accelerator extraction, verify the **semantic order graph** and per-lane error priority. If multiple failures occur, expose the same first J error as the original. Permit fallback only before commit or at an independently proven restart boundary.
+- [ ] **GF4 / GF6:** Distinguish budget/timeout, unsupported, failed guard, verifier defect and backend error in diagnostics; test rejection of **unproven re-execution after effects**.
+
+**Verification scope:** This contract was compared with existing code and research but does **not** implement `ErrorEnvelope`, an executable `EqGraph`, an oracle differential test corpus, or runtime checks. Rust/C tests and performance verification for this edit remain **UNRUN**. Do not authorize executable E-Graph optimizations before these obligations are evidenced.
+
+
 ##### 8. RustJ placement, experimental design and falsification criteria
 
 **Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
