@@ -370,3 +370,90 @@ fn graph_value_demand_stops_at_unproved_operation_and_invalid_box() {
             .is_none()
     );
 }
+
+#[test]
+fn graph_fanout_demands_remain_conservative_when_boxes_are_disjoint() {
+    use rustj::j_graph_ir::RegionKind;
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let graph = engine.analyze_j_graph("(|: + |:) a").unwrap();
+    graph.verify().unwrap();
+
+    let result = graph.result.unwrap();
+    let (_, fork) = graph.region_for_result(result).unwrap();
+    let RegionKind::Fork { branch_results, .. } = &fork.kind else {
+        panic!("expected fork with two separate transpose consumers")
+    };
+    assert_eq!(branch_results.len(), 2);
+    let source = fork.inputs[0];
+    assert!(graph.use_counts()[source.0] >= 2);
+    for &branch in branch_results {
+        assert_eq!(graph.static_value_access(branch).unwrap().input, source);
+    }
+
+    let requests = [
+        (branch_results[0], vec![0..1, 0..2]),
+        (branch_results[1], vec![1..3, 1..2]),
+    ];
+    let union = graph
+        .witnessed_value_demand_union(source, &requests)
+        .unwrap();
+    assert_eq!(union.value, source);
+    assert_eq!(union.boxes, vec![vec![0..2, 0..1], vec![1..2, 1..3]]);
+
+    // The bounding rectangle 0..2 × 0..3 would include (0,2).
+    // An exact union must not invent that requested coordinate.
+    for row in 0..2 {
+        for column in 0..3 {
+            assert_eq!(union.contains(&[row, column]), column == 0 || row == 1);
+        }
+    }
+    assert!(!union.contains(&[0, 2]));
+
+    let empty_demand = [(branch_results[0], vec![1..1, 0..2])];
+    let empty = graph
+        .witnessed_value_demand_union(source, &empty_demand)
+        .unwrap();
+    assert_eq!(empty.boxes, vec![vec![0..2, 1..1]]);
+    assert!(!empty.contains(&[0, 1]));
+}
+
+#[test]
+fn graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests() {
+    use rustj::j_graph_ir::RegionKind;
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let graph = engine.analyze_j_graph("(|: + |:) a").unwrap();
+    let result = graph.result.unwrap();
+    let (_, fork) = graph.region_for_result(result).unwrap();
+    let RegionKind::Fork { branch_results, .. } = &fork.kind else {
+        panic!("expected fork")
+    };
+    let source = fork.inputs[0];
+
+    // A dyadic join does not inherit the unary branch access witnesses.
+    assert!(
+        graph
+            .witnessed_value_demand_union(source, &[(result, vec![0..3, 0..2])])
+            .is_none()
+    );
+    assert!(
+        graph
+            .witnessed_value_demand_union(result, &[(branch_results[0], vec![0..1, 0..2])])
+            .is_none()
+    );
+    assert!(graph.witnessed_value_demand_union(source, &[]).is_none());
+    assert!(
+        graph
+            .witnessed_value_demand_union(source, &[(branch_results[0], vec![0..4, 0..2])])
+            .is_none()
+    );
+    let invalid_rank = 0..2;
+    assert!(
+        graph
+            .witnessed_value_demand_union(source, &[(branch_results[0], vec![invalid_rank])])
+            .is_none()
+    );
+}
