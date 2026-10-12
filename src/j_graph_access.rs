@@ -47,7 +47,10 @@ impl StaticAxisAccess {
     }
 
     pub fn output_shape(&self) -> Vec<usize> {
-        self.axes.iter().map(|&axis| self.input_shape[axis]).collect()
+        self.axes
+            .iter()
+            .map(|&axis| self.input_shape[axis])
+            .collect()
     }
 
     /// Compose self (input -> middle) followed by next (middle -> output).
