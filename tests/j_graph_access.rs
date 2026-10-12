@@ -506,3 +506,121 @@ fn graph_fanout_consumer_occurrences_match_original_edges() {
             .any(|use_site| use_site.operand == GraphUseOperand::Right)
     );
 }
+
+#[test]
+fn graph_declared_fanout_requests_do_not_imply_all_consumer_demand() {
+    use rustj::j_graph_access::{GraphUseDemand, GraphUseOccurrence, GraphUseOperand};
+    use rustj::j_graph_ir::{RegionKind, ValueId};
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let fork = engine.analyze_j_graph("(|: + |:) a").unwrap();
+    fork.verify().unwrap();
+
+    let (_, region) = fork.region_for_result(fork.result.unwrap()).unwrap();
+    let RegionKind::Fork { branch_results, .. } = &region.kind else {
+        panic!("expected fork");
+    };
+    let source = region.inputs[0];
+    let uses = fork.graph_use_occurrences(source).unwrap();
+    assert_eq!(uses.len(), 2);
+    let first = GraphUseDemand {
+        use_site: GraphUseOccurrence {
+            consumer: branch_results[0],
+            operand: GraphUseOperand::Right,
+        },
+        output_region: vec![0..1, 0..2],
+    };
+    let second = GraphUseDemand {
+        use_site: GraphUseOccurrence {
+            consumer: branch_results[1],
+            operand: GraphUseOperand::Right,
+        },
+        output_region: vec![1..3, 1..2],
+    };
+    let partial = fork
+        .graph_declared_fanout_coverage(source, std::slice::from_ref(&first))
+        .unwrap();
+    assert!(!partial.all_structural_uses_declared());
+    assert_eq!(partial.missing, vec![second.use_site]);
+    assert!(partial.unproved_access.is_empty());
+
+    let complete = fork
+        .graph_declared_fanout_coverage(source, &[first.clone(), second.clone()])
+        .unwrap();
+    assert!(complete.all_structural_uses_declared());
+    assert!(complete.missing.is_empty());
+    assert!(complete.unproved_access.is_empty());
+    assert_eq!(complete.declared.len(), 2);
+    assert_eq!(complete.all_uses, uses);
+
+    let duplicated = fork
+        .graph_declared_fanout_coverage(source, &[first.clone(), first.clone()])
+        .unwrap();
+    assert_eq!(duplicated.declared.len(), 2);
+    assert_eq!(duplicated.missing, vec![second.use_site]);
+
+    let no_requests = fork.graph_declared_fanout_coverage(source, &[]).unwrap();
+    assert_eq!(no_requests.missing.len(), 2);
+    assert!(!no_requests.all_structural_uses_declared());
+
+    let wrong_slot = GraphUseDemand {
+        use_site: GraphUseOccurrence {
+            consumer: branch_results[0],
+            operand: GraphUseOperand::Left,
+        },
+        output_region: vec![0..1, 0..2],
+    };
+    assert!(
+        fork.graph_declared_fanout_coverage(source, &[wrong_slot])
+            .is_none()
+    );
+    let wrong_bounds = GraphUseDemand {
+        output_region: vec![0..4, 0..2],
+        ..first.clone()
+    };
+    assert!(
+        fork.graph_declared_fanout_coverage(source, &[wrong_bounds])
+            .is_none()
+    );
+    let wrong_rank = GraphUseDemand {
+        output_region: vec![],
+        ..first
+    };
+    assert!(
+        fork.graph_declared_fanout_coverage(source, &[wrong_rank])
+            .is_none()
+    );
+    assert!(
+        fork.graph_declared_fanout_coverage(ValueId(usize::MAX), &[])
+            .is_none()
+    );
+
+    // Hook deliberately uses the same original source in a right and a left
+    // operand slot. A "complete" declaration does not prove the left dyadic
+    // access relation or permit dropping any original J operation.
+    let hook = engine.analyze_j_graph("(- +) a").unwrap();
+    hook.verify().unwrap();
+    let (_, region) = hook.region_for_result(hook.result.unwrap()).unwrap();
+    let source = region.inputs[0];
+    let hook_uses = hook.graph_use_occurrences(source).unwrap();
+    assert_eq!(hook_uses.len(), 2);
+    let hook_requests: Vec<_> = hook_uses
+        .iter()
+        .map(|site| GraphUseDemand {
+            use_site: *site,
+            output_region: vec![0..2, 0..3],
+        })
+        .collect();
+    let coverage = hook
+        .graph_declared_fanout_coverage(source, &hook_requests)
+        .unwrap();
+    assert!(coverage.all_structural_uses_declared());
+    assert!(
+        coverage
+            .unproved_access
+            .iter()
+            .any(|site| { site.operand == GraphUseOperand::Left })
+    );
+    assert_eq!(coverage.declared.len(), 2);
+}

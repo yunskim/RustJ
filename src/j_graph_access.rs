@@ -471,3 +471,93 @@ impl Plan {
         Some(uses)
     }
 }
+
+/// An explicit output-box request associated with one original Apply operand
+/// occurrence. This declaration is not proof of execution or data need.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphUseDemand {
+    pub use_site: GraphUseOccurrence,
+    pub output_region: Vec<Range<usize>>,
+}
+
+/// Coverage of *syntactic* original input uses by caller declarations.
+/// An all-declared graph may still contain unproved operand access relations
+/// and never by itself proves that subset evaluation preserves J semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphFanoutCoverage {
+    pub source: ValueId,
+    pub all_uses: Vec<GraphUseOccurrence>,
+    pub declared: Vec<GraphUseDemand>,
+    pub missing: Vec<GraphUseOccurrence>,
+    pub unproved_access: Vec<GraphUseOccurrence>,
+}
+
+impl GraphFanoutCoverage {
+    /// All *structural* Apply operand uses have some caller declaration.
+    /// Do not mistake this for full executable demand or error/effect safety.
+    pub fn all_structural_uses_declared(&self) -> bool {
+        self.missing.is_empty()
+    }
+}
+
+impl Plan {
+    /// Compare caller-declared output regions against original Graph operand
+    /// uses, without inventing complete demand for undeclared consumers.
+    ///
+    /// Returns None for an unrelated/invalid use, missing consumer shape or
+    /// malformed box. Any syntactically valid but unsupported access edge
+    /// remains explicitly listed in `unproved_access`, even when declared.
+    ///
+    /// This does not automatically derive requests, infer execution, prune
+    /// I/O or remove J-observable errors, effects, NAME or prototypes.
+    pub fn graph_declared_fanout_coverage(
+        &self,
+        source: ValueId,
+        declared: &[GraphUseDemand],
+    ) -> Option<GraphFanoutCoverage> {
+        self.verify().ok()?;
+        let all_uses = self.graph_use_occurrences(source)?;
+        for request in declared {
+            if !all_uses.contains(&request.use_site) {
+                return None;
+            }
+            let consumer = self.nodes.get(request.use_site.consumer.0)?;
+            let shape = consumer.facts.shape.as_ref()?;
+            if consumer.facts.rank != Some(shape.len())
+                || request.output_region.len() != shape.len()
+                || request
+                    .output_region
+                    .iter()
+                    .zip(shape)
+                    .any(|(interval, extent)| {
+                        interval.start > interval.end || interval.end > *extent
+                    })
+            {
+                return None;
+            }
+        }
+
+        let missing = all_uses
+            .iter()
+            .copied()
+            .filter(|site| !declared.iter().any(|request| request.use_site == *site))
+            .collect();
+        let unproved_access = all_uses
+            .iter()
+            .copied()
+            .filter(|site| {
+                site.operand != GraphUseOperand::Right
+                    || !self
+                        .static_value_access(site.consumer)
+                        .is_some_and(|edge| edge.input == source && edge.output == site.consumer)
+            })
+            .collect();
+        Some(GraphFanoutCoverage {
+            source,
+            all_uses,
+            declared: declared.to_vec(),
+            missing,
+            unproved_access,
+        })
+    }
+}
