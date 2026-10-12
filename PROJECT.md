@@ -2519,6 +2519,41 @@ These boxes collect **sub-evidence under existing canonical checklist items**, n
 
 **Documentation-only verification (2026-10-12):** The source links, stage boundaries and linkage to existing acceptance gates were reviewed. No new optimizer code, corpus, J-C oracle, Rust `fmt`/`clippy`/tests or performance benchmark was run for this edit (**UNRUN**). Do not present these research hypotheses as validated J equivalence or a measured RustJ speedup.
 
+<a id="eqgraph-architecture"></a>
+##### 7.6 Architecture decision: add an actual E-Graph alongside canonical J Graph IR (2026-10-12)
+
+**Decision (architecture accepted; implementation pending):** `GraphRewriteCandidate` records individual alternatives but is not a repository of e-classes for recursively combining rewrites and exploring many equivalent graphs. Actual equality saturation requires a dedicated **E-Graph** that groups proven-equivalent terms, maintains congruence closure, and supports extraction with shared-DAG cost semantics. RustJ will add a separate **`EqGraph` (working name, using `egg::EGraph`) as a supported optimization representation** for closed, pure Graph regions. It will **not** replace the canonical J Graph IR nor become a required stage for all interpreter/compiler routes; effectful or unsupported J programs keep the verified original lowering path.
+
+~~~text
+J Semantic IR / canonical J Graph IR (source preserved)
+        ├── original verified lowering / fallback
+        └── eligible pure region + source/fact/effect snapshot
+                  ↓
+             EqGraph adapter → egg::EGraph
+                  ├── ENode(op, typed semantic signature, child EClassIds)
+                  ├── EClass / conservative EClassFacts
+                  ├── RuleId + EvidenceEdge / witness / provenance
+                  └── source ValueId ↔ multi-root EClassId map
+                         ↓ bounded saturation
+                  ├── alternatives (not immediately committed)
+                  └── shared-DAG-aware extraction + verifier
+                         ↓ only if lawful and realizable
+             Verified Logical Array IR → existing routes
+~~~
+
+**Why an E-Graph is distinct from the present candidate registry.** Existing `GraphRewriteCandidate` records source-to-alternative edges and provenance. It does not, by itself, implement **congruence closure, rebuilding, equality saturation, and reusable equivalent classes** across different rewrite sequences. Use the established `egg` EGraph/Runner for these standard mechanics instead of implementing a new union-find/e-class engine. RustJ owns the J-specific term adapter, legality, witnesses, region eligibility, and extraction.
+
+**Minimum interfaces and invariants:**
+1. `EqRegion::eligible`: Export only **closed, pure** regions whose FunctionEntity/Rank/Cell/Frame, type/shape/prototype/fill, observable checks/errors/effects, NAME/locale/version and input occurrences are preserved. Unproven eligibility retains the original route.
+2. `EqTerm/EqClassFacts`: Preserve structured primitive, NN extension and explicit-adjoint identities unless a separate decomposition is proved. Reject e-class unions of incompatible type, shape, Rank, result assembly, ordered reduction or numeric modes. Downgrading conflicting facts to `Unknown` is **not** a legality proof for merging classes.
+3. `EqRule + EvidenceEdge`: Only **statically proven Exact-J equivalences** permit unconditional `union`. Keep guarded transformations as separate conditional candidates unless the guard statically establishes equivalence over the whole exported region; recheck their preconditions during extraction/guarded lowering. Never union on unproved real-number reassociation/distributivity, altered error/effect order or `Unknown` evidence.
+4. `RootMap/Extractor`: Preserve **multiple roots** for source input occurrences and every output `ValueId`. Optimizing one `RecExpr` for AST size is not optimal extraction for multi-output, shared DAGs. Verify output correspondence, acyclicity, liveness, shared-producer materialization, and distinct resource/cost/target feasibility; ILP remains optional.
+5. `EqBudget/Fallback`: Bound iterations, e-node/e-class counts, matches, wall-clock time and multi-pattern expansion. On timeout, proof failure, cost-model uncertainty or exhausted budget, keep the original canonical Graph IR and fallback. Never place concrete schedule, physical layout or device placement in E-Graph semantics.
+
+**Incremental implementation aligned with existing acceptance items:** (A) `GF4 / FW-05–09`: introduce an `egg` adapter in `src/j_graph_eq.rs` or an equivalent isolated module, with typed terms, source/multi-root mapping and verifier; decide crate/feature details in the implementation PR. (B) `GF4`: saturate one *provably exact* identity or IndexMap-composition rule first and test source round-trip, empty-frame/error/numeric counterexamples. (C) `GF4 / GF5a`: add a second rule and cross-family access analysis to demonstrate gains from combined search. (D) `GF6 / IO-09·10`: verify multi-root shared-DAG extraction against actual CPU/reference behavior and costs. (E) Evaluate `egglog` as a replacement/mixed fact engine by A/B testing **only if** there is evidence of a fact-inference bottleneck.
+
+**Status:** Only the **architecture decision and contract are documented**. There is no implemented `EqGraph` module, no `egg` dependency, no executable optimization or measured RustJ speedup from this change. GF4 candidate discovery and the unfinished GF6 extraction acceptance status remain unchanged. Do not preempt M2/M3 correctness or the M4 baseline to implement an unconstrained saturation engine.
+
 ##### 8. RustJ placement, experimental design and falsification criteria
 
 **Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
