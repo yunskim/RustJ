@@ -472,15 +472,17 @@ fn graph_fanout_demands_reject_unproved_edges_and_preserve_scalar_empty_cases() 
         .fanout_value_demand_union(unsupported_output, &denied)
         .unwrap();
     assert_eq!(at_barrier.occurrences[0].region, vec![0..1, 0..2]);
-    assert!(graph
-        .fanout_value_demand_union(
-            unsupported_output,
-            &[GraphFanoutRequest {
-                output,
-                region: vec![0..4, 0..2],
-            }],
-        )
-        .is_none());
+    assert!(
+        graph
+            .fanout_value_demand_union(
+                unsupported_output,
+                &[GraphFanoutRequest {
+                    output,
+                    region: vec![0..4, 0..2],
+                }],
+            )
+            .is_none()
+    );
 
     let scalar = rustj::Engine::new().analyze_j_graph("- 3").unwrap();
     let scalar_output = scalar.result.unwrap();

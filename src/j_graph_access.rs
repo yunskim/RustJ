@@ -364,7 +364,6 @@ impl Plan {
     }
 }
 
-
 /// A requested logical value region at a specific original J Graph output.
 /// Each consumer occurrence remains distinguishable; this does not infer
 /// a complete execution demand or certify skipping computations.
