@@ -284,10 +284,7 @@ fn graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts() {
 
 #[test]
 fn graph_value_demand_closure_across_witnessed_chain() {
-    use rustj::{
-        j_graph_access::GraphDemandStop,
-        j_graph_ir::NodeKind,
-    };
+    use rustj::{j_graph_access::GraphDemandStop, j_graph_ir::NodeKind};
 
     let mut engine = rustj::Engine::new();
     engine.eval("a=: i. 2 3").unwrap();
@@ -315,7 +312,9 @@ fn graph_value_demand_closure_across_witnessed_chain() {
     assert_eq!(empty.steps[3].region, vec![0..2, 1..1]);
 
     let scalar = rustj::Engine::new().analyze_j_graph("- 3").unwrap();
-    let scalar_trace = scalar.value_demand_trace(scalar.result.unwrap(), &[]).unwrap();
+    let scalar_trace = scalar
+        .value_demand_trace(scalar.result.unwrap(), &[])
+        .unwrap();
     assert_eq!(scalar_trace.stop, GraphDemandStop::Source);
     assert_eq!(scalar_trace.steps.len(), 2);
     assert!(scalar_trace.steps.iter().all(|step| step.region.is_empty()));
@@ -323,10 +322,7 @@ fn graph_value_demand_closure_across_witnessed_chain() {
 
 #[test]
 fn graph_value_demand_stops_at_unproved_operation_and_invalid_box() {
-    use rustj::{
-        j_graph_access::GraphDemandStop,
-        j_graph_ir::NodeKind,
-    };
+    use rustj::{j_graph_access::GraphDemandStop, j_graph_ir::NodeKind};
 
     let mut engine = rustj::Engine::new();
     engine.eval("a=: i. 2 3").unwrap();
@@ -355,9 +351,17 @@ fn graph_value_demand_stops_at_unproved_operation_and_invalid_box() {
     assert!(graph.value_demand_trace(output, &[0..4, 0..2]).is_none());
     assert!(graph.value_demand_trace(output, &[0..2]).is_none());
     let descending = std::ops::Range { start: 2, end: 1 };
-    assert!(graph.value_demand_trace(output, &[descending, 0..2]).is_none());
+    assert!(
+        graph
+            .value_demand_trace(output, &[descending, 0..2])
+            .is_none()
+    );
 
     let mut unknown_shape = graph;
     unknown_shape.nodes[output.0].facts.shape = None;
-    assert!(unknown_shape.value_demand_trace(output, &[0..2, 0..3]).is_none());
+    assert!(
+        unknown_shape
+            .value_demand_trace(output, &[0..2, 0..3])
+            .is_none()
+    );
 }

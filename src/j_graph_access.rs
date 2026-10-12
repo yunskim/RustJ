@@ -321,9 +321,10 @@ impl Plan {
         let node = self.nodes.get(output.0)?;
         let shape = node.facts.shape.as_ref()?;
         if shape.len() != output_region.len()
-            || shape.iter().zip(output_region).any(|(extent, range)| {
-                range.start > range.end || range.end > *extent
-            })
+            || shape
+                .iter()
+                .zip(output_region)
+                .any(|(extent, range)| range.start > range.end || range.end > *extent)
         {
             return None;
         }
@@ -337,9 +338,9 @@ impl Plan {
         loop {
             let Some(edge) = self.static_value_access(current) else {
                 let stop = match &self.nodes[current.0].kind {
-                    NodeKind::Input { .. }
-                    | NodeKind::Literal(_)
-                    | NodeKind::ReadNoun { .. } => GraphDemandStop::Source,
+                    NodeKind::Input { .. } | NodeKind::Literal(_) | NodeKind::ReadNoun { .. } => {
+                        GraphDemandStop::Source
+                    }
                     _ => GraphDemandStop::UnprovedOperation,
                 };
                 return Some(GraphValueDemandTrace {
