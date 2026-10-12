@@ -31,8 +31,8 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | graph_monadic_transpose_projects_witnessed_axis_access | 실제 monadic `|:` J Graph의 역축 관계 추출 | 입력·출력 Shape/Rank 증거 및 원본 ValueId 보존, 두 번의 전치 합성 후 영역 역추적 확인 | 잘못된 Graph 노드를 정적 전치로 분류하거나 접근 축 방향을 잘못 계산 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 | graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | 다른 Reindex·ReadNoun 및 불완전 facts 거부 | Reverse/Ravel/단순 명칭 및 Unknown/불일치 Shape·Rank에 witness를 부여하지 않음 | 추측한 의미론을 최적화의 근거로 허용 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
-| graph_monadic_map_and_transpose_share_region_pullback | 원본 Graph의 단항 Map→Transpose 공통 박스 역추적 확인 | 원본 ValueId·두 연산별 독립 증거·빈 값 영역·합성/순차 결과 일치 | 서로 다른 축 관계의 합성 오류 또는 중간 입력 경로 오인 | R0.3 PR CI 대기 |
-| graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts | 허용하지 않은 연산·모순된 Shape/Rank/계약 거부 | Dyad, Reverse, Ravel, Gather, Reduce, NAME 결과 및 불완전한 facts에서 임의 증거 미생성 | 잘못된 공통 접근 계약의 안전하지 않은 승인 | R0.3 PR CI 대기 |
+| graph_monadic_map_and_transpose_share_region_pullback | 원본 Graph의 단항 Map→Transpose 공통 박스 역추적 확인 | 원본 ValueId·두 연산별 독립 증거·빈 값 영역·합성/순차 결과 일치 | 서로 다른 축 관계의 합성 오류 또는 중간 입력 경로 오인 | PR #75 코드 커밋 `a8e1f3e` PR CI PASS ([검증](https://github.com/yunskim/RustJ/actions/runs/38320754917)); main CI 미검증 |
+| graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts | 허용하지 않은 연산·모순된 Shape/Rank/계약 거부 | Dyad, Rank, Reverse, Ravel, Gather, Reduce, NAME 결과 및 불완전한 facts에서 임의 증거 미생성 | 잘못된 공통 접근 계약의 안전하지 않은 승인 | PR #75 코드 커밋 `a8e1f3e` PR CI PASS ([검증](https://github.com/yunskim/RustJ/actions/runs/38320754917)); main CI 미검증 |
 
 ## 다음에 필요한 독립 증거
 
