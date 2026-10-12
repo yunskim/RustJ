@@ -529,7 +529,9 @@ impl Plan {
                     .output_region
                     .iter()
                     .zip(shape)
-                    .any(|(interval, extent)| interval.start > interval.end || interval.end > *extent)
+                    .any(|(interval, extent)| {
+                        interval.start > interval.end || interval.end > *extent
+                    })
             {
                 return None;
             }
@@ -545,9 +547,9 @@ impl Plan {
             .copied()
             .filter(|site| {
                 site.operand != GraphUseOperand::Right
-                    || !self.static_value_access(site.consumer).is_some_and(|edge| {
-                        edge.input == source && edge.output == site.consumer
-                    })
+                    || !self
+                        .static_value_access(site.consumer)
+                        .is_some_and(|edge| edge.input == source && edge.output == site.consumer)
             })
             .collect();
         Some(GraphFanoutCoverage {

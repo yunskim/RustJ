@@ -571,18 +571,30 @@ fn graph_declared_fanout_requests_do_not_imply_all_consumer_demand() {
         },
         output_region: vec![0..1, 0..2],
     };
-    assert!(fork.graph_declared_fanout_coverage(source, &[wrong_slot]).is_none());
+    assert!(
+        fork.graph_declared_fanout_coverage(source, &[wrong_slot])
+            .is_none()
+    );
     let wrong_bounds = GraphUseDemand {
         output_region: vec![0..4, 0..2],
         ..first.clone()
     };
-    assert!(fork.graph_declared_fanout_coverage(source, &[wrong_bounds]).is_none());
+    assert!(
+        fork.graph_declared_fanout_coverage(source, &[wrong_bounds])
+            .is_none()
+    );
     let wrong_rank = GraphUseDemand {
         output_region: vec![],
         ..first
     };
-    assert!(fork.graph_declared_fanout_coverage(source, &[wrong_rank]).is_none());
-    assert!(fork.graph_declared_fanout_coverage(ValueId(usize::MAX), &[]).is_none());
+    assert!(
+        fork.graph_declared_fanout_coverage(source, &[wrong_rank])
+            .is_none()
+    );
+    assert!(
+        fork.graph_declared_fanout_coverage(ValueId(usize::MAX), &[])
+            .is_none()
+    );
 
     // Hook deliberately uses the same original source in a right and a left
     // operand slot. A "complete" declaration does not prove the left dyadic
@@ -604,8 +616,11 @@ fn graph_declared_fanout_requests_do_not_imply_all_consumer_demand() {
         .graph_declared_fanout_coverage(source, &hook_requests)
         .unwrap();
     assert!(coverage.all_structural_uses_declared());
-    assert!(coverage.unproved_access.iter().any(|site| {
-        site.operand == GraphUseOperand::Left
-    }));
+    assert!(
+        coverage
+            .unproved_access
+            .iter()
+            .any(|site| { site.operand == GraphUseOperand::Left })
+    );
     assert_eq!(coverage.declared.len(), 2);
 }
