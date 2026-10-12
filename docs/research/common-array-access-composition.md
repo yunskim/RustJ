@@ -26,12 +26,14 @@ Reshape are deliberately out of scope.
 |---|---|---|---|---|
 | axis_permutation_composition_matches_two_stage_pullback | Check two structural permutations | Exhaustive small-coordinate pullback equals two-step reference | Composition direction or index mapping is wrong | PR #70 head CI PASS (2026-10-13) |
 | axis_access_rejects_unproved_shape_and_index_relations | Reject absent or contradictory facts | Reject invalid rank/bijection/shape/coordinate | Invalid access relation was admitted | PR #70 head CI PASS (2026-10-13) |
-| axis_region_pullback_matches_composition_and_exact_requested_points | Pull back an output box through static permutations | Composed/sequential regions and exhaustive point membership agree; reject bad bounds | Unsound region pruning or index-axis mapping | PR #71 CI pending |
+| axis_region_pullback_matches_composition_and_exact_requested_points | Pull back an output box through static permutations | Composed/sequential regions and exhaustive point membership agree; reject bad bounds | Unsound region pruning or index-axis mapping | PR #71 and merged-main CI PASS (2026-10-13) |
 | axis_composition_preserves_scalar_and_zero_extent_shapes | Protect scalar and zero-extent boundaries | Preserve rank zero, zero extents, nonexistent atom access | Empty shape semantics or bounds lost | PR #70 head CI PASS (2026-10-13) |
+| graph_monadic_transpose_projects_witnessed_axis_access | Project monadic `|:` from an actual J Graph | Preserve ValueIds and exact shapes/ranks; check double-transpose composition and region demand | Incorrect graph classification or axis orientation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
+| graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | Reject unrelated reindex and incomplete facts | Reverse/ravel/name/unknown or contradictory shape/rank cannot assert transpose access | Inferring a rewrite permission from an unproven relation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
 ## Separate evidence still required
 
-- Verify that a concrete VerifiedFrontend/J Graph StaticReindex node really satisfies this access projection.
+- R0.2 projects direct monadic `|:` J Graph nodes into coordinate access; other StaticReindex operations, ranked/dyadic transpose and full J execution equivalence still need independent witnesses.
 - Sound backward region demands for memory/I/O.
 - Pinned J-C oracle checks for fill/prototype, Rank and error/effect equivalence.
 - Reuse the same transfer law across at least two different operation families.
@@ -51,3 +53,17 @@ This is a **logical value-region** result only. An empty value demand cannot
 erase prototype checks, observable errors or effects. It grants no physical
 storage chunks, byte offsets or execution schedule. GF5a/IO-09·10 still require
 Graph access witnesses and J semantic validation.
+
+## R0.2 J Graph monadic transpose projection (2026-10-13)
+
+`Plan::static_transpose_access(ValueId)` only recognizes an original atomic
+monadic `PrimitiveVerb(Cant)` Apply whose Graph Basis is `StaticReindex`,
+Access class is `IndexTransform`, whose input/output shape and rank facts
+are known, and whose output shape exactly reverses the input shape.
+It returns `GraphTransposeAccess { input, output, access }` with original
+ValueIds; failed `Plan::verify()` or missing/conflicting facts return `None`.
+
+This is a **value-coordinate analysis view**, not an Exact-J rewrite, NAME
+snapshot proof, elimination of checks/effects/errors, physical byte-region
+request, or EqGraph e-class union. Do not project `|.`, `,`, dynamic shapes,
+rank-applied transpose, or dyadic `|:` without separate contracts.
