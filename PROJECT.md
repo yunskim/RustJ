@@ -2477,7 +2477,7 @@ Thus the contributed report's **"only 1.5 million multiplications for the entire
 
 | Research and primary source | Established contribution | RustJ adaptation / decision |
 |---|---|---|
-| [SPORES, PVLDB 2020](https://doi.org/10.14778/3407790.3407799) | Restricted LA→relational algebra→equality saturation→cost extraction; sparse and CSE-aware sum-product optimization | Optional relational projection of *pure* `IndexSumProduct` subregions; **not** universal full-J relationalization |
+| [SPORES, PVLDB 2020](https://doi.org/10.14778/3407790.3407799) | Restricted LA→relational algebra→equality saturation→cost extraction; sparse and CSE-aware sum-product optimization | **Prove exact equalities first** for pure `IndexSumProduct` fragments; progressively extend the **relational access/index representation** to other J array families (§7.9), without mandatory full-J relationalization |
 | [`egg`, POPL 2021](https://doi.org/10.1145/3434304), [Rust library](https://github.com/egraphs-good/egg) | Rebuilding, e-class analyses, conditional rewrites and extraction in a general-purpose Rust e-graph library | **First experiment engine** for bounded alternative discovery beside `GraphRewriteCandidate`; no mandatory Cargo dependency before evidence |
 | [TenSat, MLSys 2021](https://proceedings.mlsys.org/paper_files/paper/2021/file/cc427d934a7f6c0663e5923f49eba531-Paper.pdf) | Non-local multi-output rules, shape-aware exploration and shared-DAG/cycle-aware ILP extraction | Guide multi-consumer pattern/extraction experiments; do **not** import its numerical rewrites without J proofs |
 | [Relational e-matching, POPL 2022](https://doi.org/10.1145/3498696) | Formulates e-matching as relational joins and uses pattern-sensitive query plans | Evaluate **only if** measured matching costs dominate; does not entail adopting a SQL engine |
@@ -2713,6 +2713,93 @@ An implementation should reference existing \`FunctionEntity\` / \`GraphFacts\` 
 - [ ] **GF4 / GF5a:** Separately measure synthesized-rule contributions against a baseline using only existing proven \`egg\` rules; document a falsification/stop condition if no new provable equalities appear or verification costs outweigh benefits.
 
 **Status (2026-10-12):** Review of pinned jsource and current RustJ frontend/graph source and this **design/checklist documentation are complete**. Candidate generator, semantic-equality oracle harness, independent proof engine, \`egg\` adapter and performance experiments remain **unimplemented/UNRUN**. This remains optional research/optimization sidecar; it does not preempt M2/M3 correctness, the M4 single-CPU baseline, or the canonical separation of Graph Basis from Execution Basis in \`FOUNDATIONS.ko.md\`.
+
+
+<a id="spores-relational-integration"></a>
+##### 7.9 Integrating SPORES' relational access algebra: broad representational coverage vs restricted legal identities (2026-10-12)
+
+**Scope reassessment (architecture decision, not implemented).** SPORES is not merely a matrix multiplication optimization but a compelling starting point for **representing many array computations using indexed relations and reusable optimization laws**. Its [Table 2/Figure 1](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf) covers **seven LA operators**: matrix multiply, elementwise multiply/add, row/column/total sum aggregation and transpose, using join/product, union/add, group-by sum and dimension bind/unbind. §3.3 also explains using opaque/custom operators and optional extra equations for square, minus, divide and fused functions. §4.2 reports that sum-product operations represented **77.4–98.9% of runtime** in the studied SystemML learning workloads. This does **not** measure the fraction of J primitives or J workloads covered; it does show potentially broad coverage **in expensive array computation rather than number of syntactic verbs**.
+
+**Revised integration boundary:** Distinguish (1) **the mathematically proved SPORES relational sum-product identities** from (2) **the broader applicability of relational index/access modeling** and evaluate both. Keep canonical \`GraphBasis\`, \`FunctionEntity\`, J Rank/Cell/Frame and Logical IR unchanged. Export **\`RelAccessView\` (conceptual name)** as an optional adapter/analysis sidecar from eligible *closed pure J Graph regions* into \`EqTerm\`. The shared \`egg::EGraph\` can retain *witnessed* source J terms and relational alternatives for legal, budgeted saturation and shared-DAG-aware extraction. Do not force full J into SQL or a new canonical relational/optimization IR.
+
+**Minimal relational vocabulary plus a full J semantic envelope:**
+
+~~~text
+RelAccessView (optional EqGraph surface; conceptual, not implemented):
+  Schema = (axis identities, finite extents, ordered axes, free/bound indices)
+  Domain = (JType, Shape, ordered atoms, prototype/fill, boxed/sparse semantics)
+  RelInput(array, source ValueId / FunctionEntity / occurrence)
+  RenameAxis / Reindex / AccessMap / IndexJoin / Predicate (guarded)
+  PointwiseApply(op) / Combine(op, reduction-order contract)
+  Aggregate(bound axes, reducer identity and order)
+  OpaqueBoundary(unknown J function, ordered error, effect, NAME, fill)
+  Witness = (scope, input facts, rule proof, origin/version,
+             J error/effect trace, numeric mode, fallback)
+~~~
+
+**Semantic caveat:** SPORES' \`K\`-relations rely on algebraic identities over the real sum-product semiring. Full J does **not** automatically satisfy those equations under IEEE floating rounding/NaN/signed zero, fit/tolerant matching, integer overflow and whole-result promotion, mixed types, Rank virtual fill, ordered reductions, observable first-error precedence and NAME/state effects. The fact that \`RelAccessView\` can *describe* an operation is not proof that a proposed equality is **Exact-J**. Never reorder an aggregation until its specific reduction-order independence is proved. SPORES' restricted mathematical completeness result does **not** imply completeness for full J.
+
+**Coverage and ownership by J operation family (representable ≠ safely rewritable):**
+
+| J family / representative structure | Relational description and search opportunity | Initial admission policy |
+|---|---|---|
+| **Elementwise map**, dyadic arithmetic and broadcast | Index-aligned pointwise computation, join/align, shape-index guards | Exact-J only when type, rounding, fit and failure behavior match. Other unary/map functions can remain opaque |
+| **Sum/Reduce, dot and matrix contraction**, common \`+/\` and sum-product patterns | Join over shared indices followed by aggregation over bound axes; core SPORES case | Prove ordered fold, overflow/promotion and FP semantics. Keep BLAS/NN specialized kernels as separate realizations |
+| **Transpose, axis permutation and broadcasting** | Axis rename/reindex, free-index schema, repeated index extents | Start with structurally proven index permutation retaining original J atom order, rank and shape |
+| **Reshape, ravel, take/drop and gather**, \`$\`, \`,\`, \`{.\`, \`}.\`, \`{\` | Index relations/affine or piecewise access, duplicate selection, bounds/fill domains | **Representation extension** beyond SPORES' theorem; requires bounds/error, padding/fill, prototype, original occurrences |
+| **Window, convolution, sliding reductions** and NN convolution | Input coordinates joined with window offsets, local map/aggregate; compare [Glenside access patterns](https://ztatlock.net/pubs/2021-maps-glenside/) | Prove masks/padding/boundaries, reduction order, channels/groups and numeric errors before enabling rewrites |
+| **Scan, general Rank and cell assembly**, \`\\\`, \`"\`, hook/fork | Ordered prefix relations, Cell/Frame partition and structured branch inputs | **Not interchangeable with unordered group-by sum.** Keep ordered operations and virtual empty-frame cell obligations |
+| **Boxed/sparse, extended NN primitives and explicit adjoints** | Partial indexed value description; retain sparse default/fill, nested boxes, intrinsic identities | Export only proven pure subregions. Opaque barriers otherwise |
+| **Dynamic NAME/locale, assignment, foreign I/O and stateful RNG** | Array-shaped outputs may still have observable state/order | Region barrier; no fallback by repeating observed effects |
+
+**Illustrative matrix contraction (indexed representation does not itself license FP transformations):**
+
+~~~text
+C[i,k] = ordered-sum_j (A[i,j] * B[j,k])
+
+RelInput(A, free={i,j})
+RelInput(B, free={j,k})
+  → IndexJoin(shared j, output {i,j,k})
+  → PointwiseMultiply
+  → Aggregate(bound={j}, free={i,k}, ordered-J semantics)
+  → C  [JType/Shape, origin, exception and numeric witness]
+~~~
+
+\`Transpose(A)\` may be described as axis permutation and \`idx { A\` as an index relation with bounds and fill obligations. Both can be **analyzed** with shared relational constructs, but this says nothing about permission to suppress gather errors or reassociate the matrix-product accumulation. In particular, absent tuples representing numeric zero for mathematical sparse relations is not equivalent to J sparse default/fill or empty-result dtype/prototype without independent proof.
+
+**Role alongside Frontend-guided Equality Synthesis and egg:**
+
+~~~text
+VerifiedFrontend + canonical J Graph
+     ├─ original J term + source/effect/error guardrail
+     ├─ typed J equality-synthesis candidate generator (§7.8)
+     └─ optional RelAccessView from eligible pure regions
+                 │
+        syntax + shape/Rank/index schema + typed conditions
+                 ↓
+        candidate relational identities / counterexample search
+                 ↓ independent Exact-J admission (§7.7)
+        EqGraph(egg) holds J terms and relational alternatives
+                 ↓ bounded saturation + legal multi-root extraction
+        Verified Logical IR / unchanged original fallback
+~~~
+
+**Three incremental implementation horizons (claim completeness/performance only after proof/measurement):**
+1. **R0 / structural index semantics:** Implement a source-preserving round trip for \`Transpose\`/axis renaming and scalar or elementwise Map. Preserve free/bound axes, J dtype/shape, ordered atoms, source occurrences and error witnesses. Do not build a full SQL engine or materialized \`K\`-relation runtime; only experiment with one already-proved identity for E-Class union.
+2. **R1 / SPORES core:** Add elementwise sum/product, join, constrained aggregate and matrix multiplication for *pure admissible* \`IndexSumProduct\`, comparing compatible shape/sparse/cardinality/work/I/O costs. Mathematical identities prohibited by J FP, integer overflow/promotion or empty-frame behavior remain **guarded or rejected**. Prove common-access reuse with at least two distinct J operation families.
+3. **R2 / broader J arrays:** Extend gather/reindex, windows/convolution, NN extensions, scans and general Rank only where their distinct index, order, error and empty-frame semantics are proved. These families are **outside SPORES' completeness theorem**. §7.8's rule candidate synthesis can use the same schema; the extractor selects only realizable shared-DAG plans that pass resource, liveness, sparse/fill, runtime and semantic verification.
+
+**Invariants and verification:** Before union or extraction, verify per-E-Class axis schemas (rename via alpha-equivalence), free/bound axes, JType/Shape/Rank/fill/zero-frame, source \`ValueId\`/\`FunctionEntity\`/origin/version, numeric mode and \`ErrorEnvelope\`. Never resolve conflicting facts by downgrading them to \`Unknown\` and merging anyway. Reject guards that execute too late to preserve J's first error or would require re-running observed effects. Separate \`ResourceEstimate\` (feasibility/limits) and \`CostEstimate\` (predicted time/I/O); after extraction require verified Logical IR and target route legality.
+
+**Pending subtasks mapped to existing GF/FW/IO/RK acceptance gates:**
+- [ ] **GF4 / FW-05–09:** Implement source J Graph ↔ \`RelAccessView\` export/import preserving free/bound index alpha-equivalence, original occurrences, J shape/type/fill/error witnesses and original graph on failure.
+- [ ] **GF4 / GF5a:** Establish separate metrics for **representation coverage vs legally rewritable coverage** over SPORES' seven LA operators plus J Map/Reduce/Transpose/Broadcast.
+- [ ] **GF4 / RK / FW:** Reject unsound \`K\`-relation unions with tests for FP/NaN/signed zero, integer promotion, virtual empty-frame fill, boxed/sparse, ordered fold and gather bounds.
+- [ ] **GF4 / GF6:** Test one *witnessed* J-term ↔ relational-term \`egg\` translation, shared-DAG extraction and original fallback on timeout or conflicting facts.
+- [ ] **GF5a / IO-09/10:** Measure sparse/cardinality, materialization/read bytes, Work/Depth and I/O; evaluate the added value of optional ILP extraction independently.
+- [ ] **GF4 / GF6:** Falsifiably test whether identical relational schema/access laws produce **new, valid** alternatives in at least two distinct operation families. If not, keep the proven SPORES sum-product core and stop broadening mandatory relational representations.
+
+**Status:** Primary SPORES Table 2/§3.3/§4.2 and Glenside comparisons and this **design contract** are documented. \`RelAccessView\`, its importer/exporter, \`egg\` connection, J error proofs, differential corpus and performance measurements are **unimplemented/UNRUN**. This supplements §7.3's narrow initial *equational law* scope with broader **representation opportunities**, without promoting mathematical identities to universal J laws or preempting M2/M3 semantic correctness and M4 single-CPU baseline.
 
 
 ##### 8. RustJ placement, experimental design and falsification criteria
