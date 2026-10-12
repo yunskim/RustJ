@@ -7,12 +7,15 @@
 
 /// A structural proof failure: never silently replace missing evidence by a
 /// guessed identity permutation.
+use std::ops::Range;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AxisAccessError {
     RankMismatch,
     NotPermutation,
     IntermediateShapeMismatch,
     CoordinateOutOfBounds,
+    RegionOutOfBounds,
 }
 
 /// A bijective logical output-axis -> input-axis access relation.
@@ -81,5 +84,28 @@ impl StaticAxisAccess {
             input[input_axis] = output[output_axis];
         }
         Ok(input)
+    }
+
+    /// Exact logical rectangular value-demand pullback under this bijection.
+    ///
+    /// This does not waive J prototype, error, NAME or effect obligations, and
+    /// it is not a physical byte or storage chunk request.
+    pub fn pullback_region(
+        &self,
+        output_region: &[Range<usize>],
+    ) -> Result<Vec<Range<usize>>, AxisAccessError> {
+        if output_region.len() != self.axes.len() {
+            return Err(AxisAccessError::RankMismatch);
+        }
+        let mut input_region = vec![0..0; self.axes.len()];
+        for (output_axis, interval) in output_region.iter().enumerate() {
+            let input_axis = self.axes[output_axis];
+            let extent = self.input_shape[input_axis];
+            if interval.start > interval.end || interval.end > extent {
+                return Err(AxisAccessError::RegionOutOfBounds);
+            }
+            input_region[input_axis] = interval.clone();
+        }
+        Ok(input_region)
     }
 }
