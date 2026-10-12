@@ -7029,6 +7029,41 @@ J Semantic IR / J Graph IR (immutable source, FunctionEntity / provenance)
 
 **문서 검증 상태 (2026-10-12):** 논문 출처·기존 stage/원장과의 매핑만 검토했다. 새로운 optimizer 구현, corpus 실행, J-C oracle, Rust `fmt`/`clippy`/tests 및 성능 벤치마크는 이 문서 수정에서 **UNRUN**이다. 연구 결과를 실행 성능·J 의미 동치의 실증으로 표시하지 않는다.
 
+<a id="eqgraph-architecture"></a>
+##### 7.6 아키텍처 결정: 기존 J Graph IR 옆에 E-Graph를 실제로 둔다 (2026-10-12)
+
+**결정(설계 확정, 구현 미완료):** RustJ가 등가 포화(Equality Saturation)를 수행하려면 후보를 한 번씩 나열하는 `GraphRewriteCandidate`만으로는 부족하다. 동일 계산의 여러 표현을 e-class로 합치고, 대안의 조합을 탐색하고, 공유 DAG 기준으로 선택하는 **실제 E-Graph**가 필요하다. 따라서 순수하고 의미론적으로 닫힌 Graph region을 위한 별도 **`EqGraph`(가칭, `egg::EGraph` 기반 optimization representation)** 를 도입한다. 이것은 **컴파일러에서 정식으로 지원할 최적화 구조**이지만, 모든 J 실행 경로가 반드시 통과해야 하는 *canonical J Graph IR 대체물*이나 필수 lowering 단계는 아니다. 인터프리터·미지원/효과 있는 region은 원본 검증 경로를 유지한다.
+
+~~~text
+J Semantic IR / canonical J Graph IR (source preserved)
+        ├── original verified lowering / fallback
+        └── eligible pure region + source/fact/effect snapshot
+                  ↓
+             EqGraph adapter → egg::EGraph
+                  ├── ENode(op, typed semantic signature, child EClassIds)
+                  ├── EClass / conservative EClassFacts
+                  ├── RuleId + EvidenceEdge / witness / provenance
+                  └── source ValueId ↔ multi-root EClassId map
+                         ↓ bounded saturation
+                  ├── alternatives (not immediately committed)
+                  └── shared-DAG-aware extraction + verifier
+                         ↓ only when legal and realizable
+             Verified Logical Array IR → existing routes
+~~~
+
+**E-Graph가 필요한 이유.** `GraphRewriteCandidate`는 원본→대체 후보와 provenance를 기록하기 좋지만, 재작성 결과에 또 다른 규칙을 적용하고, 서로 다른 경로에서 만난 동치식을 공유하고, 여러 출력의 공통 계산 비용을 비교하는 **congruence closure + 재구축(rebuilding) + equality saturation** 저장소는 아니다. 이 역할은 검증된 `egg` 자료구조/Runner에 맡긴다. RustJ는 J-specific term 변환, legality, witness, region policy, extraction을 소유한다. 새 union-find/e-class 엔진을 별도로 작성하지 않는다.
+
+**최소 인터페이스/불변조건:**
+1. `EqRegion::eligible`: FunctionEntity/Rank/Cell/Frame, dtype/shape/prototype/fill, observable checks/errors/effects, NAME/locale/source-version, input occurrences를 보존할 수 있는 **닫힌 순수 영역**만 export한다. 검증 불명은 원본 경로로 남는다.
+2. `EqTerm/EqClassFacts`: 구조적 primitive/extended primitive/명시적 adjoint를 무조건 scalar Map/Reduce로 분해하지 않는다. 원소 타입·Shape·Rank·result assembly/ordered fold·numeric mode의 불일치가 있으면 e-class 합치기를 거부한다. 단순 `Unknown`으로 낮추는 일은 **합치기의 합법성 증명**이 아니다.
+3. `EqRule + EvidenceEdge`: **정적 Exact-J 동치가 증명된 규칙에만** unconditional `union`을 사용한다. Guarded 변환은 guard가 region 전체의 동치 범위를 정적으로 보장하지 않으면 조건부 별도 후보로 보관하고 extraction/guarded lowering 시 검증한다. 근거 없는 실수 대수의 결합/분배, 오류·효과 순서 변경과 `Unknown` 증거의 union을 금지한다.
+4. `RootMap/Extractor`: 원본 입력 occurrence와 각 결과 `ValueId`에 대응하는 **복수 root**를 보존한다. 단일 `RecExpr`의 AST-size 최소화를 다중 출력/공유 DAG 최적이라고 취급하지 않는다. multi-root consistency, output identity, acyclicity, liveness, shared producer materialization, resource/cost/target을 구분해 추출한다. ILP는 후속 선택 사항이다.
+5. `EqBudget/Fallback`: iteration/e-node/e-class/match/time 및 다중 규칙의 예산을 제한한다. 탐색 실패·proof 실패·budget 초과·비용 모델 미정이면 원본 Graph IR을 파괴하지 않고 되돌아간다. 실제 Physical schedule/layout/device 배정은 이 구조 바깥에 둔다.
+
+**단계별 구현 순서(기존 GF/FW/IO 체크리스트에 귀속):** (A) `GF4 / FW-05–09`: 별도 `src/j_graph_eq.rs` 또는 동등한 모듈에 `egg` adapter, 소규모 typed term·source/root map·검증기를 마련한다. crate/feature 선택과 직접 의존성 반영은 실제 구현 PR에서 결정한다. (B) `GF4`: 안전한 identity/IndexMap composition **한 가지**를 먼저 동치 포화하고 source-preserving round trip, empty-frame·오류·수치 반례를 검증한다. (C) `GF4 / GF5a`: 두 번째 규칙과 cross-family access 분석으로 누적 탐색의 가치가 있는지 확인한다. (D) `GF6 / IO-09·10`: 다중 출력 공유 DAG extraction을 실제 CPU/reference 실행 비용과 검증한다. (E) 충분한 사실 추론 병목 증거가 생긴 경우에만 `egglog`로 교체/혼합하는 A/B 검토를 수행한다.
+
+**현황:** E-Graph **도입 결정과 계약의 문서화만 완료**. `EqGraph` 모듈·`egg` 의존성·실행 최적화·실증 성능은 아직 없다. 기존 GF4 후보 발견 구현과 GF6 추출 미완료 상태는 그대로다. M2/M3 correctness 및 M4 baseline을 희생하여 전면적인 saturation 엔진을 먼저 구현하지 않는다.
+
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
 **아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
