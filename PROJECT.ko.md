@@ -7064,6 +7064,57 @@ J Semantic IR / canonical J Graph IR (source preserved)
 
 **현황:** E-Graph **도입 결정과 계약의 문서화만 완료**. `EqGraph` 모듈·`egg` 의존성·실행 최적화·실증 성능은 아직 없다. 기존 GF4 후보 발견 구현과 GF6 추출 미완료 상태는 그대로다. M2/M3 correctness 및 M4 baseline을 희생하여 전면적인 saturation 엔진을 먼저 구현하지 않는다.
 
+<a id="eqgraph-error-semantics"></a>
+##### 7.7 E-Graph 오류·실패 의미론 검토: 오류는 계산의 관찰 가능한 결과다 (2026-10-12)
+
+**검토 결론(설계 계약, 구현 미완료):** J 오류를 `egg`의 단순 rewrite 실패나 최적화 비용에 섞지 않는다. `x`와 `y`가 성공 시 같은 원소값을 만든다는 사실은 `Equivalent_J(x,y)`를 뜻하지 않는다. J의 관찰 가능한 **첫 오류의 종류·발생 조건·우선순위·원본 소스 귀속**, 오류 핸들러에 들어가는 사건과 그 전후 NAME/StateResource 상태까지 비교해야 한다. 특히 `Pure`는 `Total`이 아니다. 순수한 division, indexing, shape/rank agreement, Reduce/Rank cell application도 입력에 따라 실패할 수 있다. `GraphFacts`의 dtype/shape/rank는 의도적으로 오류·effect·평가 순서를 제외하므로 **GraphFacts만으로 E-Class union을 허가하지 않는다.**
+
+**현재 코드 기반과 미비점(설계 참고):**
+- `src/error.rs`의 `FailureCategory::{JLanguage,UnsupportedCapability,VerifierDefect,BackendFailure}`와 `ErrorContext`의 source span/word blame/definition frames를 재사용한다. `Error::Limit`는 실제 J 실행의 한 오류일 수 있으므로 *EqSat 탐색 메모리·시간 초과*를 `Error::Limit`로 바꾸지 않는다. 새 오류 enum 계층을 J 사용자에게 노출하지 않는다.
+- `src/logical_ir.rs`의 `CallOp.effect`, `possible_errors`, `speculation`, `SemanticCheck`, `Operation.order_after` 및 `src/j_graph_composition.rs::ObservableOrder`가 이미 구분된다. `SemanticErrorKind`의 5종과 `PossibleErrors::unknown`은 **현재의 보수적 분석 요약**으로 보아야지 전 J 오류 분류를 열거하거나 완전한 순서 증명을 대체한다고 보지 않는다.
+- `src/logical_executor.rs`는 zero-frame fill의 *증명된* 일부 Domain 복구 및 type-inhomogeneity 재시도만 수행한다. 이는 본래 의미론적 예외 처리이지 `egg`의 자유로운 오류 억제/재시도 권한이 아니다. `src/nn_extensions.rs`의 `error_order_proof=Unverified` 역시 자동으로 Total/NoError로 승격시키지 않는다.
+
+**서로 다른 세 가지 실패 경로를 구분한다.**
+
+| 구분 | 예시 | RustJ가 허용할 동작 |
+|---|---|---|
+| **J의 의미론적 실패** | Domain/Length/Rank/Index, NAME lookup, `1!:` I/O, 정수 승격과 관련된 실패·Rank fill의 공개 오류 | 원래 실행 위치·J error class·필요한 source blame·handler/side-effect/state trace를 보존한다. 최적화 실패로 간주해 원 식을 **오류 발생 뒤** 다시 실행하지 않는다 |
+| **최적화 거절/예산 종료** | 규칙 증거 미비, 지원 밖 region, 제한된 e-node 수·시간·match budget, ILP solver 미채택 | J 실행 **전** 원본 verified route를 사용한다. 성공적 최적화가 없다는 내부 진단이지 J error나 user-facing Domain/Limit이 아니다 |
+| **컴파일러/백엔드 실패** | E-Class facts 불일치, 잘못된 추출 DAG, stale witness를 통과시킨 verifier, admitted kernel 실행 실패 | `VerifierDefect`/`BackendFailure`로 분류·기록한다. 조용히 J Domain으로 바꾸지 않는다. 이미 J 효과나 오류가 관찰된 뒤 재실행 금지; rollback/snapshot 경계가 **독립적으로 증명된 경우**에만 재시작 가능 |
+
+**오류 합법성 모델(선행 analysis sidecar, 새 필수 Graph IR payload 아님).** 원본 semantic execution을 기준으로 `ErrorEnvelope` / `ErrorFrontier`(개념적 이름)를 후보마다 구성한다.
+
+~~~text
+ErrorEnvelope for exported EqRegion
+  failure_summary: ProvenTotal | MayFail(classes_or_unknown) | Unknown
+  obligation_order: data edges + SemanticCheck.order_after
+                    + complete J invocation / hook-fork / Rank cell order
+  fault_sites: stable source ValueId / OpId, spans, word blame, frames
+  observable_prefix: effects, NAME read/version, writes, state, handler events
+  conditionality: value/shape/rank-dependent failures and guards
+  multiplicity: whether a potentially failing call is executed 0/1/N times
+  witness: exact rule/version, fact snapshot, guard/fallback, invalidation
+~~~
+
+**핵심은 `ErrorEnvelope` 자체가 증명이 아니라 검증할 의무의 목록이라는 점이다.** 후보는 성공 결과의 JType/Shape/Atoms/fill뿐 아니라, 실패하는 입력의 first observable error 및 그보다 먼저 완료된 side effects, 오류 핸들러의 선택, source diagnostic mapping까지 대조해야 한다. 동치성은 원본의 **전체 허용 입력/환경**에 대해 성립해야 한다. 정적 가드가 있다면 증명 범위를 해당 guard의 유효 영역으로 제한한다. 새로운 오류가 없다는 추론에는 `may_error=false`라는 레지스트리 플래그만으로는 부족하고 rule/operand/dtype/range/shape를 포함한 독립 `NoObservableError` witness가 필요하다.
+
+**E-Graph 합치기 등급:**
+1. **T0: 증명된 Total + effect-free + order-independent.** 원본 관찰 조건이 모두 같은 경우에만 일반적인 e-class union, CSE, 순서 변경/공유 후보를 실험한다. 초기 `egg` 구현은 **여기서 시작**하며 algebraic float reassociation은 여전히 numeric witness 없이는 불허한다.
+2. **T1: MayFail이지만 정확한 error/effect trace가 증명된 경우.** 오류 발생 횟수, 첫 오류, 실행 순서·소스 귀속을 동일하게 유지하는 좁은 규칙만 허용한다. 원본 `SemanticCheck`/오류 barrier를 제자리 유지하거나 명시적인 ordered boundary로 투영해야 한다. 검증 전에는 **불투명하게 고정**하고 관련 입력 계산을 미리 성공적으로 평가한 *경계 밖 결과값*만 T0의 입력으로 사용할 수 있다.
+3. **T2: Unknown/effectful/dynamic or guarded without complete proof.** e-class union과 규칙을 통한 소거·복제·재배치를 금지한다. Guarded rewrite는 불일치 시 **첫 J-visible action 이전** 또는 증명된 side-effect-free deoptimization safe point에서만 원본 경로로 간다. T2 실패를 T0/T1 사실로 낙관적으로 정련하지 않는다.
+
+**금지할 반례:** `0 * index(A,i)`의 Index 오류를 대수적 zero-fold로 삭제; 두 개의 실패할 수 있는 순수 호출을 재배치해 첫 Domain/Index 오류를 뒤집음; J right-to-left·Hook/Fork의 완료 순서를 바꿈; shape precheck를 원래보다 앞당겨 다른 오류를 가림; 계산 CSE로 오류 횟수나 첫 fault site를 변경; dead output의 실제 `1!:` read를 삭제; 빈 Frame에서 virtual fill cell의 Domain·Rank 의미를 오류 없는 상수로 교체; `Error::Limit`의 원인과 우선순위를 EqSat 내부의 allocation failure와 혼동; guard를 효과 발생 후에 검사하고 원본을 재실행. 숫자 결과가 같아도 이런 변환은 불법이다.
+
+**구현/검증 하위 작업 — 기존 GF4/FW/GF6 및 RK 작업에 귀속(모두 [ ]):**
+- [ ] `GF4 / FW-05–09`: eligibility에서 `effect`, `possible_errors`, `speculation`, `SemanticCheck/order_after`, `ObservableOrder`를 **함께** 조회한다. NoError witness 미비는 T0 탈락이고, 별도 T1 증명 전에는 의미론적 fault barrier로 고정한다.
+- [ ] `GF4 / FW-05–09`: rule별 `ErrorEnvelope`/증명 엣지 및 원본 source provenance 유효성 검증. `egg` explanation은 rewrite 경로의 **출처**이지 J 의미론의 자동 증명서가 아니므로 규칙 soundness를 따로 입증한다. 참고: [egg 설명과 unsafe division 예시](https://docs.rs/egg/latest/egg/tutorials/_03_explanations/).
+- [ ] `GF4 / RK`: Rank empty-frame fill, inhomogeneous fill retry, boxed/sparse, ordered Reduce/Scan, Hook/Fork, failing NAME/foreign I/O 등 J-C oracle ↔ RustJ reference ↔ 추출 후보의 **성공·실패·오류 맥락·상태**를 구분해 비교한다. 오류 핸들러에 의해 관찰되는 실패도 포함한다.
+- [ ] `GF6`: multi-output/parallel/accelerator 추출 전 **semantic order graph**와 per-lane error-priority를 검증하고, 다중 실패 시 원본의 first error만 J 사용자에게 보고한다. commit 이전 정당한 fallback만 허가하고 backend failure를 J error로 위장하지 않는다.
+- [ ] `GF4 / GF6`: budget/timeout, unsupported, failed guard, verifier defect, backend error를 각각 별도 오류 소유권으로 기록하고, **J 효과 발생 후 비증명 재실행 금지** 음성 테스트를 추가한다.
+
+**문서 변경의 검증 범위:** 이 계약은 연구/설계와 기존 코드 구조 대조에 한정된다. `ErrorEnvelope`, 실제 `EqGraph`, J-C differential corpus 및 runtime 검증은 이 PR에서 **미구현·UNRUN**이다. 해당 오류 불변조건을 충족하는 증거 없이는 E-Graph optimizer를 실행 경로로 승인하지 않는다.
+
+
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
 **아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
