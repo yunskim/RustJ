@@ -42,6 +42,8 @@ full J는 name, assignment, effect, error/control semantics가 있으므로 순�
 
 이 관점에서 RustJ의 장기적인 위치는 단순한 **“GPU를 지원하는 J”**보다 **“J를 high-level array language로 사용하는 heterogeneous array compiler/runtime”**에 가깝습니다. 과거 JAXA에서 만든 analyzer·logical/physical separation 아이디어는 이 구조의 선행 설계로 승계합니다.
 
+**R0 좌표 접근 합성 실험:** [정적 축 순열 접근 관계](docs/research/common-array-access-composition.ko.md)는 shape와 좌표 역추적의 합성만 검증합니다. J 연산 동치 및 실제 최적화는 아직 입증하지 않습니다.
+
 ## 핵심 배열 모델 — Logical Array와 Physical Array
 
 RustJ는 배열을 **논리 계층과 물리 계층으로 분리**합니다. 이 구분은 핵심 아키텍처 결정입니다.

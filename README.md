@@ -42,6 +42,8 @@ Full J is not a purely declarative SQL-like language: names, assignment, effects
 
 The long-term framing is therefore broader than **“J with GPU support”**: RustJ aims to be **a heterogeneous array compiler/runtime using J as a high-level array language**. The analyzer and logical/physical separation ideas developed in JAXA are inherited as prior design work rather than retained as a separate current component.
 
+**R0 coordinate-access experiment:** [Static axis-permutation access composition](docs/research/common-array-access-composition.md) validates only shape and coordinate pullback. It is not a proven J operation equivalence or executable optimization.
+
 ## Core array model — Logical Array vs Physical Array
 
 RustJ explicitly separates **logical array semantics** from **physical array representation**. This is a core architecture decision.
