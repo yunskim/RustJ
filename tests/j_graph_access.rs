@@ -142,7 +142,10 @@ fn graph_monadic_transpose_projects_witnessed_axis_access() {
     assert_eq!(projected.output, output);
     assert_eq!(projected.access.input_shape(), &[2, 3]);
     assert_eq!(projected.access.output_shape(), vec![3, 2]);
-    assert_eq!(projected.access.pullback_point(&[2, 1]).unwrap(), vec![1, 2]);
+    assert_eq!(
+        projected.access.pullback_point(&[2, 1]).unwrap(),
+        vec![1, 2]
+    );
     assert_eq!(
         projected.access.pullback_region(&[1..3, 0..2]).unwrap(),
         vec![0..2, 1..3]
@@ -150,7 +153,9 @@ fn graph_monadic_transpose_projects_witnessed_axis_access() {
 
     let graph = engine.analyze_j_graph("|: |: a").unwrap();
     graph.verify().unwrap();
-    let outer = graph.static_transpose_access(graph.result.unwrap()).unwrap();
+    let outer = graph
+        .static_transpose_access(graph.result.unwrap())
+        .unwrap();
     let inner = graph.static_transpose_access(outer.input).unwrap();
     let composed = inner.access.compose_after(&outer.access).unwrap();
     assert_eq!(composed.input_shape(), &[2, 3]);
@@ -168,7 +173,9 @@ fn graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts() {
     for source in ["|. a", ", a", "a"] {
         let graph = engine.analyze_j_graph(source).unwrap();
         assert!(
-            graph.static_transpose_access(graph.result.unwrap()).is_none(),
+            graph
+                .static_transpose_access(graph.result.unwrap())
+                .is_none(),
             "{source} must not acquire a transpose access witness"
         );
     }
