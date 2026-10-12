@@ -196,3 +196,88 @@ fn graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts() {
     wrong_rank.nodes[output.0].facts.rank = Some(1);
     assert!(wrong_rank.static_transpose_access(output).is_none());
 }
+
+#[test]
+fn graph_monadic_map_and_transpose_share_region_pullback() {
+    use rustj::j_graph_access::GraphValueAccessKind;
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+
+    let graph = engine.analyze_j_graph("|: - a").unwrap();
+    graph.verify().unwrap();
+    let output = graph.result.unwrap();
+    let transpose = graph.static_value_access(output).unwrap();
+    assert_eq!(transpose.kind, GraphValueAccessKind::MonadicTranspose);
+    assert_eq!(transpose.output, output);
+
+    let map = graph.static_value_access(transpose.input).unwrap();
+    assert_eq!(map.kind, GraphValueAccessKind::UnaryMap);
+    assert_eq!(map.output, transpose.input);
+    assert_eq!(map.access.input_shape(), &[2, 3]);
+    assert_eq!(map.access.output_shape(), vec![2, 3]);
+
+    let requested = [1..3, 0..2];
+    let map_result_box = transpose.access.pullback_region(&requested).unwrap();
+    assert_eq!(map_result_box, vec![0..2, 1..3]);
+    assert_eq!(
+        map.access.pullback_region(&map_result_box).unwrap(),
+        map_result_box
+    );
+
+    let composed = map.access.compose_after(&transpose.access).unwrap();
+    assert_eq!(
+        composed.pullback_region(&requested).unwrap(),
+        map.access.pullback_region(&map_result_box).unwrap()
+    );
+    assert_eq!(composed.pullback_point(&[2, 1]).unwrap(), vec![1, 2]);
+
+    // The same transfer handles empty logical value demand, but does not
+    // authorize skipping J prototype or error work outside this demand.
+    assert_eq!(
+        composed.pullback_region(&[1..1, 0..2]).unwrap(),
+        vec![0..2, 1..1]
+    );
+}
+
+#[test]
+fn graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts() {
+    use rustj::j_graph_access::GraphValueAccessKind;
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+
+    for source in ["1 + a", "|. a", ", a", "a", "1 { a", "+/ a", "-\"1 a"] {
+        let graph = engine.analyze_j_graph(source).unwrap();
+        assert!(
+            graph.static_value_access(graph.result.unwrap()).is_none(),
+            "{source} must not acquire an unwitnessed unary Map/transpose access"
+        );
+    }
+
+    let graph = engine.analyze_j_graph("- a").unwrap();
+    let result = graph.result.unwrap();
+    let witness = graph.static_value_access(result).unwrap();
+    assert_eq!(witness.kind, GraphValueAccessKind::UnaryMap);
+
+    let mut missing = graph.clone();
+    missing.nodes[witness.input.0].facts.shape = None;
+    assert!(missing.static_value_access(result).is_none());
+
+    let mut changed_shape = graph.clone();
+    changed_shape.nodes[result.0].facts.shape = Some(vec![3, 2]);
+    assert!(changed_shape.static_value_access(result).is_none());
+
+    let mut bad_rank = graph.clone();
+    bad_rank.nodes[result.0].facts.rank = Some(1);
+    assert!(bad_rank.static_value_access(result).is_none());
+
+    // Classified operation kind alone is not an eligibility proof.
+    let mut bad_access_contract = graph;
+    if let rustj::j_graph_ir::NodeKind::Apply { contract, .. } =
+        &mut bad_access_contract.nodes[result.0].kind
+    {
+        contract.access = rustj::j_graph_ir::AccessContract::Unknown;
+    }
+    assert!(bad_access_contract.static_value_access(result).is_none());
+}

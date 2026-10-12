@@ -31,12 +31,15 @@ Reshape are deliberately out of scope.
 | graph_monadic_transpose_projects_witnessed_axis_access | Project monadic `|:` from an actual J Graph | Preserve ValueIds and exact shapes/ranks; check double-transpose composition and region demand | Incorrect graph classification or axis orientation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 | graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | Reject unrelated reindex and incomplete facts | Reverse/ravel/name/unknown or contradictory shape/rank cannot assert transpose access | Inferring a rewrite permission from an unproven relation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
+| graph_monadic_map_and_transpose_share_region_pullback | Validate shared region pullback from original unary Map→Transpose Graph | Preserve input ValueIds, independent operation witnesses, empty demand and composed/sequential agreement | Incorrect cross-family coordinate law or mismatched input occurrence | PR #75 code commit `a8e1f3e` PR CI PASS ([run](https://github.com/yunskim/RustJ/actions/runs/38320754917)); merged-main CI UNVERIFIED |
+| graph_unary_map_access_rejects_unsupported_calls_and_unknown_facts | Reject unsupported operations and contradictory contracts/facts | No invented access for Dyad, Rank, Reverse, Ravel, Gather, Reduce, NAME result, missing/contradictory facts | Unsafe admission to the common access contract | PR #75 code commit `a8e1f3e` PR CI PASS ([run](https://github.com/yunskim/RustJ/actions/runs/38320754917)); merged-main CI UNVERIFIED |
+
 ## Separate evidence still required
 
 - R0.2 projects direct monadic `|:` J Graph nodes into coordinate access; other StaticReindex operations, ranked/dyadic transpose and full J execution equivalence still need independent witnesses.
 - Sound backward region demands for memory/I/O.
 - Pinned J-C oracle checks for fill/prototype, Rank and error/effect equivalence.
-- Reuse the same transfer law across at least two different operation families.
+- R0.3 tests shared logical-region pullback for Map and Transpose; sound physical I/O savings and full J observational equality still require independent evidence.
 - Only then consider GF4/FW-05–09 witnessed rewrite or EqGraph admission.
 
 **Proved scope at this stage: coordinates and shape only.** No verified J equivalence or performance gain.
@@ -67,3 +70,26 @@ This is a **value-coordinate analysis view**, not an Exact-J rewrite, NAME
 snapshot proof, elimination of checks/effects/errors, physical byte-region
 request, or EqGraph e-class union. Do not project `|.`, `,`, dynamic shapes,
 rank-applied transpose, or dyadic `|:` without separate contracts.
+
+## R0.3 Shared coordinate/box pullback: unary Map × Transpose (2026-10-13)
+
+`Plan::static_value_access(ValueId)` exposes the **logical value-coordinate
+projection only** for two independently recognized families from the original
+J Graph:
+
+- **Direct unary Map**: primitive `FunctionHead`, atomic monad,
+  `Elementwise/CorrespondingElements` graph contract, primitive
+  `Map/Pure/PreserveRight` classification, and equal known input/output
+  Shape/Rank. Its axis relation is identity.
+- **Direct monadic `|:`**: reuse the R0.2 witnessed reverse-axis projection.
+
+Both families use the *same* `StaticAxisAccess::pullback_region`. For a
+Map→Transpose graph, one composed access must equal successive region
+pullback. This is a **cross-family coordinate value-demand law**, not proof
+of equivalence, reordering, or permission to execute fewer calls.
+
+Even a pure monadic Map may have J-visible errors in unrequested elements.
+Prototype/fill, Rank/Cell/Frame, NAME/effect and first-error precedence
+are separate obligations; this interface does not permit partial execution,
+physical I/O pruning, fusion or EqGraph union. Dyads, ranked operations,
+Gather, dynamic names and unknown shapes require independent evidence.
