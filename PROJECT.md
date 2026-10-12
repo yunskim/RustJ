@@ -2605,6 +2605,116 @@ ErrorEnvelope for exported EqRegion
 **Verification scope:** This contract was compared with existing code and research but does **not** implement `ErrorEnvelope`, an executable `EqGraph`, an oracle differential test corpus, or runtime checks. Rust/C tests and performance verification for this edit remain **UNRUN**. Do not authorize executable E-Graph optimizations before these obligations are evidenced.
 
 
+<a id="frontend-equality-synthesis"></a>
+##### 7.8 Frontend-guided J equality synthesis: separating source syntax from semantic computation (2026-10-12)
+
+**Architecture decision (design documented; implementation pending).** Do not make manual authoring of hundreds of J rewrite rules a precondition for effective optimization. Reuse RustJ's existing **verified J Syntax, \`FunctionEntity\`, canonical J Graph IR, and Execution Semantic Facts** to synthesize a bounded set of type/Rank/effect-compatible expression candidates. Admit **independently justified** equalities to \`egg\` only after verification. **\`egg\` explores compositions of supplied proven rules**; discovery of new laws, induction of preconditions, and proof of J semantics belong to a separate **Equality Synthesis sidecar**. This is neither a string rewrite engine nor an additional mandatory frontend, lowering, or optimization stage. There is no implemented synthesis pipeline or measured speedup yet.
+
+**Advantages over naked J source syntax.** J words are context-dependent: right-to-left evaluation, tacit trains (hook/fork), valence, function construction via adverbs/conjunctions, explicit Rank, fit, NAME/locale and late binding cannot be reliably inferred from matching source substrings. RustJ's frontend already provides tokens, syntax, source origins and immutable function operand **identities**. Canonical J Graph IR preserves applied monadic/dyadic operations, Graph Basis, nested \`FunctionEntity\` structures, source input occurrences and region branch-completion orders; subsequent Logical IR includes \`CallOp\` access/Rank/Cell/Frame, \`possible_errors\`, \`speculation\`, \`SemanticCheck\`, and \`order_after\`. This permits **well-sorted, typed candidate generation without reimplementing the J parser** and connects the optimizer to existing source and error legality. The frontend does not magically resolve all unknown shape/dtype/NAME/dynamic errors. \`GraphFacts\` alone never proves NoError or J equivalence.
+
+**Maintain distinct information contracts.** \`ParsedSource/FrontendContext\` and \`FunctionEntity\` preserve **the original J expression and callable identity**; \`GraphBasis/Region\` represent **structural semantic computation**; \`Logical CallOp\` and ordered checks provide **later execution legality facts**. Do not collapse all three into an unconditional canonical AST. The same J spelling can denote different behavior with differing NAME versions, locales, captured operands or valence. Retain the source \`FunctionEntity\` and export a **separate abstract term** for equality comparison. Unparsing an extracted graph back to J syntax is an optional diagnostic feature, not a prerequisite for lowering it directly to verified Logical IR.
+
+| Class | Transformation | Status for e-graph admission |
+|---|---|---|
+| **Syntactic desugaring** | Direct definitions or syntax sugar → constructed J function/definition | Frontend's semantic standardization; must preserve source provenance, diagnostics and bindings |
+| **Structural canonicalization** | Resolved valence/primitive, train/Rank/composition → explicit semantic term/Graph | Unifies candidate **representations**; does not authorize replacing their algorithms |
+| **Algebraic equality** | \`A(x) ↔ B(x)\` subject to type/shape/rank/error/number hypotheses | \`egg\` E-Class union only after independent Exact-J proof; guarded/unproved candidates remain separate |
+| **Idiom/implementation specialization** | \`(+/ % #)\` fork routed to \`jtmean\` | Source recognition/performance opportunity, not proof of an unconditional equation or a compulsory Graph IR node replacement |
+| **Argument/representation normalization** | Tessellation argument canonicalization, copy/view, buffer layout | Keep J checks and preconditions; physical realization decisions are downstream, outside the E-Graph |
+
+**Confirmed sources in pinned jsource revision \`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528\`:**
+1. [\`jsrc/cf.c::jtfolk\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c) recognizes the ordinary \`+/ % #\` fork and chooses a dedicated \`f1=jtmean\` implementation. RustJ \`src/j_graph_jsource.rs::is_mean_fork\` already checks \`FunctionEntity::Fork\`/\`ForkSemantics::Ordinary\` and primitive operands \`Slash\`, \`Plus\`, \`Div\`, and \`Pound\`. This is a **working instance of frontend-structured source idiom recognition**, not text matching. Its current output retains \`OpportunityLegality::AwaitingSemanticProofs\` and \`selected=false\`; it does **not** license unconditional \`Mean\` equality in \`egg\`.
+2. [\`jsrc/cc.c::jttesa\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c) validates tessellation argument rank/length/domain and converts the argument into a **standard start/length vector form**. This can seed canonicalization and pattern discovery but is not an independent algebraic identity that can ignore input errors, check order or the target array's rank.
+3. [\`jsrc/cx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c) includes direct-definition processing that converts \`{{...}}\` into a \`9 : '...'\`-style form and rescans the sentence. This exemplifies **syntactic desugaring**. It does not permit compile-time execution or arbitrary suppression of NAME/effect semantics.
+4. RustJ's \`src/j_graph_jsource.rs\` catalogs **16 pinned jsource-derived optimization families** (mean, windows, search, gather, result assembly, copy/view, sparse/ownership, and others). They are useful **pattern discovery seeds** with provenance, but their \`DecisionOwner\` may be ExecutionSemantics, GraphFusion, ExecutionAlgorithm, PhysicalPlanner, or RuntimeBinding. **Do not turn all into \`egg\` rules.** Discovery statuses include analysis-only, existing-analyzer, awaiting-facts and downstream-only.
+5. \`src/j_graph_rewrite.rs\` already records \`FindViaWindowMatch\` / \`JFindCutMatchIdentity\` as a **witnessed source-to-replacement candidate**. Its evidentiary status is different from the mean idiom's recognition-only opportunity. Require rule ID, fact rule, scope and proof review before promoting any candidate to an admitted \`EqRule\`.
+
+**Two-frontier, bounded synthesis pipeline:**
+
+~~~text
+Original J source
+       │ VerifiedFrontend (Program + FrontendContext, source origins)
+       ▼
+J Syntax + FunctionEntity / derived verb identity
+       ├── syntax pattern discovery (pinned jsource idioms, desugaring)
+       │      └── SyntaxPatternCandidate (NOT an equivalence proof)
+       ▼
+Canonical J Graph IR (GraphBasis, applied nodes, preserved regions)
+       ├── typed semantic term export (source graph stays canonical)
+       └── bounded grammar/term enumeration, typed metavariables/occurrences
+                     ▼
+          CandidatePair / conditional rule schema
+                     ▼
+          oracle comparisons / counterexample search
+                     ▼
+           semantic legality + proof/guard review
+             ├── disproved → reject with counterexample
+             ├── unproved/guarded → pending registry (NO e-union)
+             └── independently proven Exact-J → EqRule + witness
+                                                     ↓
+                                             egg::EGraph saturation
+                                                     ↓
+                                      verified multi-root/shared-DAG extraction
+                                                     ↓
+                                            Verified Logical Array IR / fallback
+~~~
+
+**Conceptual interfaces (sidecar contracts, not new required IR payloads).**
+
+~~~text
+TermSignature:
+  sort=(noun | verb | adverb | conjunction | value), valence, primitive_id
+  operand_structure/FunctionEntity, ordered_input_occurrences
+  rank/cell/frame constraints, shape/dtype/JType, prototype/fill
+  numeric tolerance/fit/overflow policy, exact rational/IEEE policy
+  name/locale/source version, source origins
+  effect/possible errors/ordered checks/observed state
+
+SyntaxPatternCandidate:
+  source_signature, normalized_semantic_pattern, jsource_rule/provenance
+  phase = syntax_desugar | structural_recognize | algebraic | downstream
+  owner = frontend | graph_rewrite | execution_semantics | planner
+  proof_status = unknown | counterexample | guarded | independently_proven
+
+EqRuleAdmission:
+  lhs/rhs typed pattern, quantified metavariables and valence
+  required facts, legal context, exception/effect/numeric witness
+  rule version, pinned J/JSOURCE revision, source provenance
+  proof status = ExactJStatic (for unconditional e-class union) | Other
+~~~
+
+An implementation should reference existing \`FunctionEntity\` / \`GraphFacts\` / \`FactWitness\` / \`GraphRewriteCandidate\` / error analyses, rather than freeze this proposal as a mandatory new AST or API. Identical normalized hashes do **not** imply proven equality. Reject stale origins/NAME versions/guards, or changed/repeated input occurrences without proof.
+
+**Candidate synthesis algorithm and implementation order:**
+1. **Seeds:** Ingest explicit J Dictionary identities, already witnessed \`GraphRewriteRule\` candidates and pinned jsource **pattern recognizers** as *distinct source categories*. Never mechanically copy an internal specialized implementation into an unconditional \`LHS=RHS\` equation. Extract generalizable syntactic patterns with explicit provenance.
+2. **Well-sorted grammar:** Generate bounded-depth expressions from \`x\`/\`y\`, constants, structured \`Apply\`, \`RankApply\`, \`Transpose\`, \`Ravel\`, \`Reshape\`, \`Gather\`, \`Reduce\`, \`Scan\`, preserved \`Hook/Fork\` and explicitly registered extended primitives/adjoints. Do not unfold unknown/dynamic \`FunctionEntity\` or invent concrete types for \`Unknown\` facts. Version the actual set of supported grammar constructors.
+3. **Early pruning:** Filter by sort/valence, element type/rank, symbolic shape/frame/cell, arity, primitive domain, prototype/fill and ordered input occurrences. An alias, NAME, or effectful boundary excludes enumeration outside an eligible closed pure region. Never downgrade inconsistent facts to \`Unknown\` to declare legality.
+4. **Observation signatures:** Compare across a deterministic array corpus, including scalar/high-rank, empty-frame/cell, boxed/sparse, mixed type, integer overflow/promotion, NaN and signed zero, tolerance/fit, valid/invalid index, and value-dependent errors. A pinned J-C oracle observes more than numeric values: **JType/Shape/Atoms, first error/handler, source blame, effects and post-error state**. Execute test cases only in isolated, reproducible fixtures; do not mutate the actual host environment while probing effectful J definitions.
+5. **Equivalence *hypotheses*:** Bucket expressions by their matching observed outcomes/fingerprints, then anti-unify common subterms into typed metavariables such as \`?x\`, proposing a conditional \`LHS ↔ RHS\`. A few matching tests establish **hypotheses**, not actual \`egg\` E-Classes. Value-based runtime guards are valid only if proved before the first J-visible action or a separately verified deoptimization boundary.
+6. **Counterexamples and proof:** Differential-test held-out shapes, ranks, types, fills and failures; reject the generalized rule or tighten its scope when a counterexample appears. Completely enumerate genuinely finite domains when possible; use rule-specific algebraic/type/error-order arguments for structural identities. General J program equivalence is not algorithmically decidable: **an oracle pass never automatically upgrades a rule to \`ExactJStatic\`**. Only independently reviewed proven laws enter unconditional \`egg::EGraph::union\`.
+7. **Integration:** Store a reproducible registry of \`RuleId\`, source revision, preconditions, witnesses, numeric mode, effect/error trace and proof status. Supply only admitted \`EqRule\` objects to a bounded \`egg::Runner\`, with a multi-root DAG extractor verifying composed alternatives. Keep cost, target selection and proof status independent. On unknowns or timeout preserve the original source graph.
+
+**Representative vertical slices:**
+- **Structural:** Synthesize \`(|: |: y)\` vs \`y\` as a monadic double-transpose *candidate*. Admit only after J transpose/rank, input-evaluation count and error-negative cases have been proved.
+- **jsource idiom:** Recognize the exact monadic ordinary fork \`(+/ % #) y\` as \`MeanIdiom\` while deferring an algebraic \`Mean(y)\` substitution until full numeric/empty/type/error/Rank proof. If only the executor changes, route that as an ExecutionAlgorithm specialization, not an E-Graph law.
+- **Existing rewrite:** Keep \`x E. y\` vs \`($x) x&-: ;.3 y\` under current \`JFindCutMatchIdentity\` provenance/fact witnesses and inspect actual admissible scope before converting to an \`egg\` rule.
+- **Negative/conditional:** Reject \`0 * index(A,i)\` when zero-folding removes Index errors; floating reassociation, repeated or removed NAME lookups, effectful Fork reordering, and elimination of zero-frame virtual fill behavior. Equal successful numeric samples never authorize changed first errors or effects.
+
+**Reproducibility, budgets and verifier gates.** Bound enumeration depth/width/term count, grammar size, oracle cases/time and \`egg\` node/class/match/iteration limits. Record deterministic seeds, sorted rule IDs, generator version, \`JSOURCE_SOURCE_PIN\`, oracle J revision, frontend/compiler versions and test corpus hash. Operate pattern *discovery* separately from promotion to production *proof-approved* rules. If a fingerprint collides, alias/shape generalization overreaches, a solver times out or upstream canonicalization invalidates a source map, record \`FAIL\` or \`UNRUN\`, and block E-Graph admission. Report **generated candidates, disproved hypotheses, pending hypotheses and proven rules separately**; performance requires end-to-end measurements rather than assumed savings.
+
+**Pending subtasks under the existing acceptance ledger (no new milestone):**
+- [ ] **M2 / GF4:** Implement a \`TermSignature\` export adapter using frontend \`FunctionEntity\` and original source mapping; test hook/fork, modifiers, Rank, valence, late NAME and repeated input occurrence round trips, plus negative tests separating syntax normalization from semantic equality.
+- [ ] **GF4 / FW-05–09:** Classify pinned \`cf.c::jtfolk\`, \`cc.c::jttesa\`, and \`cx.c\` into different transform classes and connect provenance-bearing pattern extraction to \`j_graph_jsource\`; verify forbidden E-Class unions for conditional syntax/algorithm opportunities.
+- [ ] **GF4 / GF5a:** Implement bounded typed-grammar enumeration and anti-unification/generalization; verify pruning of ill-sorted, unknown and effectful candidates, deterministic replay and resource bounds.
+- [ ] **GF4 / RK / FW-05–09:** Add a pinned J-C oracle differential corpus covering success, error, effects, shapes, ranks, empty/boxed/sparse/numeric values and negative counterexamples; separate hypothesis and proof-approved registries.
+- [ ] **GF4 / FW-05–09:** Verify \`EqRuleAdmission::ExactJStatic\` evidence, \`ErrorEnvelope\` and proof/guard requirements, rejecting unconditional union for guarded, uncertain-error/effect or numeric rules.
+- [ ] **GF4 / GF6:** Admit at least one independently verified equality to \`egg\`, preserving original and multi-root provenance through extraction and verified Logical IR round trip; demonstrate original-graph fallback on failure.
+- [ ] **IO-09/10 / GF6:** Distinguish shared-producer liveness, I/O, resource and cost among synthesized alternatives, verify actual execution and measure results; ensure optimizer budgets do not become J \`Error::Limit\`.
+- [ ] **GF4 / GF5a:** Separately measure synthesized-rule contributions against a baseline using only existing proven \`egg\` rules; document a falsification/stop condition if no new provable equalities appear or verification costs outweigh benefits.
+
+**Status (2026-10-12):** Review of pinned jsource and current RustJ frontend/graph source and this **design/checklist documentation are complete**. Candidate generator, semantic-equality oracle harness, independent proof engine, \`egg\` adapter and performance experiments remain **unimplemented/UNRUN**. This remains optional research/optimization sidecar; it does not preempt M2/M3 correctness, the M4 single-CPU baseline, or the canonical separation of Graph Basis from Execution Basis in \`FOUNDATIONS.ko.md\`.
+
+
 ##### 8. RustJ placement, experimental design and falsification criteria
 
 **Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
