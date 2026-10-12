@@ -424,3 +424,50 @@ impl Plan {
         })
     }
 }
+
+/// A syntactic operand occurrence in the original, verified J Graph.
+/// This is not an execution, side-effect, liveness or region-demand witness.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphUseOperand {
+    Left,
+    Right,
+}
+
+/// One original Apply-node use of a specific Graph ValueId. The same
+/// consumer can occur twice, once per operand, without deduplication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GraphUseOccurrence {
+    pub consumer: ValueId,
+    pub operand: GraphUseOperand,
+}
+
+impl Plan {
+    /// Enumerate original Apply operand edges for one original ValueId.
+    ///
+    /// Preserve input-slot multiplicity, including hook/fork occurrences.
+    /// Never infer that all listed consumers execute, that all value requests
+    /// were enumerated, or that any J-visible check/error may be skipped.
+    /// Rank/cell/effect/NAME semantics are not normalized by this projection.
+    pub fn graph_use_occurrences(&self, value: ValueId) -> Option<Vec<GraphUseOccurrence>> {
+        self.verify().ok()?;
+        self.nodes.get(value.0)?;
+        let mut uses = Vec::new();
+        for (index, node) in self.nodes.iter().enumerate() {
+            if let NodeKind::Apply { left, right, .. } = &node.kind {
+                if *right == value {
+                    uses.push(GraphUseOccurrence {
+                        consumer: ValueId(index),
+                        operand: GraphUseOperand::Right,
+                    });
+                }
+                if *left == Some(value) {
+                    uses.push(GraphUseOccurrence {
+                        consumer: ValueId(index),
+                        operand: GraphUseOperand::Left,
+                    });
+                }
+            }
+        }
+        Some(uses)
+    }
+}

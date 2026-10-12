@@ -39,6 +39,7 @@ Reshape are deliberately out of scope.
 
 | graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | Exact union of requests from two transpose consumers of a real fork | Keep each separately witnessed rectangular demand, never mislabel bounding hull as exact | Dropped fanout region or unsound exact-hull claim | PR #81 merged · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
 | graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests | Reject unsupported join, unrelated target and malformed requests | Every demand must prove a path to the same original ValueId; reject join/bad bounds/empty input | Fabricated access across join or invalid set aggregation | PR #81 merged · main `9def7b8` CI PASS ([PR #38323280279](https://github.com/yunskim/RustJ/actions/runs/38323280279), [main #38323556118](https://github.com/yunskim/RustJ/actions/runs/38323556118), [main #38323556145](https://github.com/yunskim/RustJ/actions/runs/38323556145)) |
+| graph_fanout_consumer_occurrences_match_original_edges | Enumerate exact original Fork/Hook Apply input occurrences | Preserve two right-operand fork consumers, left/right hook reuse, and reject invalid ValueId | Lost fanout operand use, slot/source misattribution or guessed execution demand | PR #87 CI pending |
 
 ## Separate evidence still required
 
@@ -137,3 +138,18 @@ This is only an **exact set of logical per-value coordinate demands**.
 It does not justify partially executing the enclosing fork/join, removing
 observable NAME, errors, prototype/fill or effects, physical byte/IO pruning,
 or EqGraph equality.
+
+## R0.6 Original Graph operand-use occurrence enumeration (2026-10-13)
+
+`Plan::graph_use_occurrences(value)` first verifies the complete Plan and
+enumerates **original** `NodeKind::Apply` operand references. Each
+`GraphUseOccurrence { consumer, operand: Left | Right }` retains both the
+actual consumer ValueId and operand slot. Duplicated references are not
+deduplicated; original Hook/Fork data-flow uses remain separately visible.
+
+This establishes structural operand-use enumeration, **not** actual execution
+or an automatically derived set of demanded boxes. R0.5
+`witnessed_value_demand_union` still requires caller-supplied output requests
+and independently witnessed R0.4 backward Map/Transpose paths. NAME versions,
+effects/errors, rank/prototype/fill and observable execution obligations are
+untouched; no physical I/O pruning, scheduling or EqGraph legality follows.
