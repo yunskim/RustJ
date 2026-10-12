@@ -2473,7 +2473,7 @@ Thus the contributed report's **"only 1.5 million multiplications for the entire
 <a id="eqsat-successors-plan"></a>
 ##### 7.3 Practical follow-ups to SPORES: `egg`, relational e-matching and `egglog` (2026-10-12)
 
-**Separate research contributions from architectural adoption.** Importing SPORES' relational representation as RustJ's universal IR would be a different decision from reusing the more general methods for **representing, exploring, proving and extracting equivalent alternatives**. RustJ proposes to investigate the latter first. The following are primary research sources; they are complementary projects, not successive versions of the same optimizer.
+**Integrated design (binding contract across §§7.6–7.9).** Importing SPORES' relational LA representation as a universal J IR, reusing its **indexed access relations** for broad J array families, and adopting `egg`/successor techniques for **compression, discovery and extraction of equivalences** are distinct decisions. Keep canonical J Graph IR authoritative; experiment with a **broad optional `RelAccessView` representation** while admitting **unconditional algebraic identities only in independently proven Exact-J scopes**. Connect frontend-driven rule synthesis to [§7.8](#frontend-equality-synthesis), expanded relational coverage and R0/R1/R2 to [§7.9](#spores-relational-integration), and observable error/effect legality to [§7.7](#eqgraph-error-semantics). The cited research papers are complementary, not successive versions of one optimizer.
 
 | Research and primary source | Established contribution | RustJ adaptation / decision |
 |---|---|---|
@@ -2484,19 +2484,22 @@ Thus the contributed report's **"only 1.5 million multiplications for the entire
 | [`egglog`, PLDI 2023](https://doi.org/10.1145/3591239), [implementation](https://github.com/egraphs-good/egglog) | Integrates incremental Datalog-style facts and lattice reasoning with equality saturation, congruence closure and extraction | Compare once shape/Rank/alias/demand fact fixpoints need more expressive rule composition than `egg` e-class analysis; **not** the default engine yet |
 | [Glenside, MAPS 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | Pure tensor access-pattern rewrites and accelerator mapping | Reference for DACC Access/Compute projections and im2col; J Rank/prototype/effects remain separately proved |
 
-**Try `egg` first; decide on `egglog` after comparison.** Existing `src/j_graph_rewrite.rs` is a source-preserving candidate registry with `GraphEquivalenceWitness` and `GraphRewriteProvenance`, not a general-purpose e-graph. `egg` provides the smallest plausible Rust-side bounded-search experiment. `egglog` may be a better fit when mutually refining analysis relations and fixed-point rules become central; importing both as production dependencies before those needs are demonstrated would enlarge M2/M3 scope without an established benefit. Neither is a mandatory compiler stage.
+**Try `egg` first; decide on `egglog` after comparison.** Existing `src/j_graph_rewrite.rs` is a source-preserving candidate registry with `GraphEquivalenceWitness` and `GraphRewriteProvenance`, not a general-purpose e-graph. `egg` provides the smallest plausible Rust-side bounded-search experiment. SPORES-style axis schemas and access relations feed **typed term/analysis candidates inside the same EqGraph**, rather than a separate mandatory optimizer; without a static Exact-J witness, no E-Class union is authorized. `egglog` may be a better fit when mutually refining analysis relations and fixed-point rules become central; importing both as production dependencies before those needs are demonstrated would enlarge M2/M3 scope without an established benefit. Neither is a mandatory compiler stage.
 
 ##### 7.4 Optional RustJ EqSat adapter contract: proof, exploration and extraction stay separate
 
 ~~~text
-J Semantic IR / J Graph IR (immutable source, FunctionEntity, provenance)
-  → pure, closed, witnessed candidate region + semantic/fact snapshot
-  → optional DACC / indexed sum-product projection
-  → bounded egg e-graph discovery (later: egglog comparison)
-  → validated alternatives with witness/guard + original-graph fallback
-  → Verified Logical IR lowering / ExecutionLegality
-  → target-aware shared-DAG ResourceEstimate and CostEstimate
-  → RoutePartition / Schedule / Physical Plan (only if lawful)
+VerifiedFrontend / J Semantic IR / canonical J Graph IR
+  → eligible closed pure region + source/semantic/error fact snapshot
+  → two optional EqTerm inputs:
+       (a) frontend-guided typed J rule candidates (§7.8)
+       (b) SPORES-inspired RelAccessView / indexed axes (§7.9)
+  → independently proven Exact-J rules + EvidenceEdge; guarded/unknown isolated
+  → bounded egg E-Graph (source J terms + admitted relational alternatives)
+  → verified multi-root/shared-DAG extraction, resources and cost
+  → Verified Logical IR / ExecutionLegality / target route admission
+  → RoutePartition / Schedule / Physical Plan
+  (on proof, budget, extraction or admission failure: original verified graph)
 ~~~
 
 - **Candidate scope:** Export only explicitly closed, pure graph regions. Do not unconditionally merge late-bound NAME reads, `1!:` I/O, mutable `StateResource`, state-dependent adjoints or consumers with observable evaluation/error-order differences. Preserve original FunctionEntity/derived modifier/NN extension and independently callable adjoint identity. Even for pure operations prove J-visible dtype/shape, Rank/Cell/Frame, empty-frame prototype/fill, sparse/boxed behavior, fit/tolerance, integer promotion, floating-point exceptions/bit patterns and evaluation multiplicity.
@@ -2512,7 +2515,7 @@ These boxes collect **sub-evidence under existing canonical checklist items**, n
 
 - [ ] **GF4 / FW-05–09:** Prototype an `egg` adapter preserving Graph IR identity/round-trip, versioned origin, guards and negative `Unknown`/stale-witness rejection.
 - [ ] **GF4:** Compare a small *exact* `IndexMap∘IndexMap` rule and independently pure Map cases first. Add mandatory negative cases for FP reassociation, effect/error reorder, empty-frame prototypes, sparse/boxed representation and dynamic NAME.
-- [ ] **GF4 / GF5a:** Test DACC Window/Reduce/Scan/Conv projections and shared input-demand pullback; reject the generic-algebra hypothesis if no single sound transfer rule works across **two distinct operation families**.
+- [ ] **GF4 / GF5a:** Test DACC/`RelAccessView` Window/Reduce/Scan/Conv projections and shared input-demand pullback; **measure representable operation families separately from Exact-J rewritable families**, and follow the R0/R1/R2/negative gates in [§7.9](#spores-relational-integration). Reject the generic-algebra hypothesis if no single sound transfer rule works across **two distinct operation families**.
 - [ ] **GF4 / GF6:** Evaluate multi-output/shared-producer patterns with tree/greedy versus shared-DAG-aware extraction; record output identity, cycles, read bytes, duplicate work, peak materialization and compilation overhead.
 - [ ] **GF6 / IO-09·10:** Claim speed/Work/Depth/I/O/memory benefits only after an executable CPU candidate is verified against the same fixed inputs and target; external routes obey the same legality/semantic gate.
 - [ ] **GF4 / FW-05–09 (later):** A/B compare `egg` with `egglog` on fact refinement, interacting rules, implementation complexity and compilation time; investigate relational e-matching **only after measuring a matching bottleneck**. Record dependency/version/feature-flag adoption separately.
