@@ -30,7 +30,6 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | axis_composition_preserves_scalar_and_zero_extent_shapes | scalar/빈 축 경계 유지 | rank 0, shape의 0 크기 축, 무효 좌표 검사 보존 | 빈 프레임/축 정보 손실 또는 없는 atom 접근 허용 | PR #70 head CI PASS (2026-10-13) |
 | graph_monadic_transpose_projects_witnessed_axis_access | 실제 monadic `|:` J Graph의 역축 관계 추출 | 입력·출력 Shape/Rank 증거 및 원본 ValueId 보존, 두 번의 전치 합성 후 영역 역추적 확인 | 잘못된 Graph 노드를 정적 전치로 분류하거나 접근 축 방향을 잘못 계산 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 | graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | 다른 Reindex·ReadNoun 및 불완전 facts 거부 | Reverse/Ravel/단순 명칭 및 Unknown/불일치 Shape·Rank에 witness를 부여하지 않음 | 추측한 의미론을 최적화의 근거로 허용 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
-
 | graph_monadic_map_and_transpose_share_region_pullback | monadic Map과 전치의 동일한 Region 역추적 메서드 재사용 | 실제 J Graph `|: - a`에서 Map은 동일 좌표, 전치는 역축이며 합성·순차 요구 영역이 일치 | 서로 다른 연산군 사이 접근 관계 합성 방향 또는 영역 계산 오류 | R0.3 CI 대기 |
 | graph_unary_map_projection_rejects_non_pointwise_or_incomplete_facts | 비단항/비Map/Shape 불일치의 안전한 거부 | dyadic Map·Reindex·ReadNoun·Unknown/불일치 사실에는 단항 Map witness 없음 | 비적격 J 연산을 pointwise 접근으로 오분류 | R0.3 CI 대기 |
 
