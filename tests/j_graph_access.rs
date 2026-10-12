@@ -204,7 +204,9 @@ fn graph_monadic_map_and_transpose_share_region_pullback() {
     let graph = engine.analyze_j_graph("|: - a").unwrap();
     graph.verify().unwrap();
 
-    let transpose = graph.static_transpose_access(graph.result.unwrap()).unwrap();
+    let transpose = graph
+        .static_transpose_access(graph.result.unwrap())
+        .unwrap();
     let map = graph.static_unary_map_access(transpose.input).unwrap();
     assert_eq!(map.output, transpose.input);
     assert_eq!(map.access.input_shape(), &[2, 3]);
