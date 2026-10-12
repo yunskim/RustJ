@@ -37,6 +37,9 @@ Reshape are deliberately out of scope.
 | graph_value_demand_closure_across_witnessed_chain | Trace unary Map→Transpose→Map logical value-demand from original J Graph | Preserve every ValueId and exact output-to-source regions, empty demand, scalar, NAME source | Skipped graph edge, wrong map or lost source identity | PR #78 merged · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
 | graph_value_demand_stops_at_unproved_operation_and_invalid_box | Protect unproved internal operation and invalid box boundaries | Stop before reverse/dyad/reduction/rank, reject invalid rank/bounds or unknown result shape | Fabricated smaller input-demand through unsupported operation | PR #78 merged · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
 
+| graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | Exact union of requests from two transpose consumers of a real fork | Keep each separately witnessed rectangular demand, never mislabel bounding hull as exact | Dropped fanout region or unsound exact-hull claim | R0.5 PR CI pending |
+| graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests | Reject unsupported join, unrelated target and malformed requests | Every demand must prove a path to the same original ValueId; reject join/bad bounds/empty input | Fabricated access across join or invalid set aggregation | R0.5 PR CI pending |
+
 ## Separate evidence still required
 
 - R0.2 projects direct monadic `|:` J Graph nodes into coordinate access; other StaticReindex operations, ranked/dyadic transpose and full J execution equivalence still need independent witnesses.
@@ -116,3 +119,21 @@ nodes, NAME ordering, error effects and all computation obligations remain
 untouched; empty demand does not authorize skipping any fill/prototype work.
 Fanout/branch closure, physical byte/I/O demands, costs, Exact-J observational
 equality and EqGraph union require independent evidence.
+
+## R0.5 Exact union of logical fanout value-demands (2026-10-13)
+
+`Plan::witnessed_value_demand_union(target, requests)` validates each original
+output ValueId and rectangular request through the R0.4 backward witness chain
+**independently**, and accepts only requests proven to reach the same original
+target ValueId. `GraphValueDemandUnion` preserves an exact `Vec<Rectangle>`
+union. Overlapping or disjoint boxes are retained; no enclosing bounding
+rectangle is silently claimed exact.
+
+Test with the two independent transpose consumers in a concrete
+`(|: + |:) a` fork. Its dyadic join is an unproved access barrier; unrelated
+target, malformed rank/box and empty requests fail closed.
+
+This is only an **exact set of logical per-value coordinate demands**.
+It does not justify partially executing the enclosing fork/join, removing
+observable NAME, errors, prototype/fill or effects, physical byte/IO pruning,
+or EqGraph equality.

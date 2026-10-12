@@ -363,3 +363,61 @@ impl Plan {
         }
     }
 }
+
+/// Exact union of separately witnessed rectangular *logical value* demands
+/// for one original Graph ValueId. A disjoint union is not silently replaced
+/// by a bounding box; duplicate or overlapping boxes are retained.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphValueDemandUnion {
+    pub value: ValueId,
+    pub boxes: Vec<Vec<Range<usize>>>,
+}
+
+impl GraphValueDemandUnion {
+    /// Membership in the exact union, not in a potentially larger hull.
+    pub fn contains(&self, coordinate: &[usize]) -> bool {
+        self.boxes.iter().any(|region| {
+            region.len() == coordinate.len()
+                && region
+                    .iter()
+                    .zip(coordinate)
+                    .all(|(range, index)| range.contains(index))
+        })
+    }
+}
+
+impl Plan {
+    /// Pull back several original output demands to a common Graph ValueId.
+    ///
+    /// Each request is validated *within this Plan*, with its own backward
+    /// R0.4 witness chain. Every request must reach target; an unsupported
+    /// branch/join is a barrier. This does not model executable partial
+    /// evaluation, branch pruning or error/effect/prototype elision.
+    pub fn witnessed_value_demand_union(
+        &self,
+        target: ValueId,
+        requests: &[(ValueId, Vec<Range<usize>>)],
+    ) -> Option<GraphValueDemandUnion> {
+        self.verify().ok()?;
+        let target_shape = self.nodes.get(target.0)?.facts.shape.as_ref()?;
+        if requests.is_empty() {
+            return None;
+        }
+        let mut boxes = Vec::with_capacity(requests.len());
+        for (output, region) in requests {
+            let trace = self.value_demand_trace(*output, region)?;
+            let at_target = trace.steps.iter().find(|step| step.value == target)?;
+            if at_target.region.len() != target_shape.len()
+                || at_target
+                    .region
+                    .iter()
+                    .zip(target_shape)
+                    .any(|(range, extent)| range.start > range.end || range.end > *extent)
+            {
+                return None;
+            }
+            boxes.push(at_target.region.clone());
+        }
+        Some(GraphValueDemandUnion { value: target, boxes })
+    }
+}

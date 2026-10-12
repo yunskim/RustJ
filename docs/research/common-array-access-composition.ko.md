@@ -37,6 +37,9 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | graph_value_demand_closure_across_witnessed_chain | 원본 J Graph의 단항 Map→Transpose→Map 체인 요구 영역 역추적 | ValueId별 출력→입력 사각 영역·빈 요구 영역·scalar가 정확히 전달되고 NAME 읽기에서 종료 | 누락된 Graph 간선, 잘못된 좌표 관계 또는 원본 출처 손실 | PR #78 병합 · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
 | graph_value_demand_stops_at_unproved_operation_and_invalid_box | 불확실한 중간 연산·유효하지 않은 영역 경계 보호 | Reverse·Dyad·Reduce·Rank에서는 불명확한 입력으로 역추적하지 않으며 범위·rank 오류를 거부 | 지원하지 않는 연산의 입력을 임의 축소하거나 무효 요구 영역 수락 | PR #78 병합 · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
 
+| graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | 실제 Fork의 두 전치 소비자에서 공통 원본 요구 영역의 합집합 검증 | 분리·중첩 가능성이 있는 직사각형들을 정확한 region-set으로 유지하여 bounding hull의 과잉 범위를 정확하다고 주장하지 않음 | fanout 요구 손실 또는 비직사각형 합집합을 단일 박스로 오인 | R0.5 PR CI 대기 |
+| graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests | 검증되지 않은 join·다른 목표·무효 요구 거부 | 각 요청은 같은 원본 ValueId까지 독립적으로 증명되어야 하며 미증명 join/범위 위반/빈 요청 거부 | 조인 간선에서 추정 접근 관계 또는 거짓 요청 합집합 생성 | R0.5 PR CI 대기 |
+
 ## 다음에 필요한 독립 증거
 
 - 실제 monadic `|:`의 Graph→정적 축 접근 투영은 R0.2에서 도입. 다른 StaticReindex, dyadic/ranked `|:` 및 전체 실행 의미론은 별도 증거 필요
@@ -115,3 +118,21 @@ Shape/Rank에 맞는 반열린 직사각형 값 영역만 받는다. R0.3에서 
 연산 또는 fill/prototype 작업의 제거를 뜻하지 않는다. fanout/branch,
 실제 I/O byte 범위, 물리 비용, Exact-J 관찰 동치 및 EqGraph union은
 별도의 실험과 합법성 증명을 기다린다.
+
+## R0.5 fanout의 여러 논리 값 영역: 정확한 합집합 (2026-10-13)
+
+`Plan::witnessed_value_demand_union(target, requests)`는 여러 출력 `ValueId`의
+영역 요구를 **각각 R0.4의 역추적 법칙으로 증명**한 다음, 실제로 동일한
+원본 target `ValueId`까지 도달하는 경우에만 `GraphValueDemandUnion`을
+구성한다. 입력 요구는 `Vec<RectangularRegion>`의 정확한 합집합으로
+남긴다. 사각형 외피(bounding hull)를 계산해서 정확한 영역이라고
+표기하지 않으며, 겹치거나 중복되는 박스도 의미를 바꾸지 않고 보존한다.
+
+작은 `(|: + |:) a` Fork의 두 독립 전치 소비자로 원본 값의 실제 fanout을
+검증한다. 증거 없는 dyadic join은 `UnprovedOperation` 장벽이고,
+잘못된 source·rank·범위·빈 요청은 실패 폐쇄한다.
+
+이는 **원본 그래프의 논리 값 요구 영역의 집합**일 뿐이다.
+상위 join 전체가 부분 실행 가능하거나 빈 영역에서 오류·fill/prototype을
+생략해도 된다는 뜻이 아니며, 실제 물리 byte/IO 범위 최적화나
+EqGraph 동치 결합을 허용하지 않는다.
