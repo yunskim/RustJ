@@ -6980,6 +6980,55 @@ rewritten:
 
 **기존 GF/IO 원장에 연계할 실험(새 체크리스트 없음).** GF4의 versioned GraphRewriteCandidate/CompositionRelation에 (a) 단일 출력 `Map∘Map`·`IndexMap∘IndexMap`, (b) 두 output의 MatMul share/concat/split 규칙을 **analysis-only e-graph 후보**로 비교한다. GF5/6의 target feasibility·resource cost에서 greedy vs DAG-sharing-aware global extraction의 중복 계산/메모리·compile-time 차이를 측정한다. negative corpus로 floating-point reassociation, error visibility, Rank empty-frame/virtual cell, output-binding mismatches, cycle, stale witness, shared producer side effect를 검사한다. `egg` 또는 `egglog` 채택 여부, ILP 종속성, 실행 최적화 승인 여부는 별도 후속 결정이며 현재 RustJ의 GF4/GF6 구현 수용은 올라가지 않는다. 최신 [EqiForge 2026-09 preprint](https://arxiv.org/abs/2609.12330)도 동일 주제의 후속 연구 후보지만 RustJ 실제 성능 근거로 사용하지 않는다.
 
+<a id="eqsat-successors-plan"></a>
+##### 7.3 SPORES 이후의 실용 기술: `egg`, relational e-matching, `egglog` (2026-10-12)
+
+**연구 계보는 기능별로 구분한다.** SPORES의 관계형 LA 표현을 J의 보편 IR로 복제하는 것과, 후속 연구에서 검증한 **등가 후보의 압축 저장·조건부 탐색·전역 추출** 기술을 재사용하는 것은 다른 결정이다. RustJ는 우선 후자를 검토한다. 다음 논문은 정확한 직접 인용 출처이며 서로 동일한 시스템의 연속 버전이라는 의미는 아니다.
+
+| 연구와 1차 자료 | 실제 기여 | RustJ에 적용할 범위와 도입 판단 |
+|---|---|---|
+| [SPORES, PVLDB 2020](https://doi.org/10.14778/3407790.3407799) | 제한된 LA→관계대수→등가 포화→비용 추출; 합·곱 최적화와 희소성·CSE 상호작용 | 순수 `IndexSumProduct` 부분영역에 한해 **선택적 관계 투영**을 실험. full-J 관계형 변환은 불채택 |
+| [`egg`, POPL 2021](https://doi.org/10.1145/3434304), [Rust 라이브러리](https://github.com/egraphs-good/egg) | e-graph의 rebuilding, e-class analysis, 조건부 rewrite 및 extraction용 범용 Rust 엔진 | **첫 실험 엔진 후보**. 기존 `GraphRewriteCandidate` 옆에서만 bounded exploration; Cargo 필수 의존성 추가는 실험 결과 이후 결정 |
+| [TenSat, MLSys 2021](https://proceedings.mlsys.org/paper_files/paper/2021/file/cc427d934a7f6c0663e5923f49eba531-Paper.pdf) | 비지역적 다중 출력 규칙, shape-aware exploration, 공유 DAG의 비용/순환 제약을 가진 ILP extraction | 다중 consumer/합쳐진 출력에 대한 탐색·추출 **설계 참고**. TenSat 수치 규칙을 그대로 이식하지 않음 |
+| [Relational e-matching, POPL 2022](https://doi.org/10.1145/3498696) | e-matching을 관계형 join 질의로 보고 pattern 구조에 맞는 실행 계획을 사용 | 여러 graph pattern이 실제 병목으로 확인된 뒤에만 검토. RustJ가 SQL 엔진을 가져야 한다는 뜻 아님 |
+| [`egglog`, PLDI 2023](https://doi.org/10.1145/3591239), [구현](https://github.com/egraphs-good/egglog) | Datalog 방식의 점증적 사실 추론·lattice 분석과 등가 포화·congruence closure·추출 통합 | `Known/Guarded/Unknown`, shape/Rank/alias/region demand의 **규칙 기반 고정점 분석**이 `egg`의 e-class analysis보다 명확하게 필요할 때 비교 실험. 기본 엔진으로 즉시 확정하지 않음 |
+| [Glenside, MAPS 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | 순수 tensor access pattern과 등가 탐색을 분리 | DACC의 Access/Compute 투영과 Conv/im2col 후보를 참조; J의 Rank·prototype·효과는 별도 proof |
+
+**`egg` 우선, `egglog` 비교 후 결정.** 현재 `src/j_graph_rewrite.rs`는 원본을 보존하는 candidate registry/`GraphEquivalenceWitness`/`GraphRewriteProvenance` 경계이며 범용 e-graph가 아니다. `egg`의 Rust API와 분석 확장성이 **최소한의 범위 제한 탐색기** 검증에 적합하다. `egglog`는 여러 fact와 관계를 반복 정련하는 규칙이 필요할 때 장점이 있지만, 다중 분석 도메인과 규칙 고정점 엔진을 지금 필수 middle-end로 끌어들이면 M2/M3 범위가 커진다. 한 번의 실험에서 두 엔진을 동시에 프로덕션 의존성으로 추가하지 않는다.
+
+##### 7.4 RustJ 등가 포화 adapter 계약 — 법적 등가성, 구조적 탐색, 추출을 분리
+
+~~~text
+J Semantic IR / J Graph IR (immutable source, FunctionEntity / provenance)
+  → pure, closed, witnessed candidate region + semantic/fact snapshot
+  → optional DACC / indexed sum-product projection
+  → bounded egg e-graph alternative discovery (later: egglog comparison)
+  → validated alternatives + proof/guard + original-source fallback
+  → Verified Logical IR lowering / ExecutionLegality
+  → target-aware, shared-DAG ResourceEstimate + CostEstimate extraction
+  → RoutePartition / Schedule / Physical Plan (only after proof)
+~~~
+
+- **탐색 영역:** 명시적으로 닫힌 순수 계산 region만 export한다. Name late binding, `1!:` I/O, mutable `StateResource`, 상태 의존적 adjoint, 오류 관찰 순서가 달라질 수 있는 소비자를 동일 e-class에 무조건 합치지 않는다. FunctionEntity·derived operator·NN extended primitive·독립 adjoint identity는 원본에서 유지한다. 순수 fragment 안에서도 J-visible dtype, Shape, Rank/Cell/Frame, prototype/fill, sparse/boxed, fit/tolerance, 정수 promotion, floating-point bit/exception 및 실행 횟수를 증명해야 한다.
+- **e-class 합치기 전 legality:** 후보 규칙의 `rule_id/version`, source-span, input occurrence, original `ValueId`, fact snapshot, `FactWitness`와 필요 guard/fallback을 보관한다. *수학적 등식이나 dtype/shape 일치만으로 union 허가 금지.* `Exact-J Proven`의 정적 동치만 무조건 union하며, `Guarded`는 guard 영역에서만 성립하는 별도 조건부 후보로 유지한다. 기본 `egg` e-class 자체가 runtime guard, side effect, J error precedence를 증명하지 않는다. `Unknown/Disproven`은 합치기·선택 불가.
+- **조건부 분석:** e-class의 shape·rank·access·dtype·array property·source-version fact merge는 기존 `ValueFacts`의 refinement 규율과 모순되면 거절하거나 `Unknown`으로 후퇴한다. 다른 타입이나 다른 result assembly의 e-node를 잘못 동일시하지 않는다. Proof/witness 유효성은 그래프/규칙 버전에 귀속시키고 stale witness·negative fact를 verifier가 거부한다. 선택한 후보는 Graph/Logical 경계에서 **재검증**한다.
+- **탐색 예산·재현성:** e-node/e-class 수, rewrite iteration, pattern match, 다중 패턴 확장 및 wall-clock/solver budget을 독립 제한하고 정해진 규칙 순서와 seed로 재현 가능한 결과를 남긴다. budget/timeout/solver 부재 시 **원래 검증된 graph 경로**를 선택한다. Source Graph와 J semantics를 파괴하거나 새 필수 IR/pass로 대체하지 않는다.
+- **추출은 단일 트리 최솟값이 아니다:** `egg`의 기본 tree extractor만으로 공유 producer의 재사용 vs 재계산, 여러 output, memory peak, read-region/I/O, transfer, target backend, fuse 가능성을 올바르게 평가할 수 없다. 우선 bounded 후보를 **공유 DAG**로 복원하고 `ResourceEstimate`와 별도 `CostEstimate`를 비교한다. greedy/tree, 공유-DAG-aware heuristic, 선택적 ILP(예: [`egg` LpExtractor](https://docs.rs/egg/latest/egg/struct.LpExtractor.html))를 구분한다. 실제 추출 DAG의 cycle·consumer 수·lifetime·재료화와 output binding을 검증한다. ILP/solver는 성공 전제나 필수 의존성이 아니다.
+- **출력:** 등가 포화 탐색 결과는 *분석 후보*일 뿐, `LogicalOptimizer` 실행 권한이나 물리 kernel/배치 배정을 의미하지 않는다. 숫자적 재결합을 허용하는 별도의 비-J approximate 모드를 이 변경으로 만들지 않는다. 모든 경로에서 순서 있는 first error, empty-frame virtual Cell, full-J fallback이 살아 있어야 한다.
+
+##### 7.5 기존 GF/FW/IO 수용 원장에 속하는 실행 체크리스트
+
+아래 항목은 **기존 체크리스트의 하위 증거**이고 새로운 완료 단계나 독립적인 구현 상태표가 아니다. 전부 **미구현·미검증**이며 문서 반영만으로 GF4/GF6 수용 상태를 변경하지 않는다. M2 frontend, M3 legality, M4 single-CPU baseline보다 앞서도록 일정을 강제하지 않는다.
+
+- [ ] **GF4 / FW-05–09:** `egg` proof-of-concept에서 원본 Graph IR과 adapter term의 왕복 보존, stable source/version, guarded rewrite와 stale-witness/Unknown 거절을 검증한다.
+- [ ] **GF4:** 소규모 *정확한* `IndexMap∘IndexMap` 및 독립 순수 Map 사례를 우선 비교한다. 비법적 FP reassociation, error/effect 재배치, empty-frame prototype, sparse/boxed, dynamic NAME을 반드시 negative corpus에 넣는다.
+- [ ] **GF4 / GF5a:** DACC projection의 Window/Reduce/Scan/Conv와 동일 input-region pullback 규칙 재사용을 측정한다. 동일 규칙이 **서로 다른 두 연산군 이상**에서 sound하게 동작하지 못하면 일반화 주장을 기각한다.
+- [ ] **GF4 / GF6:** 다중 출력·공유 producer 후보에서 tree/greedy와 shared-DAG-aware extraction을 비교하고 output/cycle, read-bytes, duplicated work, peak-materialization과 compile-time을 기록한다.
+- [ ] **GF6 / IO-09·10:** 실제 executable CPU 후보가 생긴 후에만 고정 입력·동일 target에서 speed/Work/Depth/I/O/메모리 개선을 검증한다. 외부 route도 동일한 legality 및 semantics verification을 통과해야 한다.
+- [ ] **GF4 / FW-05–09 (후순위):** `egg`와 `egglog`의 사실 정련·규칙 간 상호작용·구현 복잡도·컴파일 시간을 A/B 비교하고, 관계형 e-matching은 **pattern matching 병목 측정 후** 검토한다. 채택 여부와 crate/version/feature flag를 별도 결정 기록으로 남긴다.
+
+**문서 검증 상태 (2026-10-12):** 논문 출처·기존 stage/원장과의 매핑만 검토했다. 새로운 optimizer 구현, corpus 실행, J-C oracle, Rust `fmt`/`clippy`/tests 및 성능 벤치마크는 이 문서 수정에서 **UNRUN**이다. 연구 결과를 실행 성능·J 의미 동치의 실증으로 표시하지 않는다.
+
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
 **아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
