@@ -115,15 +115,11 @@ fn axis_region_pullback_matches_composition_and_exact_requested_points() {
         AxisAccessError::RankMismatch
     );
     assert_eq!(
-        composed
-            .pullback_region(&[0..5, 0..2, 0..2])
-            .unwrap_err(),
+        composed.pullback_region(&[0..5, 0..2, 0..2]).unwrap_err(),
         AxisAccessError::RegionOutOfBounds
     );
     assert_eq!(
-        composed
-            .pullback_region(&[3..2, 0..2, 0..2])
-            .unwrap_err(),
+        composed.pullback_region(&[3..2, 0..2, 0..2]).unwrap_err(),
         AxisAccessError::RegionOutOfBounds
     );
 }
