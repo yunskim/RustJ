@@ -7115,6 +7115,116 @@ ErrorEnvelope for exported EqRegion
 **문서 변경의 검증 범위:** 이 계약은 연구/설계와 기존 코드 구조 대조에 한정된다. `ErrorEnvelope`, 실제 `EqGraph`, J-C differential corpus 및 runtime 검증은 이 PR에서 **미구현·UNRUN**이다. 해당 오류 불변조건을 충족하는 증거 없이는 E-Graph optimizer를 실행 경로로 승인하지 않는다.
 
 
+<a id="frontend-equality-synthesis"></a>
+##### 7.8 Frontend 기반 J 동치 규칙 자동 발견·생성: 구문 표면과 의미론적 계산의 분리 (2026-10-12)
+
+**설계 결정(제안 확정, 구현 미완료).** 사용자가 수백 개의 J rewrite 규칙을 수작업으로 작성하는 것을 기본 전제로 삼지 않는다. 이미 구현된 RustJ Frontend의 **검증된 J Syntax + \`FunctionEntity\` + J Graph IR + Execution Semantic Facts**를 재사용해 타입/Rank/효과 조건이 맞는 식을 제한적으로 *합성(synthesis)*하고, 검증된 규칙만 \`egg\`의 equality saturation에 투입한다. **\`egg\`의 책임은 검증된 규칙을 조합해 동치 표현을 누적 탐색하는 것**이고, 새 규칙의 발명·전제 조건 추론·J 의미론 검증은 별도의 **Equality Synthesis sidecar**의 책임이다. 문자열 재작성기, 병렬 optimizer 또는 새 필수 Frontend 단계로 만들지 않는다. 실제 구현/성능 향상은 아직 없다.
+
+**왜 naked J syntax보다 Frontend 결과가 유리한가?** 원문 구문은 J 단어의 형성과 우→좌 실행, tacit train(hook/fork), valence, conjunction/adverb에서 비롯되는 함수 생성, rank conjunction, fit, NAME/locale/late binding을 문맥 없이 판정할 수 없다. Frontend는 이미 토큰·구문·소스 origin과 함수 operand의 **구조적 정체성**을 기록하고, J Graph에는 단항/이항 적용, Graph Basis, 중첩 FunctionEntity, source input occurrence, region의 branch completion order가 있다. 다음 단계의 Logical IR은 \`CallOp\`의 access/Rank/Cell/Frame, \`possible_errors\`, \`speculation\`, \`SemanticCheck\`, \`order_after\`를 제공한다. 따라서 **파서를 복제하지 않고** 의미론적으로 가능한 후보만 열거하고 source provenance·오류 검증을 연결할 수 있다. 단, Frontend가 unknown shape/dtype/NAME·동적 오류를 알게 만들어 주는 것은 아니며, J Graph IR의 \`GraphFacts\`만으로 NoError/동치가 증명되지는 않는다.
+
+**정보를 구별해 보존하는 계약.** \`ParsedSource/FrontendContext\`와 \`FunctionEntity\`는 **원래 J 구문의 증거·함수 정체성**이고, \`GraphBasis/Region\`은 **의미론적 계산 패턴**이며, \`Logical CallOp\`와 ordered checks는 **실행 합법성에 필요한 후행 사실**이다. 세 층을 합쳐 하나의 무조건적인 canonical AST로 붕괴시키지 않는다. 특히 동일한 글자열도 NAME version, locale, operand capture, valence에 따라 다른 의미를 가질 수 있다. \`FunctionEntity\`의 원본을 보존하고 동치 비교용 추상 term을 **별도로 export**한다. 최적 표현을 다시 J 문자열로 unparse하는 것은 선택적 진단 기능이지 추출/Logical IR lowering의 필수 조건이 아니다.
+
+| 구분 | 입력 / 결과 | 동치 탐색에서의 지위 |
+|---|---|---|
+| **Syntactic desugaring** | direct definition·구문 sugar → 구성된 J 함수/정의 객체 | 같은 J 언어 의미로 읽는 Frontend 표준화 후보; 소스·진단/바인딩을 유지해야 함 |
+| **Structural canonicalization** | resolved valence/primitive, train/Rank/composition → explicit semantic term/Graph | 동치 후보의 **표현 통일**, 곧바로 다른 알고리즘을 허용하는 rewrites가 아님 |
+| **Algebraic equality** | \`A(x) ↔ B(x)\` with typed shape/rank/error/number assumptions | Exact-J 증명 후에만 \`egg\` e-class union; 조건부/미증명 후보는 분리 |
+| **Idiom/implementation specialization** | \`(+/ % #)\` Fork → \`jtmean\` 같은 specialized executor | 소스 인식·성능 후보이지 자동 대수 동치 증명 또는 J Graph IR node 강제 치환이 아님 |
+| **Argument/representation normalization** | tessellation argument의 표준형, copy/view, buffer layout | 논리 의미론/전제 검사와 분리. 물리 선택은 E-Graph 밖 |
+
+**jsource에서 확인된 구체적인 추출 근거(기존 pinned revision \`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528\`):**
+1. [\`jsrc/cf.c::jtfolk\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c)는 ordinary \`+/ % #\` fork 형식을 검사해 \`f1=jtmean\`로 전용 구현을 선택한다. RustJ의 \`src/j_graph_jsource.rs::is_mean_fork\`는 이미 \`FunctionEntity::Fork\`/\`ForkSemantics::Ordinary\`와 \`PrimitiveAdverb(Slash)\`·\`PrimitiveVerb(Plus,Div,Pound)\`를 검사한다. **문자열 탐색이 아니라 Frontend가 보존한 operand DAG 구조**를 활용할 수 있다는 작동 중인 분석 예다. 다만 현재 결과는 \`OpportunityLegality::AwaitingSemanticProofs\`, \`selected=false\`이고, 일반 \`Mean\`으로의 무조건적 \`egg\` 합치기 허가가 아니다.
+2. [\`jsrc/cc.c::jttesa\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c)는 tessellation 인자를 rank/length/domain 검사와 변환 뒤 **표준형(start/length vector)**으로 만든다. 이는 표준형 비교/후보 생성의 근거지만, 입력 의미·오류/검사 시점·대상 배열 rank 조건을 지운 독립 항등식은 아니다.
+3. [\`jsrc/cx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c)의 direct definition 처리에는 \`{{...}}\` 구문을 \`9 : '...'\` 계열 표현으로 변환해 재파싱하는 경로가 있다. **구문 전개에 의한 공통 표현**의 예이지, 임의의 정의 실행/NAME/효과를 compile time에 평가해도 된다는 뜻이 아니다.
+4. \`src/j_graph_jsource.rs\`의 **16개 jsource family**(mean, window, search, index, gather, rank/result assembly, copy/view, sparse/ownership 등)는 재사용할 provenance와 **pattern discovery seed**를 제공한다. \`DecisionOwner\`가 GraphFusion/ExecutionAlgorithm/PhysicalPlanner/RuntimeBinding으로 나뉘므로 **일괄적으로 \`egg\` rewrite로 변환하지 않는다**. 현재 family catalog는 analysis-only / existing-analyzer / awaiting-facts / downstream-only 항목을 포함한다.
+5. \`src/j_graph_rewrite.rs\`의 \`FindViaWindowMatch\` / \`JFindCutMatchIdentity\`는 이미 source↔replacement 및 witness가 분리된 하나의 **기등록 동치 후보**다. 이것과 \`MeanIdiom\` recognition의 증거 수준은 같지 않다. Rule ID/FactRule/Scope/Proof를 통과한 경우에만 새 \`EqRule\` 후보로 승격한다.
+
+**두 입력 표면을 쓰는 제한적 합성 경로:**
+
+~~~text
+Original J source
+       │  VerifiedFrontend (Program + FrontendContext, source origins)
+       ▼
+J Syntax + FunctionEntity / derived verb identity
+       ├── syntactic pattern extraction (jsource pinned idioms, desugaring)
+       │      └── SyntaxPatternCandidate (not an equality proof)
+       ▼
+Canonical J Graph IR (GraphBasis, applied nodes, original regions)
+       ├── typed semantic term export (not a replacement for source graph)
+       └── bounded grammar/term enumeration + typed holes and occurrences
+                     ▼
+         CandidatePair / conditional rule schema
+                     ▼
+      staged oracle comparisons / counterexamples
+                     ▼
+       semantic legality + proof/guard review
+             ├── disproved → reject with counterexample
+             ├── unproved/guarded → pending/conditional registry (NO e-union)
+             └── independently proven Exact-J → EqRule + witness
+                                                    ↓
+                                            egg::EGraph saturation
+                                                    ↓
+                                  verified multi-root/shared-DAG extraction
+                                                    ↓
+                                     Verified Logical Array IR / fallback
+~~~
+
+**개념적인 인터페이스(신규 필수 IR이 아닌 sidecar 계약).**
+
+~~~text
+TermSignature:
+  sort=(noun | verb | adverb | conjunction | value), valence, primitive_id
+  operand_structure/FunctionEntity, ordered_input_occurrences
+  rank/cell/frame constraints, shape/dtype/JType, prototype/fill
+  numeric tolerance/fit/overflow policy, exact rational/IEEE policy
+  name/locale/source version, source origins
+  effect/possible errors/ordered checks/observed state
+
+SyntaxPatternCandidate:
+  source_signature, normalized_semantic_pattern, jsource_rule/provenance
+  phase = syntax_desugar | structural_recognize | algebraic | downstream
+  owner = frontend | graph_rewrite | execution_semantics | planner
+  proof_status = unknown | counterexample | guarded | independently_proven
+
+EqRuleAdmission:
+  lhs/rhs typed pattern, quantified variable bindings and valences
+  required facts, legal context, exception/effect/numeric witness
+  rule version + pinned J/JSOURCE revision + source provenance
+  proof status = ExactJStatic (for unconditional union) | Other
+~~~
+
+실제 코드는 기존 \`FunctionEntity\`/\`GraphFacts\`/\`FactWitness\`/\`GraphRewriteCandidate\`/error fact를 **참조**하도록 만들고 이 schema를 사전 고정 API/필수 새로운 AST로 강제하지 않는다. "정규화 결과가 같다"를 단순 hash equality로 검증 완료 처리하지 않는다. 입력 occurrence가 다르거나 origin/version/witness가 stale이면 후보를 거절한다.
+
+**자동 후보 생성 알고리즘(구현 순서):**
+1. **시드**: J Dictionary의 명시적 항등식, \`GraphRewriteRule\`의 증명된 후보, pinned jsource의 **패턴 인식**을 분리해 수집한다. jsource의 specialized executor 자체를 \`LHS=RHS\` 항등식으로 복사하지 않는다. 동일한 일반화가 가능한 syntactic pattern만 provenance를 남기며 생성한다.
+2. **유형 있는 문법**: 입력 \`x\`/\`y\`, 상수, 구조적 \`Apply\`, \`RankApply\`, \`Transpose\`, \`Ravel\`, \`Reshape\`, \`Gather\`, \`Reduce\`, \`Scan\`, 구조화된 \`Hook/Fork\`, 명시된 extended primitive/adjoint를 작은 depth부터 생성한다. 정적이 아닌 \`FunctionEntity\`를 분해하거나 \`Unknown\` type의 다형식을 임의의 구체 타입으로 만들지 않는다. 실제 구현 가능한 primitive 목록·합성 문법은 별도 버전으로 관리한다.
+3. **초기 pruning**: sort/valence, 원소 타입·rank, symbolic shape/frame/cell, arity, primitive domain, result prototype/fill, ordered input occurrence를 검사해 구조적으로 불가능한 조합을 제거한다. input alias/NAME/side-effect 가능성이 있으면 닫힌 순수 region 밖에는 합성하지 않는다. 사실 충돌을 \`Unknown\`으로 격하해 합법화하지 않는다.
+4. **관찰 서명**: 정해진 소규모 배열 코퍼스(스칼라·고Rank·empty-frame/empty-cell·boxed·sparse·mixed dtype·정수 승격·NaN/±0·tolerance/fit·유효/무효 index·동적 오류)를 pinned J-C oracle와 비교한다. **J value뿐 아니라 JType/Shape/Atoms, first error/handler, source blame, 효과와 사후 상태**를 구분한다. 무결한/격리된 fixture에서만 평가하며 효과 있는 후보 실행으로 호스트 상태를 오염시키지 않는다.
+5. **동치 클래스 *가설***: 관찰 결과가 일치한 식들을 fingerprint로 bucket하고, 공통 부분식을 typed metavariable \`?x\` 등으로 anti-unify/generalize해 조건부 \`LHS ↔ RHS\`를 만든다. 결과가 같은 소수의 테스트는 **가설**이지 영구 \`egg\` e-class가 아니다. 입력값 의존 가드는 first J-visible action 이전에 검증할 수 있어야 한다.
+6. **반례·증명**: 미사용 입력·Rank·dtype·fill·오류를 별도 differential suite에서 검사하고 반례가 나오면 scope/guard를 보강하거나 폐기한다. **한정된 입력 도메인**은 가능한 경우 완전 열거, 단순 구조 규칙은 규칙별 수학/타입/오류 순서 증명을 만든다. 일반 J 식의 완전 자동 동치 판정은 불가능하므로 oracle pass만으로 \`ExactJStatic\`으로 승격하지 않는다. 독립 검토/검증된 정적 항등식만 \`egg\`의 \`union\`에 허용한다.
+7. **구현 연결**: \`RuleId\`, source revision, precondition, witness, numeric policy, effect/error trace를 serialize하거나 재현 가능한 registry에 기록한다. registry에서 승인된 \`EqRule\`만 bounded \`egg::Runner\`에 공급하고, 여러 rewrite 경로와 공유 DAG의 이득은 \`EqExtractor\`가 검증한다. cost/target/physical choice와 증명 status는 독립이다. Unknown/timeout이면 source graph를 유지한다.
+
+**대표 세로 검증 사례:**
+- **구조적**: \`(|: |: y)\` → \`y\`를 monadic transpose-twice *후보*로 자동 생성한다. 실제 J transpose/Rank 동작, 입력 평가 횟수와 negative case까지 증명 후에만 rule로 채택한다.
+- **jsource-recognized idiom**: \`(+/ % #) y\`는 정확한 monadic ordinary Fork로 인식하며 \`MeanIdiom\` opportunity를 만들되, \`Mean(y)\`로 치환되는 rewrite는 numeric/empty/type/error/Rank 완전성 증명 전까지 보류한다. 단지 specialized execution algorithm을 비교할 경우는 E-Graph가 아니라 기존 ExecutionAlgorithm 측으로 보낸다.
+- **Graph rewrite**: \`x E. y\` ↔ \`($x) x&-: ;.3 y\`는 현재 \`JFindCutMatchIdentity\` candidate와 source/fact witness를 유지하고, 실제 admissible scope를 검증한 다음 \`egg\` 변환을 검토한다.
+- **조건부/음성**: \`0 * index(A,i)\`의 오류 소거, 실수 reassociation, NAME 재조회/중복 조회, side-effecting Fork 재배치, rank empty-frame fill 누락 등은 합성 결과의 관찰 값이 겉으로 같아도 **원본보다 일찍 J 오류를 가리거나 효과를 변경하면 거절**한다.
+
+**재현성·예산·검증기:** enumeration의 depth/width/term 수, 타입 스키마 수, oracle case 수/시간, \`egg\` node/class/match/iteration 예산을 모두 제한하고 deterministic seed와 sorted rule IDs, generator version, \`JSOURCE_SOURCE_PIN\`, oracle J revision, parser/compiler version, discovery corpus hash를 기록한다. Pattern 발견과 프로덕션 Rule 승격을 다른 job/게이트로 운영한다. 단순 수치 fingerprint 충돌, alias/shape over-generalization, solver timeout, 새로운 upstream normalization으로 source map이 바뀐 경우 \`FAIL\` 또는 \`UNRUN\`로 남기고 \`egg\` 활성화를 차단한다. 발견율은 **후보/검증된 규칙/반례/미증명 규칙을 분리**해 보고하고, 최종 성능 주장은 실제 end-to-end 측정이 있을 때만 한다.
+
+**기존 acceptance ledger에 연결할 미완료 체크리스트(새 milestone 아님):**
+- [ ] **M2 / GF4** Frontend \`FunctionEntity\`와 original source mapping을 사용한 \`TermSignature\` adapter 구현: hook/fork, modifier, rank, valence, late NAME, repeated occurrence round trip 및 syntax-normalization/semantic-equality 분리 음성 테스트.
+- [ ] **GF4 / FW-05–09** pinned \`cf.c::jtfolk\`, \`cc.c::jttesa\`, \`cx.c\` 변환을 세 부류로 분류하고 \`j_graph_jsource\` family registry와 연동한 provenance-bearing source pattern extractor; conditional syntax/algorithm 후보의 **금지된 e-union** verifier.
+- [ ] **GF4 / GF5a** 정해진 typed grammar에 대한 bounded candidate enumerator + anti-unification/generalization 구현; ill-sorted/unknown/effectful 후보 early pruning, deterministic replay 및 검색 예산 테스트.
+- [ ] **GF4 / RK / FW-05–09** pinned J-C oracle의 success/error/effect/shape/rank/empty/boxed/sparse/numeric 차등 코퍼스와 negative counterexample suite 구축; 발견 가설과 증명된 규칙을 서로 다른 registry로 관리.
+- [ ] **GF4 / FW-05–09** \`EqRuleAdmission\`의 \`ExactJStatic\` 증거와 \`ErrorEnvelope\`/proof/guard 조건 검증기를 마련해 conditional 후보·불명확한 오류/효과/숫자 대수의 unconditional union 거절.
+- [ ] **GF4 / GF6** 독립적으로 검증된 규칙 최소 한 개의 \`egg\` 등록, original/multi-root provenance 보존 및 extraction → Verified Logical IR round trip; 성공하지 못한 경우 원본 Graph fallback 증빙.
+- [ ] **IO-09/10 / GF6** 생성된 여러 대안의 공유 producer/liveness/IO/resource/cost를 구분해 실행 검증 및 실측; optimizer 내부 budget 실패가 J \`Error::Limit\`이 되지 않는지 확인.
+- [ ] **GF4 / GF5a** 기존 규칙만 적용한 \`egg\` baseline 대비 synthesized rule 추가의 별도 증가 효과를 측정하고, 새로운 확정 동치 규칙이 없거나 검증 비용이 과도하면 자동 합성 확대를 중단하는 반증 조건을 기록한다.
+
+**현황(2026-10-12):** jsource pinned source 및 기존 RustJ Frontend/Graph 모듈 대조와 이 설계·체크리스트 문서화만 **PASS**. 자동 생성기/semantic equality oracle harness/independent proof/\`egg\` adapter, 성능 측정은 **미구현·UNRUN**이다. M2/M3 정확성, M4 단일 CPU baseline에 앞서 필수 stage로 올리지 않는다. \`FOUNDATIONS.ko.md\`의 원본 J 의미론과 Graph Basis/Execution Basis 구분에 어긋나지 않도록 이 연구는 **선택적 analysis/optimization sidecar**로 둔다.
+
+
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
 **아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.
