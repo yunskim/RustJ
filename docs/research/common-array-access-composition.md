@@ -28,8 +28,8 @@ Reshape are deliberately out of scope.
 | axis_access_rejects_unproved_shape_and_index_relations | Reject absent or contradictory facts | Reject invalid rank/bijection/shape/coordinate | Invalid access relation was admitted | PR #70 head CI PASS (2026-10-13) |
 | axis_region_pullback_matches_composition_and_exact_requested_points | Pull back an output box through static permutations | Composed/sequential regions and exhaustive point membership agree; reject bad bounds | Unsound region pruning or index-axis mapping | PR #71 and merged-main CI PASS (2026-10-13) |
 | axis_composition_preserves_scalar_and_zero_extent_shapes | Protect scalar and zero-extent boundaries | Preserve rank zero, zero extents, nonexistent atom access | Empty shape semantics or bounds lost | PR #70 head CI PASS (2026-10-13) |
-| graph_monadic_transpose_projects_witnessed_axis_access | Project monadic `|:` from an actual J Graph | Preserve ValueIds and exact shapes/ranks; check double-transpose composition and region demand | Incorrect graph classification or axis orientation | PR #72 CI pending |
-| graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | Reject unrelated reindex and incomplete facts | Reverse/ravel/name/unknown or contradictory shape/rank cannot assert transpose access | Inferring a rewrite permission from an unproven relation | PR #72 CI pending |
+| graph_monadic_transpose_projects_witnessed_axis_access | Project monadic `|:` from an actual J Graph | Preserve ValueIds and exact shapes/ranks; check double-transpose composition and region demand | Incorrect graph classification or axis orientation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
+| graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | Reject unrelated reindex and incomplete facts | Reverse/ravel/name/unknown or contradictory shape/rank cannot assert transpose access | Inferring a rewrite permission from an unproven relation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
 ## Separate evidence still required
 
