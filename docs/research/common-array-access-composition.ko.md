@@ -24,9 +24,10 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 
 | Test | Purpose | Guarantee | Failure meaning | Status |
 |---|---|---|---|---|
-| axis_permutation_composition_matches_two_stage_pullback | 독립적인 두 축 순열의 합성 확인 | 작은 모든 유효 좌표에서 직접 역추적과 합성 역추적이 일치 | 축 합성 방향 또는 좌표 매핑 오류 | CI 검증 대기 |
-| axis_access_rejects_unproved_shape_and_index_relations | 불완전한 증거의 거부 | rank, bijection, 중간 shape, 좌표 범위 위반을 거부 | 잘못된 접근 관계를 정당한 증거로 허용 | CI 검증 대기 |
-| axis_composition_preserves_scalar_and_zero_extent_shapes | scalar/빈 축 경계 유지 | rank 0, shape의 0 크기 축, 무효 좌표 검사 보존 | 빈 프레임/축 정보 손실 또는 없는 atom 접근 허용 | CI 검증 대기 |
+| axis_permutation_composition_matches_two_stage_pullback | 독립적인 두 축 순열의 합성 확인 | 작은 모든 유효 좌표에서 직접 역추적과 합성 역추적이 일치 | 축 합성 방향 또는 좌표 매핑 오류 | PR #70 head CI PASS (2026-10-13) |
+| axis_access_rejects_unproved_shape_and_index_relations | 불완전한 증거의 거부 | rank, bijection, 중간 shape, 좌표 범위 위반을 거부 | 잘못된 접근 관계를 정당한 증거로 허용 | PR #70 head CI PASS (2026-10-13) |
+| axis_region_pullback_matches_composition_and_exact_requested_points | 정적 순열에서 출력 박스의 역방향 요구 영역 검증 | 합성·순차 역추적과 영역별 점 포함 관계가 정확히 일치하고 무효 범위를 거부 | 잘못된 데이터 영역 축소나 불필요한 축 삽입 | PR #71 CI 대기 |
+| axis_composition_preserves_scalar_and_zero_extent_shapes | scalar/빈 축 경계 유지 | rank 0, shape의 0 크기 축, 무효 좌표 검사 보존 | 빈 프레임/축 정보 손실 또는 없는 atom 접근 허용 | PR #70 head CI PASS (2026-10-13) |
 
 ## 다음에 필요한 독립 증거
 
@@ -37,3 +38,15 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 - 그 뒤에만 GF4/FW-05–09의 Rewrite/EqGraph 근거 후보로 승격
 
 **현재 증명 범위: 좌표와 shape.** 실제 J 동치나 성능 이득은 미검증.
+
+## R0.1 직사각형 데이터 영역 역추적 (2026-10-13)
+
+각 출력 축의 반열린 범위 R[j]가 주어지면 정적 전단사 순열 p에서
+입력 축 p[j]의 요구 범위는 정확히 R[j]다. 범위의 길이와 순서는 바꾸지 않는다.
+출력 rank, 시작/끝 순서, 실제 출력 extent를 검증하며, 빈 범위도 그대로 보존한다.
+합성 순열에 적용한 결과는 두 변환에 차례로 적용한 결과와 일치해야 한다.
+
+이 증명은 **논리적 value-region**에만 적용한다. 빈 결과가 프로토타입 계산,
+오류 검사, 효과 실행을 생략할 수 있다는 증거가 아니며, 실제 저장소 청크,
+실행 스케줄 및 파일 byte 범위를 허용하지 않는다. GF5a/IO-09·10의 실제
+Graph access witness와 J 의미론 검증이 이어져야 한다.

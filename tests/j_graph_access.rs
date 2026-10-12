@@ -75,3 +75,55 @@ fn axis_composition_preserves_scalar_and_zero_extent_shapes() {
     );
     // An empty value demand cannot erase J prototype/fill/assembly obligations.
 }
+
+#[test]
+fn axis_region_pullback_matches_composition_and_exact_requested_points() {
+    let first = StaticAxisAccess::new(vec![2, 3, 4], vec![1, 2, 0]).unwrap();
+    let second = StaticAxisAccess::new(vec![3, 4, 2], vec![1, 0, 2]).unwrap();
+    let composed = first.compose_after(&second).unwrap();
+    let requested = [1..3, 0..2, 0..2];
+    let input = composed.pullback_region(&requested).unwrap();
+
+    assert_eq!(input, vec![0..2, 0..2, 1..3]);
+    let intermediate = second.pullback_region(&requested).unwrap();
+    assert_eq!(input, first.pullback_region(&intermediate).unwrap());
+
+    for i in 0..4 {
+        for j in 0..3 {
+            for k in 0..2 {
+                let output = [i, j, k];
+                let input_point = composed.pullback_point(&output).unwrap();
+                let selected_output = requested
+                    .iter()
+                    .zip(output)
+                    .all(|(range, coordinate)| range.contains(&coordinate));
+                let selected_input = input
+                    .iter()
+                    .zip(input_point)
+                    .all(|(range, coordinate)| range.contains(&coordinate));
+                assert_eq!(selected_input, selected_output);
+            }
+        }
+    }
+
+    assert_eq!(
+        composed.pullback_region(&[1..1, 0..2, 0..2]).unwrap(),
+        vec![0..2, 0..2, 1..1]
+    );
+    assert_eq!(
+        composed.pullback_region(&[0..1]).unwrap_err(),
+        AxisAccessError::RankMismatch
+    );
+    assert_eq!(
+        composed
+            .pullback_region(&[0..5, 0..2, 0..2])
+            .unwrap_err(),
+        AxisAccessError::RegionOutOfBounds
+    );
+    assert_eq!(
+        composed
+            .pullback_region(&[3..2, 0..2, 0..2])
+            .unwrap_err(),
+        AxisAccessError::RegionOutOfBounds
+    );
+}
