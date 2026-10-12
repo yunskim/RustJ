@@ -36,6 +36,8 @@ Reshape are deliberately out of scope.
 
 | graph_value_demand_closure_across_witnessed_chain | Trace unary Map→Transpose→Map logical value-demand from original J Graph | Preserve every ValueId and exact output-to-source regions, empty demand, scalar, NAME source | Skipped graph edge, wrong map or lost source identity | PR #78 merged · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
 | graph_value_demand_stops_at_unproved_operation_and_invalid_box | Protect unproved internal operation and invalid box boundaries | Stop before reverse/dyad/reduction/rank, reject invalid rank/bounds or unknown result shape | Fabricated smaller input-demand through unsupported operation | PR #78 merged · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
+| graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | Validate multiple consumers of the same original ValueId in a fork | Keep per-consumer boxes including disjoint, overlapping and empty regions; exact membership with no invented bounding rectangle | Lost consumer demand or mislabeled nonrectangular union as an exact single box | R0.5 PR CI pending |
+| graph_fanout_demands_reject_unproved_edges_and_preserve_scalar_empty_cases | Reject unproved branch edges / invalid bounds and protect scalar vs no demand | Cannot propagate through Reverse; scalar logical atom differs from an empty demand set | Unsafe propagation or incorrect scalar/bounds semantics | R0.5 PR CI pending |
 
 ## Separate evidence still required
 
@@ -116,3 +118,27 @@ nodes, NAME ordering, error effects and all computation obligations remain
 untouched; empty demand does not authorize skipping any fill/prototype work.
 Fanout/branch closure, physical byte/I/O demands, costs, Exact-J observational
 equality and EqGraph union require independent evidence.
+
+## R0.5 Exact union of multiple original J Graph value consumer demands (2026-10-13)
+
+`GraphFanoutRequest { output, region }` identifies a **caller-selected
+original output ValueId and logical value box**. For each request,
+`Plan::fanout_value_demand_union(value, requests)` independently traces
+backward through R0.4 `value_demand_trace` and requires that every path
+reach the same original `value`. It returns
+`GraphFanoutDemandUnion { value, shape, occurrences }`.
+
+- Each occurrence keeps its original consumer `output` identity and the
+  **exact** projected rectangle on the shared original `value`.
+- Disjoint and overlapping rectangles remain a **set of rectangles**, with
+  point membership evaluated as a union; no unjustified bounding rectangle
+  is substituted, and no storage or physical read interval is derived.
+- An unproved edge on any path fails closed to `None`. Rank-zero `[]` box
+  requests the scalar atom, unlike an empty *list of requests*.
+- The requests are explicitly enumerated by the caller; this is **not**
+  automatic discovery of all graph consumers or execution demand.
+
+The original graph, effects/errors/NAME, prototype/fill behavior and J
+execution order are untouched. No executable partial evaluation, byte-level
+I/O pruning, schedule, EqGraph union or full J observational equivalence is
+authorized by this coordinate-only analysis.

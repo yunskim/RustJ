@@ -370,3 +370,136 @@ fn graph_value_demand_stops_at_unproved_operation_and_invalid_box() {
             .is_none()
     );
 }
+
+#[test]
+fn graph_fanout_demands_remain_conservative_when_boxes_are_disjoint() {
+    use rustj::j_graph_access::GraphFanoutRequest;
+    use rustj::j_graph_ir::RegionKind;
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 3 3").unwrap();
+    let graph = engine.analyze_j_graph("(- + |:) a").unwrap();
+    graph.verify().unwrap();
+
+    let branches = graph
+        .regions
+        .iter()
+        .find_map(|r| match &r.kind {
+            RegionKind::Fork { branch_results, .. } => Some(branch_results.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(branches.len(), 2);
+    let transpose = graph.static_value_access(branches[0]).unwrap();
+    let map = graph.static_value_access(branches[1]).unwrap();
+    assert_eq!(transpose.input, map.input);
+    let source = transpose.input;
+
+    let requests = [
+        GraphFanoutRequest {
+            output: map.output,
+            region: vec![0..1, 0..2],
+        },
+        GraphFanoutRequest {
+            output: transpose.output,
+            region: vec![1..2, 2..3],
+        },
+        GraphFanoutRequest {
+            output: map.output,
+            region: vec![0..1, 1..3],
+        },
+        GraphFanoutRequest {
+            output: map.output,
+            region: vec![0..0, 2..3],
+        },
+    ];
+    let union = graph.fanout_value_demand_union(source, &requests).unwrap();
+    assert_eq!(union.value, source);
+    assert_eq!(union.shape, vec![3, 3]);
+    assert_eq!(union.occurrences.len(), 4);
+    assert_eq!(union.occurrences[0].region, vec![0..1, 0..2]);
+    assert_eq!(union.occurrences[1].region, vec![2..3, 1..2]);
+    assert_eq!(union.occurrences[2].region, vec![0..1, 1..3]);
+    assert_eq!(union.occurrences[3].region, vec![0..0, 2..3]);
+    for row in 0..3 {
+        for column in 0..3 {
+            let exact = requests.iter().any(|request| {
+                let traced = graph
+                    .value_demand_trace(request.output, &request.region)
+                    .unwrap();
+                let box_at_source = &traced.steps.last().unwrap().region;
+                box_at_source[0].contains(&row) && box_at_source[1].contains(&column)
+            });
+            assert_eq!(union.contains_point(&[row, column]), exact);
+        }
+    }
+    // The bounding rectangle would contain (1,0), but the exact union does not.
+    assert!(!union.contains_point(&[1, 0]));
+    assert!(union.contains_point(&[0, 0]));
+    assert!(union.contains_point(&[2, 1]));
+    assert!(!union.contains_point(&[3, 0]));
+}
+
+#[test]
+fn graph_fanout_demands_reject_unproved_edges_and_preserve_scalar_empty_cases() {
+    use rustj::j_graph_access::GraphFanoutRequest;
+
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 3 3").unwrap();
+    let graph = engine.analyze_j_graph("- |. a").unwrap();
+    let output = graph.result.unwrap();
+    let barrier = graph.value_demand_trace(output, &[0..1, 0..2]).unwrap();
+    let unsupported_output = barrier.steps.last().unwrap().value;
+    let source = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .find_map(|(id, node)| {
+            if matches!(&node.kind, rustj::j_graph_ir::NodeKind::ReadNoun { .. }) {
+                Some(rustj::j_graph_ir::ValueId(id))
+            } else {
+                None
+            }
+        })
+        .unwrap();
+
+    let denied = [GraphFanoutRequest {
+        output,
+        region: vec![0..1, 0..2],
+    }];
+    assert!(graph.fanout_value_demand_union(source, &denied).is_none());
+    let at_barrier = graph
+        .fanout_value_demand_union(unsupported_output, &denied)
+        .unwrap();
+    assert_eq!(at_barrier.occurrences[0].region, vec![0..1, 0..2]);
+    assert!(graph
+        .fanout_value_demand_union(
+            unsupported_output,
+            &[GraphFanoutRequest {
+                output,
+                region: vec![0..4, 0..2],
+            }],
+        )
+        .is_none());
+
+    let scalar = rustj::Engine::new().analyze_j_graph("- 3").unwrap();
+    let scalar_output = scalar.result.unwrap();
+    let scalar_trace = scalar.value_demand_trace(scalar_output, &[]).unwrap();
+    let scalar_input = scalar_trace.steps.last().unwrap().value;
+    let empty = scalar.fanout_value_demand_union(scalar_input, &[]).unwrap();
+    assert!(!empty.contains_point(&[]));
+    let requested = scalar
+        .fanout_value_demand_union(
+            scalar_input,
+            &[GraphFanoutRequest {
+                output: scalar_output,
+                region: vec![],
+            }],
+        )
+        .unwrap();
+    assert!(requested.contains_point(&[]));
+
+    let mut unknown = graph;
+    unknown.nodes[source.0].facts.shape = None;
+    assert!(unknown.fanout_value_demand_union(source, &[]).is_none());
+}

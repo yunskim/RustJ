@@ -36,6 +36,8 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 
 | graph_value_demand_closure_across_witnessed_chain | 원본 J Graph의 단항 Map→Transpose→Map 체인 요구 영역 역추적 | ValueId별 출력→입력 사각 영역·빈 요구 영역·scalar가 정확히 전달되고 NAME 읽기에서 종료 | 누락된 Graph 간선, 잘못된 좌표 관계 또는 원본 출처 손실 | PR #78 병합 · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
 | graph_value_demand_stops_at_unproved_operation_and_invalid_box | 불확실한 중간 연산·유효하지 않은 영역 경계 보호 | Reverse·Dyad·Reduce·Rank에서는 불명확한 입력으로 역추적하지 않으며 범위·rank 오류를 거부 | 지원하지 않는 연산의 입력을 임의 축소하거나 무효 요구 영역 수락 | PR #78 병합 · main `e473168` CI PASS ([PR #38322201413](https://github.com/yunskim/RustJ/actions/runs/38322201413), [main #38322446856](https://github.com/yunskim/RustJ/actions/runs/38322446856), [main #38322446869](https://github.com/yunskim/RustJ/actions/runs/38322446869)) |
+| graph_fanout_demands_remain_conservative_when_boxes_are_disjoint | 실제 fork의 동일 ValueId 다중 소비자 값 영역의 합집합 검증 | 각 소비자 출력·역추적된 사각 영역·겹침·불연속·빈 범위를 모두 보존하고 정확한 점 포함 판정 | 비직사각형 합집합을 단일 박스로 오인하거나 소비자 요구 누락 | PR R0.5 CI 대기 |
+| graph_fanout_demands_reject_unproved_edges_and_preserve_scalar_empty_cases | 미증명 간선·잘못된 범위 거부 및 scalar/빈 집합 구분 | 미증명 Reverse는 입력 요구를 생성하지 않고 scalar 값 요구와 요구 없음이 다름을 유지 | 미증명 입력 요구 조작 또는 scalar 의미·경계 손실 | PR R0.5 CI 대기 |
 
 ## 다음에 필요한 독립 증거
 
@@ -115,3 +117,26 @@ Shape/Rank에 맞는 반열린 직사각형 값 영역만 받는다. R0.3에서 
 연산 또는 fill/prototype 작업의 제거를 뜻하지 않는다. fanout/branch,
 실제 I/O byte 범위, 물리 비용, Exact-J 관찰 동치 및 EqGraph union은
 별도의 실험과 합법성 증명을 기다린다.
+
+## R0.5 원본 J Graph 다중 소비자 영역의 정확한 합집합 (2026-10-13)
+
+`GraphFanoutRequest { output, region }`은 **호출자가 선택한 실제 출력 ValueId와
+논리 값 영역**이다. `Plan::fanout_value_demand_union(value, requests)`는
+같은 원본 Plan에서 각 요구를 R0.4의 `value_demand_trace`로 독립적으로
+역추적하고, 모두 해당 `value`에 도달한 경우에만
+`GraphFanoutDemandUnion { value, shape, occurrences }`를 반환한다.
+
+- 각 `occurrences` 항목의 `output`은 소비자 출력의 출처이며
+  `region`은 공통 원본 `value`에서의 정확한 좌표 요구 영역이다.
+- 겹치거나 떨어진 박스는 **그대로 영역 집합**으로 유지한다.
+  `contains_point`는 각 박스의 합집합만 계산한다.
+  단일 bounding rectangle이나 물리 데이터 read 구간을 만들지 않는다.
+- 어느 한 경로라도 미증명 연산에서 중단되면 전체 추정은 `None`.
+  scalar(rank 0)에서 빈 박스 `[]`는 한 atom 요구,
+  비어 있는 요구 목록 `[]`는 요구 atom 없음으로 구분한다.
+- 소비자 목록은 호출자가 명시한다. **전체 그래프 fanout의 자동 발견·
+  실행 필요성 판정**은 아직 구현하지 않았다.
+
+이 분석은 Graph 노드를 재작성하지 않으며, 오류·효과·NAME·fill/prototype의
+실제 실행을 줄이거나 순서를 바꿀 권한을 주지 않는다. 따라서 J 관찰 동치,
+실제 바이트 I/O 축소, 비용/스케줄, EqGraph union에 대한 증명은 여전히 필요하다.

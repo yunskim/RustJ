@@ -363,3 +363,90 @@ impl Plan {
         }
     }
 }
+
+
+/// A requested logical value region at a specific original J Graph output.
+/// Each consumer occurrence remains distinguishable; this does not infer
+/// a complete execution demand or certify skipping computations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphFanoutRequest {
+    pub output: ValueId,
+    pub region: Vec<Range<usize>>,
+}
+
+/// The exact *set union* of independently witnessed rectangular value demands
+/// for one original J Graph value. A collection of boxes is not claimed to
+/// be a single rectangular box; boxes may be disjoint or overlap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphFanoutDemandUnion {
+    pub value: ValueId,
+    pub shape: Vec<usize>,
+    pub occurrences: Vec<GraphFanoutRequest>,
+}
+
+impl GraphFanoutDemandUnion {
+    /// Membership of the exact logical value-coordinate union.
+    /// An empty list requests no coordinates; one rank-zero box requests
+    /// the scalar logical atom. Empty per-axis ranges request no atoms.
+    pub fn contains_point(&self, point: &[usize]) -> bool {
+        point.len() == self.shape.len()
+            && point
+                .iter()
+                .zip(&self.shape)
+                .all(|(coordinate, extent)| coordinate < extent)
+            && self.occurrences.iter().any(|demand| {
+                demand
+                    .region
+                    .iter()
+                    .zip(point)
+                    .all(|(range, coordinate)| range.contains(coordinate))
+            })
+    }
+}
+
+impl Plan {
+    /// Union caller-declared consumer output value-demands at a single,
+    /// source-identifiable J Graph ValueId.
+    ///
+    /// Each requested output must reach `value` through a *fully witnessed*
+    /// unary Map/Transpose chain. An unsupported edge or inconsistent shape
+    /// fails closed instead of inventing an input demand. Preserve every
+    /// consumer occurrence and every exact box, including overlaps.
+    ///
+    /// This is NOT exhaustive graph-wide fanout discovery, not physical I/O
+    /// pruning, and never permits eliminating J errors, effects or prototypes.
+    pub fn fanout_value_demand_union(
+        &self,
+        value: ValueId,
+        requests: &[GraphFanoutRequest],
+    ) -> Option<GraphFanoutDemandUnion> {
+        self.verify().ok()?;
+        let node = self.nodes.get(value.0)?;
+        let shape = node.facts.shape.as_ref()?;
+        if node.facts.rank != Some(shape.len()) {
+            return None;
+        }
+
+        let mut occurrences = Vec::with_capacity(requests.len());
+        for request in requests {
+            let trace = self.value_demand_trace(request.output, &request.region)?;
+            let step = trace.steps.iter().find(|step| step.value == value)?;
+            if step.region.len() != shape.len()
+                || step.region.iter().zip(shape).any(|(interval, extent)| {
+                    interval.start > interval.end || interval.end > *extent
+                })
+            {
+                return None;
+            }
+            occurrences.push(GraphFanoutRequest {
+                output: request.output,
+                region: step.region.clone(),
+            });
+        }
+        Some(GraphFanoutDemandUnion {
+            value,
+            shape: shape.clone(),
+            occurrences,
+        })
+    }
+}
