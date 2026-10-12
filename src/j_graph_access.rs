@@ -418,6 +418,9 @@ impl Plan {
             }
             boxes.push(at_target.region.clone());
         }
-        Some(GraphValueDemandUnion { value: target, boxes })
+        Some(GraphValueDemandUnion {
+            value: target,
+            boxes,
+        })
     }
 }

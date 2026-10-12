@@ -396,12 +396,11 @@ fn graph_fanout_demands_remain_conservative_when_boxes_are_disjoint() {
         (branch_results[0], vec![0..1, 0..2]),
         (branch_results[1], vec![1..3, 1..2]),
     ];
-    let union = graph.witnessed_value_demand_union(source, &requests).unwrap();
+    let union = graph
+        .witnessed_value_demand_union(source, &requests)
+        .unwrap();
     assert_eq!(union.value, source);
-    assert_eq!(
-        union.boxes,
-        vec![vec![0..2, 0..1], vec![1..2, 1..3]]
-    );
+    assert_eq!(union.boxes, vec![vec![0..2, 0..1], vec![1..2, 1..3]]);
 
     // The bounding rectangle 0..2 × 0..3 would include (0,2).
     // An exact union must not invent that requested coordinate.
@@ -413,7 +412,9 @@ fn graph_fanout_demands_remain_conservative_when_boxes_are_disjoint() {
     assert!(!union.contains(&[0, 2]));
 
     let empty_demand = [(branch_results[0], vec![1..1, 0..2])];
-    let empty = graph.witnessed_value_demand_union(source, &empty_demand).unwrap();
+    let empty = graph
+        .witnessed_value_demand_union(source, &empty_demand)
+        .unwrap();
     assert_eq!(empty.boxes, vec![vec![0..2, 1..1]]);
     assert!(!empty.contains(&[0, 1]));
 }
@@ -452,10 +453,7 @@ fn graph_fanout_demand_union_rejects_unproved_join_and_invalid_requests() {
     let invalid_rank = 0..2;
     assert!(
         graph
-            .witnessed_value_demand_union(
-                source,
-                &[(branch_results[0], vec![invalid_rank])]
-            )
+            .witnessed_value_demand_union(source, &[(branch_results[0], vec![invalid_rank])])
             .is_none()
     );
 }
