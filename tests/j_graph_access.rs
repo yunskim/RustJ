@@ -349,7 +349,12 @@ fn graph_value_demand_stops_at_unproved_operation_and_invalid_box() {
     }
 
     assert!(graph.value_demand_trace(output, &[0..4, 0..2]).is_none());
-    assert!(graph.value_demand_trace(output, &[0..2]).is_none());
+    let wrong_rank = 0..2;
+    assert!(
+        graph
+            .value_demand_trace(output, std::slice::from_ref(&wrong_rank))
+            .is_none()
+    );
     let descending = std::ops::Range { start: 2, end: 1 };
     assert!(
         graph
