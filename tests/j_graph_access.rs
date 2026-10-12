@@ -129,3 +129,63 @@ fn axis_region_pullback_matches_composition_and_exact_requested_points() {
         AxisAccessError::RegionOutOfBounds
     );
 }
+
+#[test]
+fn graph_monadic_transpose_projects_witnessed_axis_access() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let graph = engine.analyze_j_graph("|: a").unwrap();
+    graph.verify().unwrap();
+
+    let output = graph.result.unwrap();
+    let projected = graph.static_transpose_access(output).unwrap();
+    assert_eq!(projected.output, output);
+    assert_eq!(projected.access.input_shape(), &[2, 3]);
+    assert_eq!(projected.access.output_shape(), vec![3, 2]);
+    assert_eq!(projected.access.pullback_point(&[2, 1]).unwrap(), vec![1, 2]);
+    assert_eq!(
+        projected.access.pullback_region(&[1..3, 0..2]).unwrap(),
+        vec![0..2, 1..3]
+    );
+
+    let graph = engine.analyze_j_graph("|: |: a").unwrap();
+    graph.verify().unwrap();
+    let outer = graph.static_transpose_access(graph.result.unwrap()).unwrap();
+    let inner = graph.static_transpose_access(outer.input).unwrap();
+    let composed = inner.access.compose_after(&outer.access).unwrap();
+    assert_eq!(composed.input_shape(), &[2, 3]);
+    assert_eq!(composed.output_shape(), vec![2, 3]);
+    assert_eq!(
+        composed.pullback_region(&[0..2, 1..3]).unwrap(),
+        vec![0..2, 1..3]
+    );
+}
+
+#[test]
+fn graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    for source in ["|. a", ", a", "a"] {
+        let graph = engine.analyze_j_graph(source).unwrap();
+        assert!(
+            graph.static_transpose_access(graph.result.unwrap()).is_none(),
+            "{source} must not acquire a transpose access witness"
+        );
+    }
+
+    let graph = engine.analyze_j_graph("|: a").unwrap();
+    let output = graph.result.unwrap();
+    let access = graph.static_transpose_access(output).unwrap();
+
+    let mut unknown = graph.clone();
+    unknown.nodes[access.input.0].facts.shape = None;
+    assert!(unknown.static_transpose_access(output).is_none());
+
+    let mut wrong_shape = graph.clone();
+    wrong_shape.nodes[output.0].facts.shape = Some(vec![2, 3]);
+    assert!(wrong_shape.static_transpose_access(output).is_none());
+
+    let mut wrong_rank = graph;
+    wrong_rank.nodes[output.0].facts.rank = Some(1);
+    assert!(wrong_rank.static_transpose_access(output).is_none());
+}

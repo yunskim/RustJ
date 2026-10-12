@@ -26,12 +26,15 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 |---|---|---|---|---|
 | axis_permutation_composition_matches_two_stage_pullback | 독립적인 두 축 순열의 합성 확인 | 작은 모든 유효 좌표에서 직접 역추적과 합성 역추적이 일치 | 축 합성 방향 또는 좌표 매핑 오류 | PR #70 head CI PASS (2026-10-13) |
 | axis_access_rejects_unproved_shape_and_index_relations | 불완전한 증거의 거부 | rank, bijection, 중간 shape, 좌표 범위 위반을 거부 | 잘못된 접근 관계를 정당한 증거로 허용 | PR #70 head CI PASS (2026-10-13) |
-| axis_region_pullback_matches_composition_and_exact_requested_points | 정적 순열에서 출력 박스의 역방향 요구 영역 검증 | 합성·순차 역추적과 영역별 점 포함 관계가 정확히 일치하고 무효 범위를 거부 | 잘못된 데이터 영역 축소나 불필요한 축 삽입 | PR #71 CI 대기 |
+| axis_region_pullback_matches_composition_and_exact_requested_points | 정적 순열에서 출력 박스의 역방향 요구 영역 검증 | 합성·순차 역추적과 영역별 점 포함 관계가 정확히 일치하고 무효 범위를 거부 | 잘못된 데이터 영역 축소나 불필요한 축 삽입 | PR #71 및 병합 main CI PASS (2026-10-13) |
 | axis_composition_preserves_scalar_and_zero_extent_shapes | scalar/빈 축 경계 유지 | rank 0, shape의 0 크기 축, 무효 좌표 검사 보존 | 빈 프레임/축 정보 손실 또는 없는 atom 접근 허용 | PR #70 head CI PASS (2026-10-13) |
+
+| graph_monadic_transpose_projects_witnessed_axis_access | 실제 monadic `|:` J Graph의 역축 관계 추출 | 입력·출력 Shape/Rank 증거 및 원본 ValueId 보존, 두 번의 전치 합성 후 영역 역추적 확인 | 잘못된 Graph 노드를 정적 전치로 분류하거나 접근 축 방향을 잘못 계산 | 새 PR CI 대기 |
+| graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | 다른 Reindex·ReadNoun 및 불완전 facts 거부 | Reverse/Ravel/단순 명칭 및 Unknown/불일치 Shape·Rank에 witness를 부여하지 않음 | 추측한 의미론을 최적화의 근거로 허용 | 새 PR CI 대기 |
 
 ## 다음에 필요한 독립 증거
 
-- VerifiedFrontend/J Graph의 특정 StaticReindex 노드가 이 접근 관계를 실제로 만족하는지 증명하는 연결
+- 실제 monadic `|:`의 Graph→정적 축 접근 투영은 R0.2에서 도입. 다른 StaticReindex, dyadic/ranked `|:` 및 전체 실행 의미론은 별도 증거 필요
 - 메모리/I/O 지역에 대한 안전한 backward demand 전파
 - J-C 오라클로 fill/prototype, check/error order 및 Rank 의미 동치 확인
 - 두 연산 계열 이상에서 동일한 region transformer 재사용
@@ -50,3 +53,18 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 오류 검사, 효과 실행을 생략할 수 있다는 증거가 아니며, 실제 저장소 청크,
 실행 스케줄 및 파일 byte 범위를 허용하지 않는다. GF5a/IO-09·10의 실제
 Graph access witness와 J 의미론 검증이 이어져야 한다.
+
+## R0.2 J Graph monadic Transpose 연결 (2026-10-13)
+
+`Plan::static_transpose_access(ValueId)`는 **원본 J Graph**에서
+`PrimitiveVerb(Cant)`의 monadic atomic Apply이며 Graph Basis가
+`StaticReindex`, Access가 `IndexTransform`이고, 입력·출력 Shape/Rank가
+정확히 주어져 결과 Shape가 입력 Shape의 역순일 때만
+`GraphTransposeAccess { input, output, access }`를 반환한다.
+`Plan::verify()` 실패 시에도 실패 폐쇄 방식으로 `None`을 반환한다.
+
+이 경로는 J 원본 그래프와 NAME 읽기, 에러/검사 순서를 그대로 유지하는
+**분석용 값 좌표 투영**이다. 그래프 노드를 교체하거나 물리 read region,
+EqGraph E-Class union 및 check 제거 권한을 부여하지 않는다.
+`|.`, `,`, 동적/불일치 Shape, Rank가 적용된 전치, dyadic `|:`에는
+동일한 근거를 추측해서 붙이지 않는다.
