@@ -196,3 +196,57 @@ fn graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts() {
     wrong_rank.nodes[output.0].facts.rank = Some(1);
     assert!(wrong_rank.static_transpose_access(output).is_none());
 }
+
+#[test]
+fn graph_monadic_map_and_transpose_share_region_pullback() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    let graph = engine.analyze_j_graph("|: - a").unwrap();
+    graph.verify().unwrap();
+
+    let transpose = graph.static_transpose_access(graph.result.unwrap()).unwrap();
+    let map = graph.static_unary_map_access(transpose.input).unwrap();
+    assert_eq!(map.output, transpose.input);
+    assert_eq!(map.access.input_shape(), &[2, 3]);
+    assert_eq!(map.access.output_shape(), vec![2, 3]);
+
+    let output = [1..3, 0..2];
+    let middle = transpose.access.pullback_region(&output).unwrap();
+    assert_eq!(middle, vec![0..2, 1..3]);
+    let source = map.access.pullback_region(&middle).unwrap();
+    assert_eq!(source, vec![0..2, 1..3]);
+    assert_eq!(
+        map.access
+            .compose_after(&transpose.access)
+            .unwrap()
+            .pullback_region(&output)
+            .unwrap(),
+        source
+    );
+}
+
+#[test]
+fn graph_unary_map_projection_rejects_non_pointwise_or_incomplete_facts() {
+    let mut engine = rustj::Engine::new();
+    engine.eval("a=: i. 2 3").unwrap();
+    for source in ["1 + a", "|: a", "|. a", ", a", "a"] {
+        let graph = engine.analyze_j_graph(source).unwrap();
+        assert!(
+            graph
+                .static_unary_map_access(graph.result.unwrap())
+                .is_none(),
+            "{source} must not be a unary pointwise access relation"
+        );
+    }
+    let graph = engine.analyze_j_graph("- a").unwrap();
+    let output = graph.result.unwrap();
+    let map = graph.static_unary_map_access(output).unwrap();
+
+    let mut unknown = graph.clone();
+    unknown.nodes[map.input.0].facts.shape = None;
+    assert!(unknown.static_unary_map_access(output).is_none());
+
+    let mut contradictory = graph;
+    contradictory.nodes[output.0].facts.rank = Some(1);
+    assert!(contradictory.static_unary_map_access(output).is_none());
+}

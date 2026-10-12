@@ -31,6 +31,9 @@ J의 연산 자체가 동일하다는 결론이 아니다. 도중의 Rank/Cell/F
 | graph_monadic_transpose_projects_witnessed_axis_access | 실제 monadic `|:` J Graph의 역축 관계 추출 | 입력·출력 Shape/Rank 증거 및 원본 ValueId 보존, 두 번의 전치 합성 후 영역 역추적 확인 | 잘못된 Graph 노드를 정적 전치로 분류하거나 접근 축 방향을 잘못 계산 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 | graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | 다른 Reindex·ReadNoun 및 불완전 facts 거부 | Reverse/Ravel/단순 명칭 및 Unknown/불일치 Shape·Rank에 witness를 부여하지 않음 | 추측한 의미론을 최적화의 근거로 허용 | PR #72 코드 커밋 `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
+| graph_monadic_map_and_transpose_share_region_pullback | monadic Map과 전치의 동일한 Region 역추적 메서드 재사용 | 실제 J Graph `|: - a`에서 Map은 동일 좌표, 전치는 역축이며 합성·순차 요구 영역이 일치 | 서로 다른 연산군 사이 접근 관계 합성 방향 또는 영역 계산 오류 | R0.3 CI 대기 |
+| graph_unary_map_projection_rejects_non_pointwise_or_incomplete_facts | 비단항/비Map/Shape 불일치의 안전한 거부 | dyadic Map·Reindex·ReadNoun·Unknown/불일치 사실에는 단항 Map witness 없음 | 비적격 J 연산을 pointwise 접근으로 오분류 | R0.3 CI 대기 |
+
 ## 다음에 필요한 독립 증거
 
 - 실제 monadic `|:`의 Graph→정적 축 접근 투영은 R0.2에서 도입. 다른 StaticReindex, dyadic/ranked `|:` 및 전체 실행 의미론은 별도 증거 필요
@@ -67,3 +70,16 @@ Graph access witness와 J 의미론 검증이 이어져야 한다.
 EqGraph E-Class union 및 check 제거 권한을 부여하지 않는다.
 `|.`, `,`, 동적/불일치 Shape, Rank가 적용된 전치, dyadic `|:`에는
 동일한 근거를 추측해서 붙이지 않는다.
+
+## R0.3 두 연산군의 공통 Region transfer 실험 (2026-10-13)
+
+`Plan::static_unary_map_access(ValueId)`는 J Graph의 직접 monadic
+primitive 중 순수·pointwise `OperationClass::Map`이며
+`ShapeRule::PreserveRight`와 `CorrespondingElements`가 함께 성립하고
+Shape/Rank 사실이 양쪽에서 일치할 때만 논리적 **identity axis access**를 반환한다.
+
+R0.2의 Transpose는 같은 `StaticAxisAccess::pullback_region`으로 역축
+매핑을 수행한다. 실제 J `|: - a` 경로에서 두 연산 계열이 공통 region
+전파기를 재사용하는지 검증한다. 이는 하나의 공유 구현 예시일 뿐
+범용 배열 대수의 완전성이나 모든 오류·효과의 J 동치성 증명이 아니다.
+복잡한 Rank, dyadic broadcast, 동적 NAME 및 Gather는 계속 미지원한다.

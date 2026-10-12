@@ -31,6 +31,9 @@ Reshape are deliberately out of scope.
 | graph_monadic_transpose_projects_witnessed_axis_access | Project monadic `|:` from an actual J Graph | Preserve ValueIds and exact shapes/ranks; check double-transpose composition and region demand | Incorrect graph classification or axis orientation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 | graph_transpose_access_refuses_unknown_and_unrelated_reindex_facts | Reject unrelated reindex and incomplete facts | Reverse/ravel/name/unknown or contradictory shape/rank cannot assert transpose access | Inferring a rewrite permission from an unproven relation | PR #72 code commit `77badcd` CI PASS ([PR CI](https://github.com/yunskim/RustJ/actions/runs/38319113130)) |
 
+| graph_monadic_map_and_transpose_share_region_pullback | Reuse one Region pullback method for unary Map and Transpose | Real J Graph `|: - a` uses identity Map and reversed-axis Transpose; sequential and composed boxes agree | Cross-family composition direction or demand mapping broken | R0.3 CI pending |
+| graph_unary_map_projection_rejects_non_pointwise_or_incomplete_facts | Fail closed outside exact unary Map scope | Dyadic Map, reindex, noun, unknown/mismatched facts do not earn a unary Map access witness | Invented pointwise identity from unsupported J operations | R0.3 CI pending |
+
 ## Separate evidence still required
 
 - R0.2 projects direct monadic `|:` J Graph nodes into coordinate access; other StaticReindex operations, ranked/dyadic transpose and full J execution equivalence still need independent witnesses.
@@ -67,3 +70,18 @@ This is a **value-coordinate analysis view**, not an Exact-J rewrite, NAME
 snapshot proof, elimination of checks/effects/errors, physical byte-region
 request, or EqGraph e-class union. Do not project `|.`, `,`, dynamic shapes,
 rank-applied transpose, or dyadic `|:` without separate contracts.
+
+## R0.3 Two-family shared region transfer experiment (2026-10-13)
+
+`Plan::static_unary_map_access(ValueId)` projects only direct monadic,
+pure pointwise primitives whose `OperationClass::Map`,
+`ShapeRule::PreserveRight`, `CorrespondingElements`, and both
+Shape/Rank facts support an identity logical axis access relation.
+The existing monadic Transpose projection reuses the same
+`StaticAxisAccess::pullback_region` implementation with reversed axes.
+
+Test the real J Graph `|: - a` for shared region transfer and correct
+sequential/composed demand. This is one cross-family implementation
+example, **not** a universal algebra completeness result or a license to
+rewrite J errors/effects. Ranked ops, dyadic broadcasting, mutable NAME
+and dynamic Gather remain separate and unproven.

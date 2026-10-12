@@ -111,7 +111,7 @@ impl StaticAxisAccess {
 }
 
 use crate::{
-    contracts::Valence,
+    contracts::{self, Effect, OperationClass, ShapeRule, Valence},
     j_graph_ir::{AccessContract, GraphBasisKind, GraphForm, NodeKind, Plan, ValueId},
     primitive::PrimitiveId,
     semantic::FunctionHead,
@@ -179,6 +179,76 @@ impl Plan {
             return None;
         }
         Some(GraphTransposeAccess {
+            input: *right,
+            output,
+            access,
+        })
+    }
+}
+
+
+/// Source-identifiable unary pointwise map with a logical identity access map.
+///
+/// The primitive may still fail on some inputs. No rewrite, check elimination,
+/// result-value equivalence, reassociation or execution authorization follows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphPointwiseAccess {
+    pub input: ValueId,
+    pub output: ValueId,
+    pub access: StaticAxisAccess,
+}
+
+impl Plan {
+    /// Project a direct pure monadic primitive whose contract is shape-preserving
+    /// elementwise Map, on a Graph with known and agreeing input/output facts.
+    /// This reuses StaticAxisAccess / pullback_region with identity axes.
+    pub fn static_unary_map_access(&self, output: ValueId) -> Option<GraphPointwiseAccess> {
+        self.verify().ok()?;
+        let node = self.nodes.get(output.0)?;
+        let NodeKind::Apply {
+            function,
+            form,
+            basis,
+            contract,
+            valence,
+            left,
+            right,
+            ..
+        } = &node.kind
+        else {
+            return None;
+        };
+        let FunctionHead::PrimitiveVerb(primitive) = &function.head else {
+            return None;
+        };
+        let spec = contracts::for_primitive(*primitive, Valence::Monad);
+        if !function.operands.is_empty()
+            || !matches!(form, GraphForm::Atomic)
+            || *valence != Valence::Monad
+            || left.is_some()
+            || basis.layers.as_slice() != [GraphBasisKind::Elementwise]
+            || contract.iteration != crate::j_graph_ir::IterationContract::Elementwise
+            || contract.access != AccessContract::CorrespondingElements
+            || spec.class != OperationClass::Map
+            || spec.shape_rule != ShapeRule::PreserveRight
+            || spec.effect != Effect::Pure
+        {
+            return None;
+        }
+        let input = self.nodes.get(right.0)?;
+        let input_shape = input.facts.shape.as_ref()?;
+        let output_shape = node.facts.shape.as_ref()?;
+        if input.facts.rank != Some(input_shape.len())
+            || node.facts.rank != Some(output_shape.len())
+            || input_shape != output_shape
+        {
+            return None;
+        }
+        let access = StaticAxisAccess::new(
+            input_shape.clone(),
+            (0..input_shape.len()).collect(),
+        ).ok()?;
+        Some(GraphPointwiseAccess {
             input: *right,
             output,
             access,
