@@ -98,3 +98,5 @@
 ## 2026-10-13 PR 통합 검증
 
 최신 통합 본문을 기준으로 한국어 40개 모듈을 다시 생성하고, 분할 전후 본문 보존·명시 및 제목 앵커의 이동·저장소 내부 유입 링크를 `tools/check_project_docs.py`로 검사한다. 원본 커밋과 구간 체크섬은 `reports/project-modularization.json`에 보존하며 Linux CI에서 재검사한다. 영어 미러의 모듈 분할과 의미 정합성 수용은 계속 미완료다. 런타임 의미나 구현 수용 상태는 변경하지 않는다.
+
+분할 직후의 본문 보존은 `python3 tools/check_project_docs.py --verify-source`로 별도 검증하며, 이후 CI는 링크·구조·고정 원본 증거를 검사하여 정상적인 후속 문서 편집을 허용한다.
