@@ -989,7 +989,6 @@ pub fn family(id: &str) -> Option<&'static NnFamilySpec> {
     FAMILIES.iter().find(|spec| spec.id == id)
 }
 
-
 /// Adjoint/VJP design candidates for every NN family.  These are not registered
 /// frontend spellings, executable kernels, proof witnesses, or an AD engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
