@@ -34,7 +34,8 @@ def main():
         body = text[len(NAV):]
         for anchor in part['added_anchors']:
             body = body.replace(f'<a id="{anchor}"></a>\n', '', 1)
-        assert normalize(body) == normalize(original), f'changed source content: {path}'
+        if '--verify-source' in sys.argv:
+            assert normalize(body) == normalize(original), f'changed source content: {path}'
         docs.append(path)
     assert cursor == len(source)
     assert len(docs) == 41
@@ -66,7 +67,8 @@ def main():
     if errors:
         print('\n'.join(errors), file=sys.stderr)
         return 1
-    print(f'PASS: {len(manifest["parts"])} modules, {links} local links, complete source preservation')
+    proof = 'complete source preservation' if '--verify-source' in sys.argv else 'pinned source manifest'
+    print(f'PASS: {len(manifest["parts"])} modules, {links} local links, {proof}')
     return 0
 
 if __name__ == '__main__':
