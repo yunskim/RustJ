@@ -9,7 +9,18 @@
 
 | 선행 연구 | 확인된 범위 | RustJ의 접점 | 그대로 가져올 수 없는 조건 |
 |---|---|---|---|
-| **MoA — A Mathematics of Arrays** (Lenore Marie Restifo Mullin, **1988**) | shape를 이용한 배열식 기술, 인덱싱 함수 **Ψ**, 차원을 확장하는 연산자 **Ω**, n차원 배열식의 상징적 검증과 하드웨어 검증 | `StaticAxisAccess`, `pullback_region`, `value_demand_trace`의 좌표/shape 기반 형식 명세 | 실제 J의 `{/`, transpose, reitem, reshape, gather, Rank·빈 결과의 fill/prototype·오류를 Ψ만으로 설명했다고 가정하지 않음 |
+| **MoA — A Mathematics of Arrays** (Lenore Marie Restifo Mullin, **1988**) | shape를 이용한 배열식 기술, 인덱싱 함수 **Ψ**, 차원을 확장하는 연산자 **Ω**, n차원 배열식의 상징적 검증과 하드웨어 검증 | `StaticAxisAccess`, `pullback_region`, `value_demand_trace`의 좌표/shape 기반 형식 명세 | 실제 J의 `{` 인덱싱, `|:` 전치, `# RustJ 공통배열대수 선행 연구와 J 의미론의 대응표
+
+> 상태: **문헌·설계 검토 완료(1차) / 개별 법칙의 RustJ 정형 증명·재작성 승인은 미완료**.
+> `PROJECT.ko.md`가 아키텍처·상태의 정본이며, 이 문서는 기존 [R0 공통 접근 관계 실험](common-array-access-composition.ko.md)과 [수치 오차 정책](common-array-numeric-error-policy.ko.md)에 딸린 **비교 연구·검증 체크리스트**다. 별도의 새로운 필수 IR이나 완성된 보편 배열대수를 선언하지 않는다.
+
+## 1. 연구 목표의 변경
+
+**공통배열대수를 처음부터 독립적으로 발명한다고 가정하지 않는다.** 우선 MoA의 shape/인덱싱, APL의 연산자 calculus, Remora의 rank-polymorphism, Bird–Meertens의 fold 법칙, SPORES의 관계적 sum-product, Futhark의 SOAC 최적화, RISE의 가이드 등가 포화를 **서로 다른 전제 조건을 가진 기존 이론**으로 검토한다. 각 연산을 RustJ의 원본 J 의미론에 맞춰 연결하고, *조건을 증명한 경우에만* 후보 재작성의 합법성 심사로 넘긴다.
+
+| 선행 연구 | 확인된 범위 | RustJ의 접점 | 그대로 가져올 수 없는 조건 |
+|---|---|---|---|
+| **MoA — A Mathematics of Arrays** (Lenore Marie Restifo Mullin, **1988**) | shape를 이용한 배열식 기술, 인덱싱 함수 **Ψ**, 차원을 확장하는 연산자 **Ω**, n차원 배열식의 상징적 검증과 하드웨어 검증 | `StaticAxisAccess`, `pullback_region`, `value_demand_trace`의 좌표/shape 기반 형식 명세 |  reshape, 일반 gather, Rank·빈 결과의 fill/prototype·오류를 Ψ만으로 설명했다고 가정하지 않음 |
 | **An Operator Calculus** (Iverson, Pesch, Schueler, **1984**) | APL rank, 합성, 미분·역연산의 상호 작용과 **빈 프레임 결과 shape** 논의 | J Rank/CellApply·derived verb의 적용 순서와 empty-frame 경계 | J와 APL의 연산자·관찰 가능 동작이 같다는 직접 증명 없음 |
 | **Remora — The Semantics of Rank Polymorphism** (Slepak, Shivers, Manolios, **2019**) | 핵심 함수형 배열 언어의 동적 의미론, shape-indexed 타입, progress/preservation을 통한 **잘 타입된 Remora 프로그램**의 shape 안전성 | J Graph `GraphFacts`·rank/cell/frame, prefix frame agreement, `CellApply`, 정적 shape witness | Remora의 타입 건전성이 곧 **전체 J의 타입/shape 안전성**이라는 뜻이 아님. J NAME·late binding·동적 Rank·fill/empty-frame·오류 순서 차이 검증 필요 |
 | **Bird–Meertens Formalism** (1980년대) | 리스트의 map/fold와 homomorphism 및 프로그램 변환 법칙·병렬 scan 관련 도출 | `Map`, `Reduce`, `Scan`의 수학적 후보와 병렬 분해 증거 | 항등원·결합법칙·도메인·순서가 성립해야 함. IEEE 부동소수점/첫 J 오류에 자동 적용 불가 |
