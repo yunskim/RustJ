@@ -208,3 +208,12 @@ For every implementation change:
 - A compiler fact must never become part of J semantic identity solely because a later pass needs it. Node-owned semantic information is limited to facts invariant for that entity across calls and targets. If a fact depends on actual arguments, optimization proof, architecture, device, cost, layout, or schedule, keep it on the appropriate downstream node/analysis.
 - Treat jsource WILLOPEN/USESITEMCOUNT/in-place/pristine/zappable style metadata as inspiration for use-def/liveness/materialization analyses; do not encode those runtime-memory-management bits as J semantic properties.
 
+
+## Numeric tolerance and optimization budget boundaries
+
+- J comparison tolerance (`9!:18`, `9!:19`, `!.t`) is **source-language semantic state**, not an automatic compiler approximation allowance. Preserve the original J comparison policy and its call-site scope/version; report dynamic CCT/Fit as unsupported until executed and pinned-C checked. Existing `comparison_policy` witnesses only the pinned default CCT.
+- The J Dictionary's ideal relative-tolerance formula is explanatory; preserve the actual pinned jsource `TCMPEQ` binary64 boundary behavior in execution. Test finite adjacency, signed zero, infinities, NaN, small/subnormal values, comparison-sensitive primitives, and errors.
+- Common-array algebra proves explicit mathematical/coordinate facts. Mathematical identity alone does not justify reassociating binary64 J expressions, changing first observable errors, or skipping prototype/fill/effects.
+- Optimization numeric budgets default to `Exact` and require separate opt-in and error-analysis evidence. Never inherit the J default `2^-44`, a mutable CCT, or a test's relaxed tolerance as an optimizer budget.
+- Tolerant equality is nontransitive and must **never** be the reason to merge egg/EqGraph E-Classes. Passing a numeric precheck is only one necessary condition: Exact-J observational witnesses and all effects/error/rank/CCT guards remain independent.
+- Keep the bilingual [numeric tolerance/error policy](docs/research/common-array-numeric-error-policy.ko.md) and [English mirror](docs/research/common-array-numeric-error-policy.md) synchronized, including Test/Purpose/Guarantee/Failure meaning/Status and explicitly unverified pieces.
