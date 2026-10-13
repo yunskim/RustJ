@@ -136,7 +136,9 @@ impl ComparisonPolicySnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{ComparisonPolicySnapshot, JComparisonState, JComparisonStateError, JSOURCE_MAX_TOLERANCE};
+    use super::{
+        ComparisonPolicySnapshot, JComparisonState, JComparisonStateError, JSOURCE_MAX_TOLERANCE,
+    };
 
     // Independent model of pinned jsource jsrc/vcomp.h::TCMPEQ.
     // This is a source-derived numerical oracle, NOT an executed J C binary.
@@ -233,7 +235,10 @@ mod tests {
         assert_eq!(initial, 2f64.powi(-44));
         assert_eq!(state.version(), 0);
         for invalid in [
-            -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY,
+            -1.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
             JSOURCE_MAX_TOLERANCE * 2.0,
         ] {
             assert_eq!(
@@ -244,10 +249,7 @@ mod tests {
             assert_eq!(state.version(), 0);
         }
         state.set_scalar_tolerance(JSOURCE_MAX_TOLERANCE).unwrap();
-        assert_eq!(
-            state.tolerance(),
-            1.0 - (1.0 - JSOURCE_MAX_TOLERANCE)
-        );
+        assert_eq!(state.tolerance(), 1.0 - (1.0 - JSOURCE_MAX_TOLERANCE));
         assert_eq!(state.version(), 1);
         state.set_scalar_tolerance(0.0).unwrap();
         assert_eq!(state.tolerance(), 0.0);
@@ -279,14 +281,10 @@ mod tests {
         assert!(strict.float_equal(0.0, -0.0)); // numeric, not bitwise identity
         assert!(strict.float_equal(f64::INFINITY, f64::INFINITY));
         assert!(!strict.float_equal(f64::NAN, f64::NAN));
-        assert_eq!(
-            strict.float_equal(a, b),
-            source_cct_macro_model(a, b, 1.0)
-        );
+        assert_eq!(strict.float_equal(a, b), source_cct_macro_model(a, b, 1.0));
         state.set_scalar_tolerance(t).unwrap();
         let restored = state.snapshot();
         assert_ne!(restored, default); // distinct runtime version
         assert_eq!(restored.float_equal(a, b), default.float_equal(a, b));
     }
-
 }
