@@ -172,3 +172,7 @@ rank and bounds. `GraphFanoutCoverage` reports separate `all_uses`,
 
 NAME/effects, Rank, prototype/fill and first-error behavior, physical byte
 I/O savings and EqGraph equivalence remain independently unproved.
+
+## J comparison semantics vs optimization error budget
+
+Keep mathematical/coordinate common-array proofs separate from J-observable floating evaluation and any independently declared approximation budget. J's default `2^-44` comparison CCT is **not** automatic permission for a compiler rewrite. See the [numeric policy](common-array-numeric-error-policy.md) for dynamic `9!:18`/`9!:19`/Fit gaps, nontransitive comparison prohibition for egg/EqGraph union, and separate evidence obligations.
