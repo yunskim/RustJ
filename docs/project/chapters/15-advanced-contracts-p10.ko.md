@@ -3,6 +3,8 @@
 <a id="executionbasisexpansion"></a>
 ##### ExecutionBasisExpansion
 
+**Convolution 상세 분석 계약:** [§7.10 Structured Conv/Index Access/Halo/SPORES·egg 수용](./11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization). 아래 Conv ↔ WindowView + Contract는 실제 실행·동등성 증명 완료를 의미하지 않는다.
+
 큰 semantic/structured op가 basis graph와 동등하다고 알려져도 원래 identity를 삭제하지 않는다.
 
 ~~~text
