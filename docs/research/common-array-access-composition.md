@@ -176,3 +176,7 @@ I/O savings and EqGraph equivalence remain independently unproved.
 ## J comparison semantics vs optimization error budget
 
 Keep mathematical/coordinate common-array proofs separate from J-observable floating evaluation and any independently declared approximation budget. J's default `2^-44` comparison CCT is **not** automatic permission for a compiler rewrite. See the [numeric policy](common-array-numeric-error-policy.md) for dynamic `9!:18`/`9!:19`/Fit gaps, nontransitive comparison prohibition for egg/EqGraph union, and separate evidence obligations.
+
+## Relationship to established array algebras (MoA, Remora, SPORES)
+
+This R0 access algebra is **not** a newly claimed universal theory replacing established work. The [prior-art mapping and falsifiable research checklist](common-array-algebra-prior-art.md) compares MoA Ψ/Ω, the 1984 APL operator calculus, Remora rank polymorphism, Bird–Meertens map/fold, tensor algebra, Futhark, SPORES and RISE under their respective assumptions. First validate **MoA indexing vs witnessed R0 coordinate pullbacks** and **Remora rank/frame semantics vs actual J**, then register guarded candidate laws. Reading abstracts is not a formal theorem audit, and R0 coordination proofs do not authorize an Exact-J rewrite.

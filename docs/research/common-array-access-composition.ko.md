@@ -176,3 +176,7 @@ EqGraph 동치 허가는 별도의 증명 의무로 유지한다.
 ## J 비교 의미론과 최적화 오차 예산
 
 공통배열대수의 수학적 동치·논리 좌표 증명과 부동소수점 J 관찰 동치 및 최적화 오차 허용은 각각 분리한다. J의 기본 CCT `2^-44`는 **최적화의 자동 허용 오차가 아니다**. `9!:18`/`9!:19`, `!.t`의 동적 의미론과 egg/EqGraph의 비추이 비교 병합 금지, 수치 예산의 별도 증거 조건은 [오차 정책 정본](common-array-numeric-error-policy.ko.md)을 따른다.
+
+## 선행 배열대수 이론과의 연결 (MoA·Remora·SPORES)
+
+**이 접근 대수는 기존 이론을 대체하는 새 보편 대수를 선언하지 않는다.** [선행 연구 대응표와 검증 체크리스트](common-array-algebra-prior-art.ko.md)에서 MoA Ψ/Ω, 1984년 APL 연산자 calculus, Remora rank-polymorphism, Bird–Meertens map/fold, tensor algebra, Futhark, SPORES, RISE를 각각의 적용 전제와 함께 비교한다. 우선 **MoA의 indexing과 R0 좌표 증거**, **Remora의 rank/frame 규칙과 J 원본 의미론**을 대응 검증한 뒤 조건부 법칙을 후보로 등록한다. 본문 요약 확인은 전수 정리 증명이 아니며, 현재 R0 결과도 Exact-J 재작성 승인은 아니다.
