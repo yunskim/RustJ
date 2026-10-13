@@ -3,8 +3,8 @@
 mod array_ops;
 mod assembly;
 mod comparison_policy;
-pub mod numeric_error_policy;
 mod index_ops;
+pub mod numeric_error_policy;
 mod search_reference;
 // Research-only tolerant lookup proof harness; never an executable fast path.
 #[cfg(test)]

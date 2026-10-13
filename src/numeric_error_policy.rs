@@ -46,10 +46,7 @@ pub enum NumericBudgetError {
 impl OptimizationErrorBudget {
     /// Construct only an *explicit* finite, nonnegative optimization budget.
     /// Neither parameter is the J 9!:18/9!:19 comparison tolerance.
-    pub fn bounded(
-        max_absolute: f64,
-        max_relative: f64,
-    ) -> Result<Self, NumericBudgetError> {
+    pub fn bounded(max_absolute: f64, max_relative: f64) -> Result<Self, NumericBudgetError> {
         if !max_absolute.is_finite() || !max_relative.is_finite() {
             return Err(NumericBudgetError::NonFinite);
         }
@@ -97,8 +94,8 @@ pub fn eqgraph_numeric_precheck(
 #[cfg(test)]
 mod tests {
     use super::{
-        EqGraphNumericPrecheck, NumericBudgetError, NumericEqualityClaim,
-        OptimizationErrorBudget, eqgraph_numeric_precheck,
+        EqGraphNumericPrecheck, NumericBudgetError, NumericEqualityClaim, OptimizationErrorBudget,
+        eqgraph_numeric_precheck,
     };
     use crate::comparison_policy::ComparisonPolicySnapshot;
 
