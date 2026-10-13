@@ -3,7 +3,7 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-11
+> 문서 갱신일: 2026-10-13
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
@@ -5120,6 +5120,47 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 ## 10. 구현 계획과 체크리스트
 
 이 절이 앞으로 유일한 구현 체크리스트다. **저장장치·느린 I/O·Out-of-core 작업은 [§10 IO-01~IO-30](#out-of-core-io-checklist)을 이 절 안의 단일 수용 목록으로 사용한다.** 순차 CPU 기준 실행과 J 의미 수렴은 계속 M2→M3→M4 우선이며, IO-A 조사만 병행할 수 있다.
+
+
+<a id="jaxa-future-work-traceability"></a>
+
+### JFW — JAXA Future Work 10개 항목의 RustJ 이행 추적표 (2026-10-13; 문서·설계만)
+
+**근거와 권한:** [JAXA 원본 명세의 Future Work 1–10](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/JAXA-README.md)을 항목별로 역대조했다. 이 표는 **기존 §10 작업의 추적 색인**이며, 독립 로드맵·새 필수 IR·새 language semantics가 아니다. §10이 유일한 수용 체크리스트다. 현재 코드/문서에 *설계*가 있다는 사실은 *구현·증명·E2E 완료*가 아니다. 아래의 미완료 체크를 기존 M2→M3→M4보다 앞선 blocking gate로 승격하지 않는다.
+
+| 원본 항목 / RustJ 식별자 | 적용 판단과 현재 경계 (2026-10-13) | 연결된 계층·근거 | 우선순위 |
+|---|---|---|---|
+| **FW1 Completeness Verification / JFW-01** | 범용 신경망 표현의 형식적 완전성 증명 대신, 실제 J 구문·Rank·shape·effect를 유지하는 *명시적 지원 범위/대표 모델 수용 매트릭스*부터 검증. 전체 완전성은 연구 항목 | Frontend, J Semantic IR, NN extension E2E·coverage manifest | 중기, 형식 증명 선택 |
+| **FW2 Automatic Gradient Derivation / JFW-02** | 원래의 자동미분 생성 목표를 **명시적 adjoint/VJP primitive 및 사용자 작성 backward graph**로 변경. Autograd는 필수 기능이 아님. `AdjointVjp` topology는 예약, 실제 전개·실행은 미완료 | `src/opportunity.rs`, `src/nn_extensions.rs`, explicit StateResource | 중기, 방향 변경 |
+| **FW3 Deterministic Memory Scheduling / JFW-03** | 버퍼/뷰 식별과 첫 CPU PhysicalPlan 계약은 있음; 범용 lifetime·offset 배치·재사용·activation retention·transfer plan은 미완료. 정적 크기가 증명되는 region에만 확정 계획 적용 | `src/physical_plan.rs`, §5, §8, M4 | 높음, CPU 경로 후 |
+| **FW4 Equivalent Form Search / JFW-04** | `j_graph_rewrite` / fusion 후보와 `egg` 설계는 있으나 실행 가능한 범용 EqGraph 탐색·extraction 없음. 규칙·가드·증거를 등록하고 안전한 후보만 탐색 | J Graph Basis/Rewrite, [공통배열대수 가설](#common-array-algebra-hypothesis), `src/j_graph_fusion.rs` | 최상, 후속 연구 |
+| **FW5 Basis Verb Identification / JFW-05** | 전역 최소 primitive 집합을 먼저 증명하지 않음. **Graph Basis(대수적 재작성 단위) ≠ Execution/Lowering Basis(물리 구현 단위)** 구분; 확장 연산 분해는 검증 이후 허용 | J Graph IR, Logical IR, Extended Primitive, §4–§5 | 높음, FW4/8와 연계 |
+| **FW6 Distributed Execution / JFW-06** | device·memory-space·sharding·transfer·ready/synchronization의 계획 계약을 보존하되 실제 multi-GPU/multi-node 런타임은 장기 후속 | §7.5, HE, Physical Plan, `AGENTS.md` | 장기 |
+| **FW7 Hardware Portability / JFW-07** | target locale/capability/lowering 계약 설계 존재. CPU-native E2E를 먼저 닫고 GPU·MLIR/LLVM·StableHLO 부분집합 등은 독립 적법성/실행 검증 후 확장. 현재 CUDA 실행 미구현 | TargetContext, LoweringRegistry, M4→M6, `AGENTS.md` | 높음, 단계적 |
+| **FW8 Model Equivalence Verification / JFW-08** | 정확한 J 관찰 동등성과 오차가 있는 수치 후보를 분리. `numeric_error_policy`는 분석 전용; 동등성 증명기와 EqGraph의 안전한 e-class 병합은 미완료 | J-C 차등 오라클, FactWitness, `src/numeric_error_policy.rs`, `AGENTS.md` | 최상, FW4의 선행 검증 |
+| **FW9 Structural Sparsity / JFW-09** | J-visible sparse 배열 의미 일부 구현, dense/sparse 표현 분리. sparse assembly·atomic kernel 경로에 미지원 사례 존재. MoE·sparse attention의 구조가 입력에 따라 동적일 수 있어 정적이라고 간주 금지 | `src/sparse.rs`, `src/assembly.rs`, `src/kernels.rs`, NN extension | 중기 |
+| **FW10 Quantization Integration / JFW-10** | dtype/precision·cast와 accumulation policy의 독립 계약부터 검증. 원래 JAXA의 precision 표기를 표준 J 구문으로 무단 도입하지 않음. 양자화·mixed precision·자동 cast는 아직 완료 아님 | Frontend DType/Rank, NN family spec, target-specific lowering | 중기 |
+
+**독립 검증·수용 체크리스트 (현재 상태; 각 항목의 완료는 기능별 구현 증거가 생긴 후에만 표시):**
+
+- [x] **JFW-00 추적표 작성:** 원본 FW1–FW10 출처, RustJ 책임 단계, 현행 구현 경계, 우선순위, 한·영 mirror 매핑을 문서에 등록했다. **문서 작업만 완료**.
+- [ ] **JFW-01 / V01:** ResNet·Transformer·비-NN 배열 사례를 포함한 구조 표현 매트릭스와 오류·Rank·shape·binding의 J-C 차등, 지원·미지원 부정 사례를 기록한다. 범용성 증명은 별도 상태다.
+- [ ] **JFW-02 / V02:** 명시적 adjoint/VJP 등록→Frontend 인식→Graph/Logical fan-out→값·weight gradient/state effect 검증→CPU 실행을 단계별로 닫는다. 원시 forward 식에서 자동 미분을 생성하는 것과 혼동하지 않는다.
+- [ ] **JFW-03 / V03:** M4 CPU multi-op에서 value-last-use, buffer lease/alias/ownership, 안전한 reuse, materialization/no-materialization을 증명·실측한다. 미지 크기/효과/오류는 안전한 경계를 유지한다.
+- [ ] **JFW-04 / V04:** guard가 있는 정확한 rewrite 1개부터 end-to-end 후보 생성→합법성→extraction→기본 실행 대비 동등성/비용 비교를 실증한다. 탐색 성공 자체는 의미 증명이 아니다.
+- [ ] **JFW-05 / V05:** Graph Basis별 J 관찰 의미·rank/shape·빈 결과·오류·numeric 가드를 등록한다. Conv 등 extension은 *참조 정의*와 *실제 대체 실행의 동등성 증거*를 구별한다. 최소 기저의 완전성 증명은 필요조건이 아니다.
+- [ ] **JFW-06 / V06:** 단일 CPU·zero-transfer 경로 수용 뒤 장치/메모리 간 version·transfer·ready·sync·effect/error precedence를 검증하며, 다중 노드 실행은 별도로 검증한다.
+- [ ] **JFW-07 / V07:** 동일 J 연산을 native CPU, 다른 target route에서 지원 전제와 결과·오류·효과까지 비교한다. 장치별 cost/profile과 언어 의미를 분리한다.
+- [ ] **JFW-08 / V08:** provenance, Rank/Cell/Frame, prototype/fill, NAME, effect, first observable error, CCT/Fit, float/NaN/zero를 포함한 **Exact-J witness** 없이 e-class를 union하지 않는다. J의 `2^-44` 비교 허용 오차는 최적화 오차 예산이 아니며 근사 동등은 비추이적이다.
+- [ ] **JFW-09 / V09:** 기존 sparse J semantics를 보존한 구조적 희소 연산/NN routing의 긍정·부정 테스트를 만들고, sparse pattern이 runtime dependent이면 guarded/dynamic route로 남긴다.
+- [ ] **JFW-10 / V10:** 저장·계산·누적 dtype, 명시적/자동 cast의 안전 조건, quantize/dequantize 및 overflow/rounding/empty/error를 오라클과 비교한다. FP32 단독 통과를 mixed precision 완료로 세지 않는다.
+- [ ] **JFW-X1 / VX1 — Rank-aware Fusion:** `CellApply`/Map/Reduce/Scan/reindex의 고수준 topology를 보존하고, fusion 전에 frame/cell agreement, empty/prototype, error/effect 순서를 증명한다.
+- [ ] **JFW-X2 / VX2 — Resource-aware Search:** 연산수·bytes moved·temporary peak·layout/tiling·transfer·resource feasibility를 분리 추정한다. 안전하지 않은 early pruning은 금지하고, 선형 chain 비용 평가와 DAG branch/fanout 비용을 구분한다.
+- [ ] **JFW-X3 / VX3 — Explicit State & Adjoint Planning:** forward/backward/optimizer의 `StateResource`, `ValueId`, `BufferId`를 구분하고 gradient emission·activation lifetime·effect/error barriers를 검증한다.
+
+**공통 수용 규약:** 각 V01–V10, VX1–VX3에 `Test / Purpose / Guarantee / Failure meaning / Status`, 재현 입력(특히 반례), 지원 scope, 비교 J-C 기준/커밋, 실제 CI/PR head·merged-main 증거를 기록한다. `PASS`, `FAIL`, `UNRUN`, `BLOCKED`를 구분하며 문서만 추가한 상태는 `UNRUN`이다. 표·체크리스트는 구현 전부 **미완료**이며, 향후 증거가 있을 때 해당 항목만 갱신한다.
+
+**진행 순서와 비목표:** M2 Frontend/의미 → M3 적법성/Logical single-block → M4 native CPU E2E를 먼저 닫는다. 이후 JFW-08/04/05의 *검증된 작은 부분집합* → JFW-03/X1/X2의 자원·fusion → JFW-02/X3·07·09·10의 실행 확장 → JFW-06/형식 완전성 연구 순서로 단계적으로 진행한다. 여러 항목의 연구·문서화는 병행할 수 있지만 CPU 기준 경로의 블로커가 되어서는 안 된다. **자동미분 엔진, 전역 최소 Basis 증명, 전체 J/모든 모델의 완전성 증명, 분산 실행, GPU 실행은 첫 CPU 수직 경로의 필수 선행조건이 아니다.**
 
 <a id="dynamic-boundary-checklist"></a>
 
