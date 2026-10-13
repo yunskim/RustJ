@@ -799,6 +799,104 @@ VerifiedFrontend + canonical J Graph
 **현황:** SPORES 원문 Table 2/§3.3/§4.2 및 Glenside와 기존 RustJ 설계의 비교·문서화만 완료. \`RelAccessView\`, exporter, e-graph 연동, J 오류 증명, differential oracle, 성능 실험은 **미구현·UNRUN**. 이 계약은 §7.3의 초기 core-equality 범위를 부정하는 것이 아니라 **표현의 잠재적 커버리지와 합법적 최적화 커버리지를 분리**한다. M2/M3 correctness 및 M4 baseline은 우선이다.
 
 
+
+<a id="conv-graph-ir-optimization"></a>
+##### 7.10 Convolution의 Graph IR 최적화 — Structured Conv, Access/Halo, 동등성 후보와 수용 실험 (2026-10-13; 설계 전용)
+
+**목표·현재 경계.** 이 절은 기존 공통배열대수·SPORES 관계형 접근 §7.9를 Convolution에 적용하는 세부 계약이다. 현재 **src/nn_extensions.rs**의 **NN-04 conv2d**, **NN-08 conv1d/conv3d**는 프론트엔드 인식·후보 명세 단계이고, Conv용 Graph 접근 sidecar, 실제 분해·fusion·egg/e-class, 실행 최적화는 미완료다. conv2d 표면 이름은 일반 J NAME이며 builder는 **Adverb**, 생성된 computational verb의 Rank/Valence/FunctionEntity는 별도이다. Frontend의 생성 시점/호출 시점 NAME 조회, 사용자 재정의와 오류·효과·원본 source occurrence를 바꾸지 않는다. Graph에서는 원본 **GraphBasisKind::Structured(Conv)** 노드를 남기고 **WindowView+Contract**, **im2col+GEMM**, 직접 Conv와 fusion은 비파괴적인 *후보*로만 둔다. 새 필수 IR이나 J 문법 도입 금지.
+
+| 단계 | 입력/산출과 책임 | 다음 단계로 넘길 의무 / 아직 하지 않을 결정 |
+|---|---|---|
+| Frontend / J Semantic IR | builder/POS/NAME, 인자, derived verb, intrinsic/derived Rank | 바인딩·argument 평가 순서와 source 유지; Conv를 tokenizer keyword로 특별 처리하지 않음 |
+| J Graph IR | Structured Conv의 원본 ValueId/FunctionEntity, dtype/shape/rank 사실, producer-consumer/fanout | graph access/fusion 기회만 기록; 커널·buffer·숫자 재결합 확정 금지 |
+| 선택적 DACC / RelAccessView | 확정된 호출 geometry → output-to-input/index relation, contracted axes, tile demand, provenance/witness | 접근 기술 가능 ≠ J 동등성. 미상 geometry는 Unknown/Opaque |
+| Rewrite / egg(향후) | 원본과 대안식에 RuleId/FactWitness/Guard 부착 | Exact-J observational proof 없으면 같은 e-class에 합치지 않음 |
+| Logical IR + verifier | shape/Rank/empty/prototype, ordered check/effect/error, SSA 버전 | 수학적 같음만으로 evaluation order, dtype, 오류 제거 금지 |
+| Physical/target planner | 합법 후보 + resource feasibility/cost + target capability | direct, GEMM, fused/library/tiling의 실제 실행 결정; fusion 이득 보장 금지 |
+
+**7.10.1 Convolution의 인덱스 표현 — NCHW/grouped cross-correlation 참조 모델.** 예시 전제는 X:[N,Cin,H,W], K:[Cout,Cin/G,Kh,Kw], G>=1, Cin/Cout의 G 나눗셈 가능, stride (sh,sw)>0, dilation (dh,dw)>0, 비음수 대칭 padding (ph,pw), 선택적 bias b[o]이다. PyTorch식 Conv2d가 통상 사용하는 *kernel flip 없는 cross-correlation*을 기준으로 설명하며, 실제 J extension의 타입·빈 shape·오류·인자 순서·padding mode는 별도 규약과 오라클로 입증해야 한다.
+
+~~~text
+free axes:   n, o, y, x         (batch, output channel, output H/W)
+bound axes:  c, r, t            (group-local input channel, kernel H/W)
+g(o) = floor(o / (Cout/G))
+ic = g(o)*(Cin/G) + c
+ih = y*sh - ph + r*dh
+iw = x*sw - pw + t*dw
+
+Y[n,o,y,x] =
+  ordered_sum_(c,r,t) ( padded_X[n,ic,ih,iw] * K[o,c,r,t] ) + b[o]
+
+padded_X out-of-range coordinate => specified padding value;
+never perform an out-of-bounds read of X.
+~~~
+
+비음수 대칭 padding, 유효 geometry/non-ceil 규약의 일반적인 Hout 식은 floor((H+2ph-dh*(Kh-1)-1)/sh)+1 이며 Wout도 같다. 이 식만으로 음수 분자·빈 결과·zero channel/kernel·integer overflow·J prototype/Rank/cell-frame·에러 발생 순서를 해결했다고 주장하지 않는다. **ordered_sum**을 실수의 교환 가능한 sum으로 자동 변경하지 않는다.
+
+**7.10.2 Optional Conv access 분석 sidecar — 아직 구현된 Rust 타입 아님.**
+
+~~~text
+ConvSource { FunctionEntity, source ValueId, source span, binding version }
+ResolvedConvCall { shapes/layout, ranks, groups, kernel/stride/dilation/
+                   padding, dtype/numeric, error/effect/check contracts }
+ConvAccessWitness {
+  free_axes = {n,o,y,x}; bound_axes = {c,r,t}
+  X_access -> Known(n,ic,ih,iw) | Padding(value) | Unknown
+  K_access -> (o,c,r,t); bias_access -> o
+  ordered_fold; source provenance; shape/Rank/fill/error guards
+}
+ConvDemand { requested outputs, exact input access set OR safe region cover,
+             weight/bias demand, preserved semantic checks }
+~~~
+
+기존 **GraphBasisKind::Structured**, **Window/Reduce/StaticReindex**, **j_graph_access.rs**의 좌표 역추적 및 **j_graph_rewrite.rs**의 보존적 후보/증거 구조에 연결한다. geometry는 실제 호출로 결정되는 fact이므로 파서 FunctionEntity에 물리 tile/stride/buffer 결정을 넣지 않는다. 모델의 배열 layout(NCHW)은 해당 Conv의 축 명세이고, 물리 stride/layout은 Physical Plan 소유다. 축 alpha-renaming과 padding predicate를 확인하며 boxed/sparse fill을 무조건 숫자 0으로 바꾸지 않는다.
+
+**7.10.3 역방향 수요(ArrayRegion pullback)와 Halo.** 결과 좌표 집합 Rout가 필요하면 실제 X 읽기 좌표는 Rout의 각 (n,o,y,x)와 모든 (c,r,t)에 위 접근식을 적용한 후 0<=ih<H, 0<=iw<W인 좌표들의 **합집합**이다. K 수요는 선택한 o 및 (c,r,t)에, bias 수요는 o에 한정된다. 출력 사각형 y∈[a,b), x∈[u,v), b>a, v>u에 대한 **안전한 bounding cover**는 다음과 같다.
+
+~~~text
+H_cover = [a*sh-ph, (b-1)*sh-ph+(Kh-1)*dh+1) intersect [0,H)
+W_cover = [u*sw-pw, (v-1)*sw-pw+(Kw-1)*dw+1) intersect [0,W)
+~~~
+
+stride/dilation이 1보다 크면 cover에 실제로 읽지 않는 구멍이 생긴다. **cover는 정확한 최소 접근 집합이 아니다.** 정확한 합집합과 보수적 박스는 다른 fact로 보존한다. 예: Kh=Kw=3, stride=dilation=1, padding=1, 경계 안쪽 출력 타일 [10,18)×[10,18) (8×8)은 X의 공간 영역 [9,19)×[9,19) (10×10)을 요구한다. 경계에서 clipping, padding 값, group/channel subset을 별도 처리한다. Rout=empty라 값 읽기가 없어도 **J의 원본 argument evaluation, shape/prototype, check, effect, first-error까지 생략할 수 있다는 뜻은 아니다.**
+
+**7.10.4 후보 생성·최적화 범위.**
+
+| 후보 | 발견 조건 / 이점 | 독립적으로 증명·측정할 조건 |
+|---|---|---|
+| Conv→Bias→ReLU | 순수 single-consumer pipeline; intermediate materialization 생략 후보 | dtype/bias agreement, Rank, 오류·효과 순서, 다른 consumer/fanout, target resource |
+| Conv→Transpose/Reindex | 소비자의 검증된 축 변환; index-map 합성 | J 논리 atom order/shape, 다른 사용자, 물리 view 또는 copy 필요성 |
+| 1×1 Conv→(grouped) MatMul | Kh=Kw=1, 합법 stride/padding/groups/axis | weight packing, reshape bytes, 숫자 누적/FMA·Round-off |
+| Conv→WindowView+Contract | offset/window, padding, reduction 축 확인 | 원래 Conv의 ordered fold/empty semantics·경계가 동일할 때만 executable |
+| Conv→im2col+GEMM | input/kernel 좌표와 group 정합 | packing materialization/읽기 byte/재사용 vs 직접 kernel 비용 |
+| Conv→Pooling 또는 Conv→Conv | 후속 연산 요구 타일을 전파 | halo 중복 계산, producer fanout, resource/동기화·오류 순서; 한 커널 fusion 보장 없음 |
+| Inference Conv+BatchNorm folding | 불변 inference 통계·가중치·epsilon·cast 확인 | training BN 제외; FP reassociation은 Exact-J가 아닐 수 있음 |
+| Conv+explicit VJP | 등록된 adjoint와 activation/state | input·weight gradient 접근과 activation lifetime; 자동미분 생성 아님 |
+
+**7.10.5 SPORES/egg/실행의 경계.** 적격한 *순수* Conv 부분을 출력 자유축 {n,o,y,x}, 바운드축 {c,r,t}, **IndexJoin(X,K)→Multiply→ordered Aggregate**로 표현할 수 있다. 이 관계 표현은 **SPORES 식의 sum-product 탐색 후보**를 만든다는 뜻이지, 전체 Convolution/J 의미를 언제나 보존하는 대수적 rewrite 허가가 아니다. 실수 semiring의 결합/분배/aggregate pushdown은 J의 floating NaN/±0/FMA/rounding, 정수 overflow/promotion, ordered reduction, Rank/empty/prototype, NAME·효과·오류와 충돌할 수 있다. **Exact-J witness 없이는 egg e-class union 금지.** 근사 숫자 후보는 명시적 budget과 합성 오차 증명을 별도로 사용하고 J 비교 허용오차 2^-44를 최적화 기본 예산으로 사용하지 않는다.
+
+한 가지 Structured(Conv)의 direct/GEMM/Winograd/FFT/library 구현은 **동일한 J 의미를 실현한다고 검증할 때만** backend realization으로 선택한다. 이것은 e-class를 합치는 것과 다른 결정이다. 경로는 Graph opportunity → access/geometry witness → legal rewrite/guard → Logical IR checks/effect/first error → target capability → ResourceEstimate + CostEstimate → Physical Plan이다. 최적화 이득을 판단할 때 연산량, memory traffic, peak temporary bytes, halo duplication, fanout, transfer, target occupancy/latency를 나누어 측정한다.
+
+**7.10.6 최소 수용 실험 — 새 독립 로드맵 대신 기존 GF/FW/IO/NN 원장에 귀속.** M2→M3→M4 순차 CPU baseline을 최우선으로 두고, GF4·GF5a·GF6·FW-05–09·IO-09/10·NN-04/08에 다음 **Convolution 전용 test case**를 연결한다. 각 행은 Test/Purpose/Guarantee/Failure meaning/Status를 갖고, 현재 **모두 미구현/UNRUN**이다.
+
+| Test / owner | Purpose | Guarantee / 반례 | Failure meaning | Status |
+|---|---|---|---|---|
+| conv_builder_binding / NN-04·GF4 | builder/derived verb·원본 보존 | NAME shadow/rebind, 호출/생성 시점, Rank/source span/effect | Frontend 의미 손실 | [ ] UNRUN |
+| conv_index_geometry / NN-04·GF5a | X/K/result 축 검증 | 1×1, 3×3, 직사각형, stride/dilation/groups>1, depthwise, invalid geometry | 잘못된 source 좌표·shape | [ ] UNRUN |
+| conv_region_halo / GF5a·IO-09 | output→input demand | 8×8→10×10, 경계 clipping, stride holes, channel subset, empty request | 읽기 누락/잘못된 exact cover | [ ] UNRUN |
+| conv_padding_empty_error / FW-05–09 | padding/zero-frame/오류 | padding은 OOB read 아님; J prototype·required checks·first error | 관찰 순서/빈 결과 변화 | [ ] UNRUN |
+| conv_numeric_rewrite_negative / GF4·FW | 허용 안 되는 변환 차단 | FP 재결합, NaN/±0/FMA, integer promotion, state/RNG, train BN, unknown | false Exact-J/e-graph union | [ ] UNRUN |
+| conv_candidate_fallback / GF4·GF6 | 원본/후보 왕복 | proof/target/timeout 실패 시 원본 유지; 값/type/shape/error/effect 검사 | unverified 실행 또는 효과 재실행 | [ ] UNRUN |
+| conv_cpu_cost_comparison / GF6·IO-10 | Direct vs GEMM vs tile | bytes/peak/work/halo duplication 및 CPU 실측 time 분리 | 측정 없는 성능 승인 | [ ] UNRUN |
+| conv_vjp_lifetime / NN-16·GF5a | explicit adjoint 수요 | activation lease, input/weight gradients, state/error barrier | 자동미분 강제·상태 순서 변경 | [ ] UNRUN |
+
+**증명·검증 분리:** 기존 J primitive로 만든 참조 수식을 pinned J-C로 실행하여 비교하는 것은 하나의 오라클이다. 새 Conv extension의 의미 명세·독립 참조 구현, 접근 좌표의 정합성, 자원 예측의 실측은 각각 **별개의 검증**이다. 구조적 Index witness가 있어도 J observational equality, 실행 최적화, 성능 향상을 PASS 처리하지 않는다. 입력 반례와 PR-head·merged-main CI 증거를 별도로 기록한다. 구현되지 않은 Conv 경로는 Unknown/UnsupportedRoute이며 원본 의미 경로로 안전하게 fallback하거나 명시적으로 미지원 처리한다.
+
+**현황:** 본 절 추가는 **문서 계약 작성만 완료**. Conv Access sidecar, EqGraph/SPORES exporter, 확장된 Graph rewrite, Conv CPU/GPU backend·fusion·성능 실증은 **미구현·미검증/UNRUN**이다. §7.9 R0→R1→R2와 기존 M2/M3/M4 우선순위는 변하지 않는다.
+
+**관련 출처:** [SPORES 원 논문](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [공통 접근 대수 R0](../../research/common-array-access-composition.ko.md), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion).
+
+
 <a id="8-rustj-적용-위치--검증-방법--합격반증-조건"></a>
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 

@@ -1006,6 +1006,9 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 <a id="spores-relational-integration"></a>
 - [spores-relational-integration](docs/project/chapters/11-roadmap-checklists-p04.ko.md#spores-relational-integration)
 
+<a id="conv-graph-ir-optimization"></a>
+- [conv-graph-ir-optimization](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization)
+
 <a id="gf2-composition-review"></a>
 - [gf2-composition-review](docs/project/chapters/11-roadmap-checklists-p04.ko.md#gf2-composition-review)
 

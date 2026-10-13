@@ -2860,6 +2860,104 @@ VerifiedFrontend + canonical J Graph
 **Status:** Primary SPORES Table 2/§3.3/§4.2 and Glenside comparisons and this **design contract** are documented. \`RelAccessView\`, its importer/exporter, \`egg\` connection, J error proofs, differential corpus and performance measurements are **unimplemented/UNRUN**. This supplements §7.3's narrow initial *equational law* scope with broader **representation opportunities**, without promoting mathematical identities to universal J laws or preempting M2/M3 semantic correctness and M4 single-CPU baseline.
 
 
+
+<a id="conv-graph-ir-optimization"></a>
+##### 7.10 Convolution optimization in J Graph IR: structured identity, index access, halo and candidate search (2026-10-13; design only)
+
+**Scope and status.** This is the Convolution application of the common array algebra and SPORES/RelAccessView §7.9. Current **NN-04 conv2d** and **NN-08 conv1d/conv3d** in **src/nn_extensions.rs** are frontend-recognized candidates, not executable graph optimizations. A conv2d spelling remains an ordinary J NAME; its builder is an **Adverb**, whose derived computational verb has a separate FunctionEntity/Rank/valence contract. Preserve NAME shadowing/rebinding, constructor/call-time lookup, source occurrences and J observable errors/effects. **Keep the original GraphBasisKind::Structured(Conv)** and attach optional **WindowView+Contract**, **im2col+GEMM**, direct/library and fusion alternatives without destroying the source. Do not add an obligatory IR or change J syntax. Convolution access sidecars, executable decompositions, e-graph and optimized kernels remain unimplemented.
+
+| Stage | Inputs and outputs | Invariants and forbidden early decisions |
+|---|---|---|
+| Frontend/J Semantic IR | NAME/POS, builder operands, derived verb and ranks | Preserve J argument/construction/lookup/error order; no new conv2d tokenizer keyword |
+| J Graph IR | Structured Conv source ValueId/FunctionEntity, GraphFacts | Expose geometry, producer/consumer, fanout, fusion opportunities; do not choose kernels/layout |
+| Optional DACC/RelAccessView | resolved shape/rank/dtype/geometry → indexed access and output-region demand | Coordinate representability does not prove J equality; absent witnesses are Unknown/Opaque |
+| Rewrite/optional egg | source and alternatives with RuleId/FactWitness/Guard | **Exact-J observation witness** is required for e-class union |
+| Logical IR/verifier | candidates with ordered checks/effects/first error, SSA | No unproved reassociation or missing prototype/empty semantics |
+| Physical/target planner | legal candidates + capability/resource/cost | Choose Direct/GEMM/kernel/library/tiling, buffers and scheduling; fusion hints guarantee no speedup |
+
+**7.10.1 Reference NCHW/grouped cross-correlation indexed contract.** Illustrative input X:[N,Cin,H,W], weights K:[Cout,Cin/G,Kh,Kw], positive group count G dividing Cin,Cout; positive strides (sh,sw), dilations (dh,dw), symmetric nonnegative padding (ph,pw), and optional bias b[o]. This is the common non-flipped *cross-correlation* convention, not a proof of the J extension's concrete Rank, types, empties, errors or signature.
+
+~~~text
+free axes:   n,o,y,x    (batch, output channel, output H/W)
+bound axes:  c,r,t      (input channel in group, kernel H/W)
+g(o) = floor(o/(Cout/G))
+ic = g(o)*(Cin/G) + c
+ih = y*sh-ph+r*dh
+iw = x*sw-pw+t*dw
+
+Y[n,o,y,x] =
+  ordered_sum_(c,r,t)(padded_X[n,ic,ih,iw] * K[o,c,r,t]) + b[o]
+
+padded_X out-of-bounds coordinate = the prescribed padding value;
+it is not an out-of-bounds array read.
+~~~
+
+For valid standard symmetric zero-padding and non-ceil geometry, Hout=floor((H+2ph-dh*(Kh-1)-1)/sh)+1, and similarly Wout. This does **not** establish semantics of negative numerator, zero extents/channels, kernel validity, integer overflow, J prototype/fill, promotion, ordered reduction or first-error precedence.
+
+**7.10.2 Optional analysis sidecar (proposed contract, not existing Rust types).**
+
+~~~text
+ConvSource { FunctionEntity, source ValueId/span, binding version }
+ResolvedConvCall { shapes/layout, ranks, groups, kernel/stride/dilation/
+                   padding, dtype/numeric policy, error/effect/checks }
+ConvAccessWitness {
+  free_axes={n,o,y,x}; bound_axes={c,r,t}
+  X_access -> Known(n,ic,ih,iw) | Padding(value) | Unknown
+  K_access -> (o,c,r,t); bias_access -> o
+  ordered fold; source provenance; Shape/Rank/fill/error guards
+}
+ConvDemand { requested output, exact input set OR safe region cover,
+             weights/bias demand, original required checks }
+~~~
+
+Reuse Structured/Window/Reduce/StaticReindex bases, coordinate pullback in **j_graph_access.rs**, and retained-source rewrites in **j_graph_rewrite.rs**. Call-specific geometry is an analysis fact; physical stride/tiling/buffer is not parser identity. WindowView/Contract does not imply current executable lowering. Preserve axis alpha-renaming, bounds, padding predicates, sparse fill and boxed semantics.
+
+**7.10.3 Reverse demand and halo.** For requested output coordinates Rout, the exact X read set is the union over each (n,o,y,x) in Rout and each reduction triple (c,r,t), using the formulas above and retaining only 0<=ih<H, 0<=iw<W. Weight demand is limited by requested output channels and (c,r,t); bias demand by o. For a nonempty requested output tile y∈[a,b), x∈[u,v), a safe *bounding cover* is:
+
+~~~text
+H_cover = [a*sh-ph, (b-1)*sh-ph+(Kh-1)*dh+1) intersect [0,H)
+W_cover = [u*sw-pw, (v-1)*sw-pw+(Kw-1)*dw+1) intersect [0,W)
+~~~
+
+With stride/dilation>1 this cover may contain unread holes; retain the exact union separately and never mistake a bounding box for a minimal read set. For 3×3, stride/dilation 1 and padding 1 away from image edges, an 8×8 output tile [10,18)×[10,18) needs a 10×10 X spatial cover [9,19)×[9,19). Clip reads at image boundaries; padding values are not reads. Empty Rout may imply no value reads but **does not** imply original J argument evaluation, prototype/shape, checks, errors and effects can be skipped.
+
+**7.10.4 Candidate transformations and additional proof gates.**
+
+| Graph candidate | Structural opportunity | Legality and cost questions |
+|---|---|---|
+| Conv→Bias→ReLU | pure producer-consumer fusion | bias agreement, dtype/Rank, error order, fanout, target feasibility; remove intermediate writes only when legal |
+| Conv→Transpose/Reindex | downstream witnessed axis map | fuse logical access, not necessarily layout; preserve atom order and other consumers |
+| 1×1 Conv→(grouped) MatMul | Kh=Kw=1 plus proven stride/padding/groups/layout | GEMM reuse vs packing/copy and different floating accumulation/FMA |
+| Conv→WindowView+Contract | window offsets, padding and bound reduction indices | ordered reduction, empty/cell/error proof before executable decomposition |
+| Conv→im2col+GEMM | same input/weight coordinates | assess packing/intermediate bytes and GEMM reuse; not always materialized |
+| Conv→Pooling or Conv→Conv | downstream output demand propagated upstream | tile/halo fusion vs duplicate halo, fanout, register pressure, error/ordering constraints |
+| inference Conv+BatchNorm folding | immutable running stats, parameters, epsilon, inference mode | precompute weights/bias only with applicable numeric proofs; training excluded |
+| Conv+explicit VJP | registered adjoint and activation/state facts | gradient demand, activation lifetime; **not generated autograd** |
+
+**7.10.5 Distinguish SPORES representation, egg equality and physical algorithms.** An eligible *pure* Conv sum-product fragment maps to free axes {n,o,y,x}, bound axes {c,r,t}, **IndexJoin(X,K)→Multiply→ordered Aggregate**. This is an index/relational *description*, not authorization to apply arbitrary real-semiring associativity/distributivity/aggregate pushdown in J. J FP NaN/±0/FMA/rounding, integer promotion/overflow, ordered reductions, Rank/empty/prototype, NAME, effects and first errors require independent **Exact-J observational witnesses**. Mathematical-only or unproved candidates cannot merge e-classes. Approximate optimizations require a distinct explicit compositional error budget; never inherit J's 2^-44 comparison tolerance.
+
+Direct/GEMM/Winograd/FFT/vendor-library algorithms are **physical realization candidates** for a Structured Conv when proven to meet its numeric/error contract, not automatically exact e-graph identities. The pipeline remains opportunity → geometry/access witness → Exact-J/guarded legality → Logical checks/effects → target capability → distinct ResourceEstimate/CostEstimate → Physical Plan. Benchmark work, bytes moved, peak temporary allocation, halo duplication, fanout, transfer and measured latency. A legal fusion opportunity is not a guaranteed one-kernel or faster execution.
+
+**7.10.6 Acceptance tests attached to existing GF/FW/IO/NN gates (not a new roadmap).** M2→M3→M4 single-CPU correctness remains first. All Convolution-specific entries are **UNRUN** at documentation time.
+
+| Test / existing owner | Purpose | Guarantee and negatives | Failure meaning | Status |
+|---|---|---|---|---|
+| conv_builder_binding / NN-04·GF4 | builder/derived source identity | J shadow/rebind, constructor vs call, Rank/span/effects | changed frontend semantics | [ ] UNRUN |
+| conv_index_geometry / NN-04·GF5a | X/K/output mapping | 1×1/3×3, nonsquare, stride/dilation/groups>1, depthwise, invalid shapes | incorrect access/output shape | [ ] UNRUN |
+| conv_region_halo / GF5a·IO-09 | output-to-input demand | 8×8→10×10, edge clipping, stride holes, channel subset, empty requests | missed reads or cover assumed exact | [ ] UNRUN |
+| conv_padding_empty_error / FW-05–09 | padding/empty/error obligations | padding != OOB read; preserve prototype, checks and first error | changed J observations | [ ] UNRUN |
+| conv_numeric_rewrite_negative / GF4·FW | reject unsafe arithmetic | float association, NaN/±0/FMA, int overflow, state/RNG, BN train, unknowns | unsound Exact-J union | [ ] UNRUN |
+| conv_candidate_fallback / GF4·GF6 | non-destructive alternatives | missing proof/target/timeout preserves source; compare value/type/shape/errors/effects | unsafe execution or replay | [ ] UNRUN |
+| conv_cpu_cost_comparison / GF6·IO-10 | compare legal direct/GEMM/tiled routes | work/bytes/peak/halo duplicates separately from measured CPU time | unsupported performance claim | [ ] UNRUN |
+| conv_vjp_lifetime / NN-16·GF5a | explicit adjoint demands | activation leases, input/weight gradients, state/error barriers | autograd forced or state reordered | [ ] UNRUN |
+
+Each test records **Test/Purpose/Guarantee/Failure meaning/Status**, positive/negative corpus, pinned J-C revision where standard-J reference expressions exist, an **independent extension semantics oracle**, and exact PR-head vs merged-main CI. A standard-J reference formula passing C does not by itself prove a new Conv extension's semantics, alternative legality or resource estimate. Unknown facts must reject the route or preserve a safe original fallback. Implement in order: geometry/index witness → exact/cover halo → negative numeric/empty/effect guards → source/candidate round-trip → measured CPU legal alternatives.
+
+**Status:** **Design/documentation only**. Conv access sidecar, SPORES exporter, egg/e-class, executable decompositions, Conv fusion, CPU/GPU speedups and all tests above remain **unimplemented/unverified/UNRUN**. No change to the existing R0→R1→R2 or M2→M3→M4 precedence.
+
+**Sources:** [Original SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Korean canonical Conv section](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization), [ExecutionBasisExpansion](docs/project/chapters/15-advanced-contracts-p10.ko.md#executionbasisexpansion).
+
+
 ##### 8. RustJ placement, experimental design and falsification criteria
 
 **Stage ownership:** J source/FunctionEntity → existing J Graph IR (preserving structured identity) → **candidate DACC/ArrayRegion analysis sidecar** → `GraphRewriteCandidate` with `FactWitness/Guard` → Verified Logical Execution IR (checks/effects/error precedence) → existing route legality, target feasibility, profitability, Physical Plan. No new compulsory algebra IR or executor. Preserve GraphBasis Scan/CellApply/Conv and select optional ExecutionBasis expansion/external library routes only when witnessed. `with` can supply static dtype/shape/semantic input facts; hardware policy remains physical.
