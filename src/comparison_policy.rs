@@ -37,9 +37,9 @@ pub(crate) const JSOURCE_MAX_TOLERANCE: f64 = 5.820766091e-11;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[expect(
-        dead_code,
-        reason = "N1a: state setter is not yet reached by interpreter"
-    )]
+    dead_code,
+    reason = "N1a: state setter is not yet reached by interpreter"
+)]
 pub(crate) enum JComparisonStateError {
     Domain,
     VersionExhausted,
