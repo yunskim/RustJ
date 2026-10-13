@@ -803,7 +803,7 @@ VerifiedFrontend + canonical J Graph
 <a id="conv-graph-ir-optimization"></a>
 ##### 7.10 Convolution의 Graph IR 최적화 — Structured Conv, Access/Halo, 동등성 후보와 수용 실험 (2026-10-13; 설계 전용)
 
-**목표·현재 경계.** 이 절은 기존 공통배열대수·SPORES 관계형 접근 §7.9를 Convolution에 적용하는 세부 계약이다. 현재 **src/nn_extensions.rs**의 **NN-04 conv2d**, **NN-08 conv1d/conv3d**는 프론트엔드 인식·후보 명세 단계이고, Conv용 Graph 접근 sidecar, 실제 분해·fusion·egg/e-class, 실행 최적화는 미완료다. conv2d 표면 이름은 일반 J NAME이며 builder는 **Adverb**, 생성된 computational verb의 Rank/Valence/FunctionEntity는 별도이다. Frontend의 생성 시점/호출 시점 NAME 조회, 사용자 재정의와 오류·효과·원본 source occurrence를 바꾸지 않는다. Graph에서는 원본 **GraphBasisKind::Structured(Conv)** 노드를 남기고 **WindowView+Contract**, **im2col+GEMM**, 직접 Conv와 fusion은 비파괴적인 *후보*로만 둔다. 새 필수 IR이나 J 문법 도입 금지.
+**목표·현재 경계.** 이 절은 기존 공통배열대수·SPORES 관계형 접근 §7.9를 Convolution에 적용하는 세부 계약이다. 현재 **src/nn_extensions.rs**의 **NN-04 conv2d**, **NN-08 conv1d/conv3d**는 프론트엔드 인식·후보 명세 단계이고, Conv용 Graph 접근 sidecar, 실제 분해·fusion·egg/e-class, 실행 최적화는 미완료다. conv2d 표면 이름은 일반 J NAME이며 builder는 **Adverb**, 생성된 computational verb의 Rank/Valence/FunctionEntity는 별도이다. Frontend의 생성 시점/호출 시점 NAME 조회, 사용자 재정의와 오류·효과·원본 source occurrence를 바꾸지 않는다. Graph에서는 원본 **GraphBasisKind::Structured(Conv)** 노드를 남기고, SPORES가 사용하는 index/relational 투영은 **실행용 J 코드가 아닌 선택적 의미론 분석 sidecar**로 제공한다. **WindowView+Contract**, **im2col+GEMM**, 직접 Conv와 fusion은 비파괴적인 *후보*로만 둔다. **Convolution을 J primitive로 작성하거나 J 참조 정의를 제공할 의무는 없다.** J Graph에서 후보를 탐색하고, Logical IR은 합법적인 경우에만 선택적으로 분해한다. 새 필수 IR이나 J 문법 도입 금지. [확정 설계 §7.10.7](#conv2d-graph-spores-semantic-blackbox).
 
 | 단계 | 입력/산출과 책임 | 다음 단계로 넘길 의무 / 아직 하지 않을 결정 |
 |---|---|---|
@@ -890,11 +890,72 @@ stride/dilation이 1보다 크면 cover에 실제로 읽지 않는 구멍이 생
 | conv_cpu_cost_comparison / GF6·IO-10 | Direct vs GEMM vs tile | bytes/peak/work/halo duplication 및 CPU 실측 time 분리 | 측정 없는 성능 승인 | [ ] UNRUN |
 | conv_vjp_lifetime / NN-16·GF5a | explicit adjoint 수요 | activation lease, input/weight gradients, state/error barrier | 자동미분 강제·상태 순서 변경 | [ ] UNRUN |
 
-**증명·검증 분리:** 기존 J primitive로 만든 참조 수식을 pinned J-C로 실행하여 비교하는 것은 하나의 오라클이다. 새 Conv extension의 의미 명세·독립 참조 구현, 접근 좌표의 정합성, 자원 예측의 실측은 각각 **별개의 검증**이다. 구조적 Index witness가 있어도 J observational equality, 실행 최적화, 성능 향상을 PASS 처리하지 않는다. 입력 반례와 PR-head·merged-main CI 증거를 별도로 기록한다. 구현되지 않은 Conv 경로는 Unknown/UnsupportedRoute이며 원본 의미 경로로 안전하게 fallback하거나 명시적으로 미지원 처리한다.
+**증명·검증 분리:** J primitive로 작성한 Convolution 참조 정의는 **선택 사항이며 필수가 아니다**. 기존 J 연산의 언어 의미를 비교해야 할 때 pinned J-C는 그 부분의 오라클로 활용한다. **Conv2d 자체**는 독립적인 CPU indexed oracle이나 버전 고정 외부 구현·소형 수작업 정답을 사용할 수 있으며, extension의 수치·Rank·오류·빈 배열 계약에 맞게 검증해야 한다. 새 Conv extension의 의미 명세·독립 참조 구현, 접근 좌표의 정합성, 자원 예측의 실측은 각각 **별개의 검증**이다. 구조적 Index witness가 있어도 J observational equality, 실행 최적화, 성능 향상을 PASS 처리하지 않는다. 입력 반례와 PR-head·merged-main CI 증거를 별도로 기록한다. 구현되지 않은 Conv 경로는 Unknown/UnsupportedRoute이며 원본 의미 경로로 안전하게 fallback하거나 명시적으로 미지원 처리한다.
 
 **현황:** 본 절 추가는 **문서 계약 작성만 완료**. Conv Access sidecar, EqGraph/SPORES exporter, 확장된 Graph rewrite, Conv CPU/GPU backend·fusion·성능 실증은 **미구현·미검증/UNRUN**이다. §7.9 R0→R1→R2와 기존 M2/M3/M4 우선순위는 변하지 않는다.
 
 **관련 출처:** [SPORES 원 논문](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [공통 접근 대수 R0](../../research/common-array-access-composition.ko.md), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion).
+
+
+
+<a id="conv2d-graph-spores-semantic-blackbox"></a>
+##### 7.10.7 설계 결정 — J로 풀지 않는 `Conv2d`와 Graph IR SPORES 처리 (2026-10-13; 설계/체크리스트)
+
+**확정한 방향과 범위.** NN-04 `conv2d`는 J primitive 조합(`;._3`/Cut, Window/Multiply/Reduce 등)으로 **소스 코드나 Graph IR에 펼쳐서 정의하지 않는다**. J로 작성한 Conv 참조 구현 역시 **필수 조건이 아니다**. Frontend가 올바른 ordinary J NAME·POS 및 derived computational function을 해석한 뒤, **J Graph IR에는 하나의 고수준 `Structured(Conv2d)` semantic operation**을 유지한다. *Blackbox*는 구현 본문을 숨긴다는 뜻이지 shape·axis·Rank·입출력·배열 접근·effect를 모두 Unknown으로 처리한다는 뜻은 아니다. NN-08 Conv1d/Conv3d, adjoint, 다른 NN 연산이나 전체 NN 모델의 구현은 이번 결정·체크리스트 범위 밖이다. 기존 `7.10.4의 계층 간 fusion 후보는 장기 연구로 유지하며 다른 연산의 구현을 Conv2d 분석의 전제 조건으로 만들지 않는다.
+
+**어디서 SPORES를 실행하는가.** `Graph IR optimization`에서 원본 `Structured(Conv2d)`에 붙은 **선택적 의미론 sidecar**를 이용해 SPORES 방식의 관계·sum-product *탐색용 투영(projection)*을 만든다. 이 투영은 **실제 J 소스도, 원본 Graph IR을 대체하는 필수 IR도, 즉시 실행되는 Logical IR도 아니다**. 원본 노드와 투영은 동일한 source/ValueId/FunctionEntity/parameter version·proof provenance로 연결된다. 투영에 필요한 fact가 미확정이면 `Opaque/Unknown`으로 남긴다. 기존 `j_graph_access.rs`·`j_graph_rewrite.rs`의 분석/보존적 후보 흐름에 통합하는 방향이며 지금 Rust API가 구현됐다는 뜻은 아니다.
+
+~~~text
+J ordinary NAME / derived function
+        ↓
+Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
+        │
+        ├─ semantic sidecar:
+        │    Shape / Rank / axis and group geometry
+        │    X, K, bias indexed AccessRelation / padding predicate
+        │    free and contracted axes / ordered numeric reduction
+        │    effect, first-error, empty/fill, NAME/version obligations
+        │
+        └─ projection for SPORES candidate exploration (analysis only)
+                ↓
+           candidate alternatives [original remains available]
+                ↓
+           equivalence evidence + guards
+                │  unproved/math-only -> not an exact e-class union
+                ↓
+       Graph candidate registry / conditional cost evidence
+                ↓
+         Execution-semantic lowering → Logical IR
+           ├─ original high-level Conv2d when supported
+           └─ verified, selected WindowView/Contract/MatMul recipe
+                ↓
+          Physical route legality + measured resource/cost
+~~~
+
+**왜 소스 수준 J 분해가 필요 없는가.** `Conv2d`의 수학적 index relation(`7.10.1`의 자유축 `n,o,y,x`, 환원축 `c,r,t`, groups/stride/padding/dilation)은 sidecar에서 **의미 설명과 접근 관계**로만 사용한다. 이를 J 동사 나열이나 임의 `Gather/Multiply/Reduce` 노드 수천 개로 실체화하지 않는다. SPORES는 일반적으로 이 blackbox를 자동으로 이해하지 못하므로 RustJ가 **연산별 relation exporter와 검증 가능한 rewrite 조건**을 제공해야 한다. `Conv2d→WindowView+Contract`, 1×1 `Conv2d→(grouped) MatMul`, virtual im2col/GEMM, halo-tile은 모두 **탐색 후보**이며 원본 node 삭제·실행 최적화 확정이 아니다. 변환식이 J/Logical IR로 구현 가능하지 않으면 *분해하지 않아도 된다*.
+
+**정확성 경계.** `Indexed access를 표현할 수 있음`, `수학적으로 동등함`, `J에서 관찰상 동등함`, `특정 타깃에서 실행·비용상 유리함`은 서로 독립적인 주장이다. SPORES의 semiring 등식은 부동소수점 NaN/±0/FMA·누산 순서·rounding, integer overflow/promotion, Rank/CellApply/empty/fill, 인자 평가와 first-error, NAME/rebind, effect/alias를 자동 보존하지 않는다. e-graph의 **exact e-class union**은 동일한 J 관찰 의미의 증거가 있을 때만 한다. 미검증/수학적 후보는 별도로 보관한다. Guard가 필요하면 관찰 가능한 effect보다 먼저 유효성·버전을 검사하고, 미증명 guard를 근거로 동등성을 선언하지 않는다. J의 `2^-44` 비교 허용오차를 무조건적인 근사 최적화 예산으로 전환하지 않는다.
+
+**Graph / Logical / Physical 역할 계약.** Graph 단계는 `Conv2d` semantic identity, 원본 간선과 bindings, 후보 관계/증거, 효과·오류 의무 및 후보 비용 추정치를 보존한다. **실행 계획을 확정하거나 무조건 분해하지 않는다.** Logical 단계는 적법한 후보를 `WindowView/Contract` 등으로 **선택적으로 구체화**하거나 high-level Conv2d identity를 보존하고, SSA/Rank/shape/ordered SemanticCheck/first-error를 검증한다. 기존 Logical/Physical 경로가 해당 original/high-level op나 후보를 실행할 수 없으면 **실제 지원되는 경로만** 선택하거나 명시적 `UnsupportedRoute`로 남긴다. Physical 단계가 buffer/materialization/strides/schedule, target capability, hard resource feasibility 및 cost를 최종 판단한다. Graph의 낮은 비용 추정만으로 native kernel, 성공 실행 또는 성능 향상을 주장하지 않는다.
+
+**동등성 오라클 정책.** J 언어의 일반 부분에 대한 pinned jsource differential은 그대로 중요하지만, 신규 `Conv2d` extension의 참조 정의를 **J primitive로 작성할 의무는 없다**. 독립적인 단순 CPU indexed convolution, 사양/버전을 고정한 외부 reference 구현, 손으로 검산한 소형 입력 등에서 **실제 extension의 서명·dtype·padding·numeric·empty/error 의미와 일치하는 범위**를 명시하여 differential corpus를 구축할 수 있다. 단순 수학/외부 프레임워크 결과 일치는 J observational proof가 아니며, 구현하지 않은 oracle 또는 미실행 테스트를 PASS로 기재하지 않는다.
+
+**최소 구현·검증 체크리스트(`7.10.6 기존 테스트 원장을 증거로 사용; 별도의 NN-04 완료 체크박스 아님).**
+
+| 단계 / owner | 필요한 산출·positive test | 반드시 실패시켜야 할 negative / 실패 의미 | 상태 |
+|---|---|---|---|
+| **GCS-00 / 문서** | Graph SPORES 투영 + blackbox 보존 + optional Logical 분해/비J oracle 정책을 한영 문서에 고정 | 문서 완료를 compiler/CI PASS로 취급하지 않음 | [x] 문서만 |
+| **GCS-01 / GF4·NN-04** | `Structured(Conv2d)` 원본, FunctionEntity/ValueId/source·parameter binding/NAME·Rank 유지; `conv_builder_binding` | late rebind/동명이름·오류/효과가 다른 호출의 Conv 오인, source 소실 | [ ] UNRUN |
+| **GCS-02 / GF5a·IO-09** | sidecar index/padding/group/ordered reduction 및 output→input exact set vs halo cover; `conv_index_geometry`/`conv_region_halo` | zero/invalid geometry·overflow·stride holes·empty/opaque에서 가짜 정확 witness | [ ] UNRUN |
+| **GCS-03 / GF4·SPORES R1/R2** | **Conv2d-local** exporter 및 비파괴 원본/Window/MatMul/im2col/tile 후보와 RuleId/출처 보존; `conv_candidate_fallback` | exporter가 J 소스 분해를 강제, 원본 소거 또는 타 연산 구현 요구 | [ ] UNRUN |
+| **GCS-04 / GF4·FW-05–09** | exact observation / math-only / unknown / reject와 guard 분리; `conv_numeric_rewrite_negative`·`conv_padding_empty_error` | floating 재결합, ±0·NaN, Rank/fill, first-error·effect·NAME 누락으로 false e-union | [ ] UNRUN |
+| **GCS-05 / M3·GF6** | 검증된 후보만 Logical IR로 **선택적** expansion, 원본 high-level 경로·SSA/check·Unsupported 분리; `conv_candidate_fallback` | window/contract 전개 강제, 지원되지 않는 물리 경로에 조용히 우회 | [ ] UNRUN |
+| **GCS-06 / GF6·IO-10** | legal 후보의 work/bytes/halo/peak-memory/resource, target 경로 여부, 측정 가능할 때 비용; `conv_cpu_cost_comparison` | unmeasured speedup, packing/target hard limit 누락 또는 모든 후보가 실행 가능하다는 주장 | [ ] UNRUN |
+| **GCS-07 / NN-G6·GF6** | 독립 indexed oracle 및 가능하면 실제 지원되는 route의 전후 value/type/shape/error/effect differential, exact PR/head·main CI | 오라클 사양 차이·미실행 경로를 동등성 PASS나 실행 완료로 오인 | [ ] UNRUN |
+
+**채택 기준.** GCS-01–03의 *분석 성공*은 Graph 후보 탐색만 허가한다. GCS-04의 J observational proof 없이는 exact e-class union/변환 확정 금지, GCS-05/06의 실제 route 및 물리 자원 증거 없이는 실행 최적화 완료 금지다. GCS-07은 구현된 해당 경로가 있을 때만 실행 결과/성능을 PASS로 기록한다. 이번 결정으로 **NN-04가 실행 가능해졌다는 뜻은 아니며**, 앞 절 `conv_vjp_lifetime`·다른 NN 연산 수용은 별도 후속이다. 전체 M2→M3→M4 baseline 우선순위를 그대로 둔다.
+
+**현재 상태:** GCS-00 **문서 설계만 완료**. GCS-01–07, Conv relation exporter, SPORES/e-graph 통합, 실사용 최적화 및 검증은 **미구현·UNRUN**이다.
 
 
 <a id="8-rustj-적용-위치--검증-방법--합격반증-조건"></a>
