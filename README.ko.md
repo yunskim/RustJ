@@ -18,6 +18,8 @@ JAXA에서는 한때 **“NN의 SQL”**, 또는 **“배열 연산의 SQL”**�
 
 배열 연산의 공통 기저·동치 규칙·역방향 데이터 요구량 분석을 실제로 검증하기 위한 **[공통 배열 대수 연구 가설과 반증 실험](PROJECT.ko.md#common-array-algebra-hypothesis)**을 정본에 정리했습니다. 이는 완성된 범용 대수나 신규 필수 IR이 아니라, 기존 Graph Basis/Rewrite/FactWitness 위의 분석 후보입니다.
 
+**선행 연구 기반:** 새 배열 수학을 처음부터 발명하기보다 [MoA(1988)·APL Operator Calculus(1984)·Remora(2019)·Bird–Meertens·SPORES·Futhark·RISE의 비교 및 검증 체크리스트](docs/research/common-array-algebra-prior-art.ko.md)를 출발점으로 삼습니다. 각 논문의 정리를 **J의 실제 rank/shape·오류·NAME·부동소수점 의미론에 맞춰 재검증한 법칙만** 동등성 후보로 인정합니다. MoA의 shape/Ψ 개념을 참고하지만 모든 J primitive의 정리가 이미 증명됐다고 주장하지 않습니다.
+
 **SPORES 통합·E-Graph 설계:** [§7.9 관계형 접근 대수 통합](PROJECT.ko.md#spores-relational-integration)은 **다양한 J 배열 연산을 인덱스·접근 관계로 표현할 수 있는 범위**와 **실제로 J 동치성이 증명되어 재작성할 수 있는 범위**를 분리합니다. [§7.8 Frontend 기반 동치 규칙 합성](PROJECT.ko.md#frontend-equality-synthesis)과 [§7.6 `egg` E-Graph](PROJECT.ko.md#eqgraph-architecture)를 선택적 최적화 경로로 연결하며, 오류·효과·Rank·빈 배열의 의미를 보존하지 못하는 후보는 버립니다. 이는 **설계/체크리스트 상태이며 아직 실행 최적화로 구현되지 않았습니다.**
 
 J의 rank, cell/frame, derived entity, train/composition, reduce/scan, shape/reindex 의미는 **무엇을 계산하는가**를 높은 수준에서 드러냅니다. RustJ는 이 정보를 가능한 한 오래 보존하고, **어떻게 실행하는가**는 legality·resource·cost를 고려해 compiler가 선택하도록 설계합니다.
