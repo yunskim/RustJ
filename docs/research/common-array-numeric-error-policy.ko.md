@@ -63,3 +63,20 @@ abs(a - b) <= t * max(abs(a), abs(b))
 
 - [이슈 #92: J 동적 CCT / Fit 스냅샷 구현](https://github.com/yunskim/RustJ/issues/92) — **미구현**.
 - [이슈 #93: 수치 오차 전파 증명 및 실제 EqGraph 연결](https://github.com/yunskim/RustJ/issues/93) — **미구현**.
+
+
+## 7. N1a: J 비교 CCT 상태 객체 (선행 구현, 미연결)
+
+- [x] `src/comparison_policy.rs`에 `JComparisonState` 추가: 엔진별 저장 후보, 초기 `2^-44`, 내부 `cct = 1-t`, 조회 `1-cct`.
+- [x] 핀된 `jsource/jsrc/xa.c::jtcts`의 스칼라 수치 변환 **이후** 범위 `0 <= t <= 5.820766091e-11`만 이 상태 객체에서 검사. NaN/무한/음수/상한 초과 거부, 실패 시 이전 값/버전 유지.
+- [x] 설정 성공마다 증가하는 버전과 불변 호출별 `ComparisonPolicySnapshot`; 이전 스냅샷은 설정 변경 후에도 동일한 C 비교를 유지. 버전 고갈 시 상태 유지.
+- [x] 회귀 테스트 `j_cct_state_setter_matches_source_range_rounding_and_is_transactional`, `j_cct_snapshots_are_immutable_and_do_not_authorize_egraph_equivalence` 추가.
+- [ ] **실행 연결 미완료:** 아직 `Engine`이 이 상태를 소유·설정하거나, J 문장 `9!:18 ''` / `9!:19`를 구성·실행하거나, `=/< />/i./i:/e.` 등의 평가 호출에 스냅샷을 전달하지 않는다.
+- [ ] **J-C 오라클/CI 미검증:** 매개변수의 rank, 타입 변환, 오류 우선순위, Fit `!.t`, Match `-:`, boxed/sparse, 캐시 무효화는 별도 후속 검증.
+
+| Test | Purpose | Guarantee | Failure meaning | Status |
+|---|---|---|---|---|
+| `j_cct_state_setter_matches_source_range_rounding_and_is_transactional` | jsource 허용 범위/저장·조회 및 실패 원자성 모델 | 정상 설정에서 J 저장 식 일치; 범위 실패/버전 고갈 시 불변 | 임의 오차 설정 또는 잘못된 상태 갱신 | **N1a PR CI 대기; 실행 연결 없음** |
+| `j_cct_snapshots_are_immutable_and_do_not_authorize_egraph_equivalence` | 변경 전·후 의미론 분리 | 스냅샷 격리, 엄격 숫자 비교와 비트 동일성 분리 | 변경 후 이전 스냅샷 오염/버전 누락 | **N1a PR CI 대기; EqGraph 미연결** |
+
+실행 단계별 수치 검증과 `JComparisonState`의 실제 interpreter 연결을 완료하기 전에는 N1 완료로 표시하지 않는다.
