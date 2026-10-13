@@ -192,6 +192,8 @@ The actual part of speech of an ordinary name is not permanently fixed during en
 
 `with` remains a conjunction extension bound to an ordinary J name and carries typed semantic annotations/contracts only. Physical policy such as tile, device, and register choices does not belong in `with`.
 
+The **static input contracts, DataSource I/O contracts, and backward data-demand analysis** proposal is documented in [PROJECT.md §13.5.1](PROJECT.md#io-static-source-contracts). `with` provides semantic inputs such as Shape/DType; storage access, consistency, chunk layouts and physical I/O policy remain separate. Track implementation and verification only through the existing [IO-01–IO-30 checklist](PROJECT.md#out-of-core-io-checklist).
+
 Hardware lowering applies to built-in J primitives as well as extensions. Existing primitives such as `+`, `*`, `+/`, and `|:` participate in the same target-independent semantic capability and backend/architecture-specific lowering architecture. Target-specific tile/register numbers are not embedded in primitive meaning; lowering is looked up by primitive/op identity.
 
 CPU/GPU target modeling is layered rather than collapsed into one `TargetProfile` blob:
