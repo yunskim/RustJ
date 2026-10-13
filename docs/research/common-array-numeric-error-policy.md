@@ -40,8 +40,8 @@ The `jsource/test/g421e.ijs` tolerance adjustment for reordered `+/` summation d
 
 | Test or task | Purpose | Guarantee | Failure meaning | Status |
 |---|---|---|---|---|
-| `optimization_error_budget_defaults_to_exact_and_rejects_invalid_proposals` | Default/constructor contract | Exact by default; nonfinite/negative/zero-bounded rejected | Accidental J tolerance → optimizer budget promotion | **PR CI pending** |
-| `j_tolerant_comparison_and_real_algebra_do_not_admit_eqgraph_union` | Separate nontransitive tolerance from EqGraph equality | A≈B and B≈C do not prove A≈C; mathematical/proposed bounded similarity never merges | Unsound e-class equivalence closure | **PR CI pending** |
+| `optimization_error_budget_defaults_to_exact_and_rejects_invalid_proposals` | Default/constructor contract | Exact by default; nonfinite/negative/zero-bounded rejected | Accidental J tolerance → optimizer budget promotion | **PR #91 merged · main `aeee1ed` CI PASS** ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38326014035), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38326013963)) |
+| `j_tolerant_comparison_and_real_algebra_do_not_admit_eqgraph_union` | Separate nontransitive tolerance from EqGraph equality | A≈B and B≈C do not prove A≈C; mathematical/proposed bounded similarity never merges | Unsound e-class equivalence closure | **PR #91 merged · main `aeee1ed` CI PASS** ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38326014035), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38326013963)) |
 | `9!:18` / `9!:19` | Snapshot, version, range and mutation semantics | Match actual J runtime policy incl. cache invalidation | Treating fixed default as full dynamic semantics | **UNIMPLEMENTED / UNVERIFIED** |
 | `=!.0`, general `!.t`, `-:` and dependent primitives | Pinned jsource C oracle, rank/boxed/sparse/edge-case validation | Retain comparisons, errors, signed zeros, NaN/Inf, exact boundaries | Replacing source semantics by idealized equation | **PARTIAL / oracle INCOMPLETE** |
 | Associative/reduction numerical proofs | Model abs/rel/ULP bounds, domains, error accumulation and J observations | Domain-dependent numeric guarantee independent of J tolerant comparison | Treating `2^-44` as universal reassociation allowance | **UNIMPLEMENTED** |
@@ -56,3 +56,8 @@ The `jsource/test/g421e.ijs` tolerance adjustment for reordered `+/` summation d
 - RustJ: `src/comparison_policy.rs`, `src/kernels.rs`, `src/index_ops.rs`, `tools/tolerance_audit.py`.
 
 **Non-admission:** passing policy unit tests or this precheck is not proof of dynamic Fit, source-level J equivalence, validated approximate optimization, runtime pruning, or EqGraph merging.
+
+## Follow-on issues
+
+- [#92: Dynamic J CCT and Fit snapshot correctness](https://github.com/yunskim/RustJ/issues/92) — **unimplemented**.
+- [#93: Numerical error propagation and actual EqGraph admission](https://github.com/yunskim/RustJ/issues/93) — **unimplemented**.

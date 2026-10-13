@@ -42,8 +42,8 @@ abs(a - b) <= t * max(abs(a), abs(b))
 
 | Test / task | Purpose | Guarantee | Failure meaning | Status |
 |---|---|---|---|---|
-| `optimization_error_budget_defaults_to_exact_and_rejects_invalid_proposals` | 명시적 예산 정책 기본값·입력 검사 | 기본 `Exact`; NaN/무한/음수/무의미한 zero-bounded 거부 | J CCT가 최적화 예산으로 무단 승계 | **PR CI 대기** |
-| `j_tolerant_comparison_and_real_algebra_do_not_admit_eqgraph_union` | 비추이 J 비교와 E-Class 수치 사전검사 분리 | 비교 A~B, B~C라도 A~C 불성립; 수학적 항등·유계 오차만으로 union 금지 | 비추이 비교의 등식 폐포 또는 허용 예산 오용 | **PR CI 대기** |
+| `optimization_error_budget_defaults_to_exact_and_rejects_invalid_proposals` | 명시적 예산 정책 기본값·입력 검사 | 기본 `Exact`; NaN/무한/음수/무의미한 zero-bounded 거부 | J CCT가 최적화 예산으로 무단 승계 | **PR #91 병합 · main `aeee1ed` CI PASS** ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38326014035), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38326013963)) |
+| `j_tolerant_comparison_and_real_algebra_do_not_admit_eqgraph_union` | 비추이 J 비교와 E-Class 수치 사전검사 분리 | 비교 A~B, B~C라도 A~C 불성립; 수학적 항등·유계 오차만으로 union 금지 | 비추이 비교의 등식 폐포 또는 허용 예산 오용 | **PR #91 병합 · main `aeee1ed` CI PASS** ([main CI 1](https://github.com/yunskim/RustJ/actions/runs/38326014035), [main CI 2](https://github.com/yunskim/RustJ/actions/runs/38326013963)) |
 | `9!:18` / `9!:19` | CCT 조회·변경·스냅샷 버전·범위 검증, 캐시 무효화 | 같은 실행 문맥의 J 의미론 보존, 설정 변경 후 결과 반영 | 고정 기본 CCT를 동적 J 의미론으로 오인 | **미구현 / CI 미검증** |
 | `=!.0`, 일반 `!.t`, `-:` 및 의존 primitive | 핀된 jsource 실제 J-C 오라클과 교차 검증 | 유한 경계·NaN/Inf/±0·타입/Rank·오류 우선순위까지 확인 | 수학적 공식만으로 J 실제 구현 차이를 숨김 | **부분 구현 / 추가 오라클 미검증** |
 | 재결합·병렬 Reduce 오차 인증 | 연산별 입력 범위/NaN/overflow/underflow, ULP·abs·rel 척도와 누적/관찰 평가 정책 | **도메인에 의존하는 수치 보증**과 J 관찰 의미론 별도 판정 | `2^-44`를 임의 재결합 허용치로 오해 | **미구현** |
@@ -58,3 +58,8 @@ abs(a - b) <= t * max(abs(a), abs(b))
 - RustJ: `src/comparison_policy.rs`, `src/kernels.rs`, `src/index_ops.rs`, `tools/tolerance_audit.py`. 현재 `comparison_policy`는 **기본 CCT만** 구현한다.
 
 **승격 금지:** 정책 사전검사와 단위 테스트가 통과해도 전체 J 비교 동치·수치 오차 보증·EqGraph union·실행 최적화를 완료로 표시하지 않는다.
+
+## 6. 후속 구현 추적
+
+- [이슈 #92: J 동적 CCT / Fit 스냅샷 구현](https://github.com/yunskim/RustJ/issues/92) — **미구현**.
+- [이슈 #93: 수치 오차 전파 증명 및 실제 EqGraph 연결](https://github.com/yunskim/RustJ/issues/93) — **미구현**.
