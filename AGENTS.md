@@ -209,6 +209,12 @@ For every implementation change:
 - Treat jsource WILLOPEN/USESITEMCOUNT/in-place/pristine/zappable style metadata as inspiration for use-def/liveness/materialization analyses; do not encode those runtime-memory-management bits as J semantic properties.
 
 
+## JAXA Future Work traceability (documentation policy)
+
+- Treat `PROJECT.ko.md#jaxa-future-work-traceability` as the **single canonical JFW-00–JFW-10 / JFW-X1–X3 acceptance mapping**, with `PROJECT.md` synchronized. Do not create a parallel Future Works roadmap or mark documentation acceptance as executable validation.
+- Keep M2→M3→M4 semantic/CPU gates ahead of this research. Do not require automatic differentiation, global minimal basis, universal expressiveness proofs, multi-node execution or GPU readiness as early prerequisites; explicit adjoint/VJP is the intended route.
+- For FW4/FW8, EqGraph union requires Exact-J observational evidence; approximate numerical candidates must use a separate budgeted path. Record per-gate positive/negative tests and `PASS/FAIL/UNRUN/BLOCKED`, never inferred completion.
+
 ## Numeric tolerance and optimization budget boundaries
 
 - J comparison tolerance (`9!:18`, `9!:19`, `!.t`) is **source-language semantic state**, not an automatic compiler approximation allowance. Preserve the original J comparison policy and its call-site scope/version; report dynamic CCT/Fit as unsupported until executed and pinned-C checked. Existing `comparison_policy` witnesses only the pinned default CCT.

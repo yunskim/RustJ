@@ -4203,6 +4203,47 @@ Independent remaining scope: nonuniform result-cell padding, effectful/user-defi
 
 ## 17. Active migration checklist
 
+
+<a id="jaxa-future-work-traceability"></a>
+
+### JFW — JAXA Future Work 1–10 tracked in RustJ (2026-10-13; documentation/design only)
+
+**Source and authority:** Cross-checked [the original JAXA Future Work list 1–10](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/JAXA-README.md). This is an **index into existing canonical roadmap gates**, not a competing roadmap, mandatory new IR, or alteration of J language semantics. A design entry is not implementation, proof, or E2E acceptance. None of these items may block the existing M2→M3→M4 critical path.
+
+| Original item / tracking ID | RustJ disposition and present boundary (2026-10-13) | Layer/evidence | Priority |
+|---|---|---|---|
+| **FW1 Completeness Verification / JFW-01** | Start with explicit supported-profile/representative-model coverage of actual J, Rank, shape and effects; universal model-language completeness remains optional research | Frontend, J Semantic IR, NN extension E2E, coverage manifest | Medium |
+| **FW2 Automatic Gradient Derivation / JFW-02** | **Replace automatic gradient generation** with explicit adjoint/VJP primitives and user-authored backward graphs. Autograd is not required. `AdjointVjp` topology is reserved but expansion/execution unfinished | `src/opportunity.rs`, `src/nn_extensions.rs`, StateResource | Medium; changed goal |
+| **FW3 Deterministic Memory Scheduling / JFW-03** | Initial physical buffer/view contracts exist; whole-graph liveness, reuse, offsets, activation retention and transfers are not implemented. Commit static placement only for proven-size regions | `src/physical_plan.rs`, §5/§8, M4 | High, after CPU slice |
+| **FW4 Equivalent Form Search / JFW-04** | Analysis-only graph rewrite/fusion candidates and egg plans exist, but no verified general EqGraph executable extraction. Register guarded rules and search only admissible forms | Graph Basis/Rewrite, [common-array algebra](#common-array-algebra-hypothesis), `src/j_graph_fusion.rs` | Highest; follow-up |
+| **FW5 Basis Verb Identification / JFW-05** | Keep **Graph Basis distinct from Execution/Lowering Basis**; verified decomposition of extensions is useful without proving a globally minimal generating set | J Graph/Logical IR, NN extension | High; with FW4/8 |
+| **FW6 Distributed Execution / JFW-06** | Preserve device/memory-space/sharding/transfer/readiness/synchronization plans, but actual multi-GPU/multi-node execution is deferred | §7.5, HE, Physical Plan, `AGENTS.md` | Long-term |
+| **FW7 Hardware Portability / JFW-07** | Target locale/capability/lowering design exists. Complete native CPU E2E first; test GPU/external MLIR/LLVM/StableHLO subsets independently. CUDA remains unimplemented | TargetContext, LoweringRegistry, M4→M6 | High, staged |
+| **FW8 Model Equivalence Verification / JFW-08** | Distinguish **Exact-J observational equivalence** from bounded numerical approximation. Numeric-policy prechecks are analysis-only; no general proof-driven e-class union yet | J-C differential oracle, FactWitness, `src/numeric_error_policy.rs` | Highest; FW4 gate |
+| **FW9 Structural Sparsity / JFW-09** | Some J-visible sparse semantics are implemented; sparse assembly/atomic kernels have unsupported paths. MoE and sparse attention may have input-dependent sparsity, not automatically static | `src/sparse.rs`, `src/assembly.rs`, `src/kernels.rs` | Medium |
+| **FW10 Quantization Integration / JFW-10** | Specify dtype/storage/accumulation and cast policy before mixed-precision execution. Do not import JAXA precision notation as new standard J syntax. Quantized and automatic cast paths unimplemented | Frontend dtype/rank, NN family specs, target lowering | Medium |
+
+**Tracked acceptance checks (all executable work below remains incomplete):**
+
+- [x] **JFW-00 mapping:** Source, ten dispositions, layers, prerequisites, priorities and bilingual mapping documented; **documentation only**.
+- [ ] **JFW-01 / V01:** Representative ResNet/Transformer/non-NN array coverage, J-C value/error/Rank/shape/binding differentials and explicit unsupported negative cases. Universal completeness proof remains separate.
+- [ ] **JFW-02 / V02:** Explicit adjoint/VJP registration → frontend recognition → Graph/Logical fan-out → weight/data gradient and state-effect validation → CPU execution. No claim of automatic differentiation.
+- [ ] **JFW-03 / V03:** Prove and measure last use, buffer lease/alias/ownership, safe reuse and materialization elimination in multi-op CPU plans; unknown sizes/effects/errors remain barriers.
+- [ ] **JFW-04 / V04:** One guarded exact rewrite exercised through candidate generation → legality → extraction → same-observation execution and resource/cost comparison; successful search is not proof.
+- [ ] **JFW-05 / V05:** For each Graph Basis rule record observable J domain, rank/shape, empty/fill/error/numeric preconditions; distinguish an extension's reference definition from a validated executable decomposition. Minimal-basis proof not a gate.
+- [ ] **JFW-06 / V06:** Only after CPU+Host zero-transfer E2E, validate device/memory versions, transfer, readiness, synchronization and observable effect/error ordering; multi-node execution has separate acceptance.
+- [ ] **JFW-07 / V07:** Compare supported native CPU and alternative routes for values, errors and effects under declared target capability; hardware costs never define J semantics.
+- [ ] **JFW-08 / V08:** Forbid e-class union without **Exact-J witness** covering provenance, Rank/Cell/Frame, empty/prototype/fill, NAME, effects, first error, CCT/Fit, float/NaN/signed zero. J `2^-44` comparison tolerance is not an optimizer budget; approximate equality is nontransitive.
+- [ ] **JFW-09 / V09:** Positive/negative sparse/J semantics and routing tests; input-dependent sparse structures remain guarded/dynamic.
+- [ ] **JFW-10 / V10:** J-C tests for storage/compute/accumulation dtype, explicit/automatic casts, quantize/dequantize, overflow, rounding, empty and errors. FP32-only coverage does not establish mixed-precision support.
+- [ ] **JFW-X1 / VX1 — Rank-aware fusion:** Preserve `CellApply`/Map/Reduce/Scan/Reindex, proving cell/frame agreement, empty/prototype and effect/error order before fusion.
+- [ ] **JFW-X2 / VX2 — Resource-aware search:** Keep FLOPs, bytes moved, temporary peak, layout/tiling, transfers and resource feasibility distinct; forbid unsound early pruning and distinguish chain vs branched-DAG costs.
+- [ ] **JFW-X3 / VX3 — Explicit state/adjoint planning:** Keep `StateResource`, `ValueId` and `BufferId` distinct through forward/backward/optimizer, with proven gradient emission, activation lifetime and effect/error barriers.
+
+**Evidence contract:** Each V01–V10 and VX1–VX3 requires `Test / Purpose / Guarantee / Failure meaning / Status`, positive and counterexample inputs, explicit supported scope, pinned J-C comparison provenance, and exact PR-head / merged-main CI evidence. Record `PASS`, `FAIL`, `UNRUN`, or `BLOCKED` independently. These gates remain `UNRUN` until actual work is verified.
+
+**Sequence and non-goals:** Preserve M2 frontend/semantics → M3 legality and single-block Logical IR → M4 native CPU E2E first. Then validate small exact FW8/4/5 subsets, resource/fusion FW3/X1/X2, explicit adjoint and later execution routes FW2/X3/7/9/10, and eventually FW6/full formal-completeness research. Documentation/research may proceed independently but may not make the CPU slice contingent on global autodiff, minimal-basis proofs, full-J/model completeness, distributed execution, or GPU readiness.
+
 **First CPU-route admission (2026-10-07):** [x] §17.2.1 H-A stages A0–A5 and negative gates HA-V1–HA-V7 distinguish a legal `ReferenceSequential` candidate from an implemented native CPU kernel, checked physical plan, live runtime readiness and independent E2E evidence. [ ] Implementation/execution validation not performed; no M3/M4/HE acceptance change.
 
 **M3→M4 implementation handoff checklist (H-P, documentation only; 2026-10-07):**
