@@ -18,6 +18,7 @@ enum ComparisonPolicyIdentity {
     /// Pinned jsource C `TCMPEQ`, with initial `cct = 1.0 - 2^-44`.
     PinnedJDefaultCctV0,
     /// Explicit runtime value and mutation generation; a snapshot is immutable.
+    #[expect(dead_code, reason = "N1a: runtime snapshot producer is intentionally not wired")]
     RuntimeJComplementaryCct { cct_bits: u64, version: u64 },
 }
 
@@ -28,9 +29,11 @@ pub(crate) struct ComparisonPolicySnapshot {
 
 /// The exact jsrc/xa.c::jtcts upper-bound literal at the pinned revision.
 /// Neither J tolerance nor this ceiling is an optimizer error allowance.
+#[expect(dead_code, reason = "N1a: scalar CCT range only used by staged state")]
 pub(crate) const JSOURCE_MAX_TOLERANCE: f64 = 5.820766091e-11;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(dead_code, reason = "N1a: state setter is not yet reached by interpreter")]
 pub(crate) enum JComparisonStateError {
     Domain,
     VersionExhausted,
@@ -40,6 +43,7 @@ pub(crate) enum JComparisonStateError {
 /// Values are stored as complementary tolerance exactly as jtcts does.
 /// No process-global mutable state and no physical search cache is embedded.
 #[derive(Clone, Copy, Debug)]
+#[expect(dead_code, reason = "N1a: engine ownership comes in the next PR")]
 pub(crate) struct JComparisonState {
     complementary_cct: f64,
     version: u64,
@@ -54,6 +58,7 @@ impl Default for JComparisonState {
     }
 }
 
+#[expect(dead_code, reason = "N1a: call-site CCT propagation is a follow-up")]
 impl JComparisonState {
     /// Matches jtctq: return 1 - the stored complementary value. The result
     /// may be rounded, and is not necessarily the last requested input.
