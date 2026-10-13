@@ -77,8 +77,7 @@ fn append_execution_basis(
             }
         }
         FunctionHead::NameRef(_) | FunctionHead::TakeName { .. } => {}
-        FunctionHead::VocabularyPrimitive(_)
-        | FunctionHead::PrimitiveAdverb(_)
+        FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)
         | FunctionHead::ExplicitDefinition(_)
@@ -344,6 +343,12 @@ impl Builder<'_> {
         loop {
             match &current.head {
                 FunctionHead::PrimitiveVerb(id) => {
+                    if id.support() == crate::primitive::PrimitiveSupport::Unimplemented {
+                        return Err(Error::Unsupported(format!(
+                            "core primitive {} lowering",
+                            id.spelling()
+                        )));
+                    }
                     return Ok(Callable {
                         target: CallTarget::Primitive(*id),
                         semantic,
@@ -376,8 +381,7 @@ impl Builder<'_> {
                     })?;
                     current = base.clone();
                 }
-                FunctionHead::VocabularyPrimitive(_)
-                | FunctionHead::TakeName { .. }
+                FunctionHead::TakeName { .. }
                 | FunctionHead::PrimitiveAdverb(_)
                 | FunctionHead::PrimitiveConjunction(_)
                 | FunctionHead::DefinitionConstructor(_)

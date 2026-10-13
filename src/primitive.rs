@@ -1185,7 +1185,7 @@ impl PrimitiveNames {
     }
 }
 
-pub const REGISTRY_VERSION: u32 = 10;
+pub const REGISTRY_VERSION: u32 = 11;
 macro_rules! primitives {
     ($($id:ident => $spelling:literal),+ $(,)?) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1233,9 +1233,87 @@ primitives! {
     Cap => "[:",
     Left => "[",
     Right => "]",
+    Bang => "!",
+    Exec => "\".",
+    Thorn => "\":",
+    Base => "#.",
+    Abase => "#:",
+    SelfReference => "$:",
+    Domino => "%.",
+    Root => "%:",
+    Stardot => "*.",
+    Starco => "*:",
+    Plusdot => "+.",
+    Plusco => "+:",
+    Comdot => ",.",
+    Lamin => ",:",
+    Not => "-.",
+    Match => "-:",
+    Grade => "/:",
+    Fcons0 => "0:",
+    Fcons1 => "1:",
+    Fcons2 => "2:",
+    Fcons3 => "3:",
+    Fcons4 => "4:",
+    Fcons5 => "5:",
+    Fcons6 => "6:",
+    Fcons7 => "7:",
+    Fcons8 => "8:",
+    Fcons9 => "9:",
+    Semico => ";",
+    Words => ";:",
+    Floor => "<.",
+    Le => "<:",
+    Ceil => ">.",
+    Ge => ">:",
+    Query => "?",
+    Qrydot => "?.",
+    Atomic => "A.",
+    Cycle => "C.",
+    Ldot => "L.",
+    Tcapdot => "T.",
+    Zco => "Z:",
+    Dgrade => "\\:",
+    Exp => "^",
+    Log => "^.",
+    FconsNeg1 => "_1:",
+    FconsNeg2 => "_2:",
+    FconsNeg3 => "_3:",
+    FconsNeg4 => "_4:",
+    FconsNeg5 => "_5:",
+    FconsNeg6 => "_6:",
+    FconsNeg7 => "_7:",
+    FconsNeg8 => "_8:",
+    FconsNeg9 => "_9:",
+    FconsInf => "_:",
+    FconsNegInf => "__:",
+    Cdot => "c.",
+    Jdot => "j.",
+    Circle => "o.",
+    Poly => "p.",
+    Pderiv => "p..",
+    Pco => "p:",
+    Qco => "q:",
+    Rdot => "r.",
+    Uco => "u:",
+    Xco => "x:",
+    Tail => "{:",
+    Fetch => "{::",
+    Ctail => "}:",
+    Nub => "~.",
+    Ne => "~:",
 }
 
 impl PrimitiveId {
+    pub const fn support(self) -> PrimitiveSupport {
+        use PrimitiveId::*;
+        match self {
+            Plus | Minus | Star | Div | Dollar | Sparse | Pound | Comma | Eq | Lt | Gt | Lbrace
+            | Stile | Iota | Rev | Cant | Take | Drop | Ico | Icap | Eps | Ebar | Udot | Vdot
+            | Cap | Left | Right => PrimitiveSupport::Bounded,
+            _ => PrimitiveSupport::Unimplemented,
+        }
+    }
     /// C t.c's intrinsic (monad, dyad-left, dyad-right) header ranks.
     /// jsource RMAX is 63: six rank bits in RANKT, leaving two flag bits.
     /// It is also the maximum permitted array rank; an actual rank-63
@@ -1243,16 +1321,17 @@ impl PrimitiveId {
     /// acts as infinite rank over permitted arrays: the effective cell
     /// rank is capped by the argument rank, so the whole argument is a cell.
     /// Retain this integer representation for current jsource compatibility.
-    pub const fn innate_ranks(self) -> [i64; 3] {
+    pub const fn innate_ranks(self) -> Option<[i64; 3]> {
         use PrimitiveId::*;
         match self {
-            Plus | Minus | Star | Div | Gt | Stile => [0, 0, 0],
-            Eq | Lt => [63, 0, 0],
-            Dollar | Pound | Rev | Cant | Take | Drop => [63, 1, 63],
-            Lbrace => [1, 0, 63],
-            Iota | Icap => [1, 63, 63],
-            Ico | Ebar => [0, 63, 63],
-            Sparse | Comma | Eps | Udot | Vdot | Cap | Left | Right => [63; 3],
+            Plus | Minus | Star | Div | Gt | Stile => Some([0, 0, 0]),
+            Eq | Lt => Some([63, 0, 0]),
+            Dollar | Pound | Rev | Cant | Take | Drop => Some([63, 1, 63]),
+            Lbrace => Some([1, 0, 63]),
+            Iota | Icap => Some([1, 63, 63]),
+            Ico | Ebar => Some([0, 63, 63]),
+            Sparse | Comma | Eps | Udot | Vdot | Cap | Left | Right => Some([63; 3]),
+            _ => None,
         }
     }
 }
@@ -1268,8 +1347,36 @@ pub enum AdverbId {
     Bslash,
     /// Ident `]:` returns its noun or verb operand without invoking it.
     Ident,
+    Setself,
+    Sldotdot,
+    Mcap,
+    Bsdot,
+    Bdot,
+    Fix,
+    Rbrace,
+    Tilde,
 }
 impl AdverbId {
+    pub const ALL: &'static [Self] = &[
+        Self::Slash,
+        Self::Sldot,
+        Self::Bslash,
+        Self::Ident,
+        Self::Setself,
+        Self::Sldotdot,
+        Self::Mcap,
+        Self::Bsdot,
+        Self::Bdot,
+        Self::Fix,
+        Self::Rbrace,
+        Self::Tilde,
+    ];
+    pub const fn support(self) -> PrimitiveSupport {
+        match self {
+            Self::Slash | Self::Sldot | Self::Bslash | Self::Ident => PrimitiveSupport::Bounded,
+            _ => PrimitiveSupport::Unimplemented,
+        }
+    }
     pub fn names(self) -> &'static PrimitiveNames {
         PrimitiveNames::from_spelling(self.spelling()).expect("named core primitive")
     }
@@ -1280,6 +1387,14 @@ impl AdverbId {
             "/." => Some(Self::Sldot),
             "\\" => Some(Self::Bslash),
             "]:" => Some(Self::Ident),
+            "$::" => Some(Self::Setself),
+            "/.." => Some(Self::Sldotdot),
+            "M." => Some(Self::Mcap),
+            "\\." => Some(Self::Bsdot),
+            "b." => Some(Self::Bdot),
+            "f." => Some(Self::Fix),
+            "}" => Some(Self::Rbrace),
+            "~" => Some(Self::Tilde),
             _ => None,
         }
     }
@@ -1289,6 +1404,14 @@ impl AdverbId {
             Self::Sldot => "/.",
             Self::Bslash => "\\",
             Self::Ident => "]:",
+            Self::Setself => "$::",
+            Self::Sldotdot => "/..",
+            Self::Mcap => "M.",
+            Self::Bsdot => "\\.",
+            Self::Bdot => "b.",
+            Self::Fix => "f.",
+            Self::Rbrace => "}",
+            Self::Tilde => "~",
         }
     }
 }
@@ -1300,8 +1423,76 @@ pub enum ConjunctionId {
     Atco,
     Lev,
     Dex,
+    Fit,
+    Ibeam,
+    Amp,
+    Under,
+    Undco,
+    Ampco,
+    Dot,
+    Colon,
+    Obverse,
+    Adverse,
+    Cut,
+    At,
+    Atdot,
+    Fdot,
+    Fdotdot,
+    Fdotco,
+    Fco,
+    Fcodot,
+    Fcoco,
+    Hgeom,
+    Lcapco,
+    Scapco,
+    Powop,
+    Grave,
+    Grco,
+    Fixs,
+    Mdot,
+    Tdot,
 }
 impl ConjunctionId {
+    pub const ALL: &'static [Self] = &[
+        Self::Qq,
+        Self::Atco,
+        Self::Lev,
+        Self::Dex,
+        Self::Fit,
+        Self::Ibeam,
+        Self::Amp,
+        Self::Under,
+        Self::Undco,
+        Self::Ampco,
+        Self::Dot,
+        Self::Colon,
+        Self::Obverse,
+        Self::Adverse,
+        Self::Cut,
+        Self::At,
+        Self::Atdot,
+        Self::Fdot,
+        Self::Fdotdot,
+        Self::Fdotco,
+        Self::Fco,
+        Self::Fcodot,
+        Self::Fcoco,
+        Self::Hgeom,
+        Self::Lcapco,
+        Self::Scapco,
+        Self::Powop,
+        Self::Grave,
+        Self::Grco,
+        Self::Fixs,
+        Self::Mdot,
+        Self::Tdot,
+    ];
+    pub const fn support(self) -> PrimitiveSupport {
+        match self {
+            Self::Qq | Self::Atco | Self::Lev | Self::Dex => PrimitiveSupport::Bounded,
+            _ => PrimitiveSupport::Unimplemented,
+        }
+    }
     pub fn names(self) -> &'static PrimitiveNames {
         PrimitiveNames::from_spelling(self.spelling()).expect("named core primitive")
     }
@@ -1312,6 +1503,34 @@ impl ConjunctionId {
             "@:" => Some(Self::Atco),
             "[." => Some(Self::Lev),
             "]." => Some(Self::Dex),
+            "!." => Some(Self::Fit),
+            "!:" => Some(Self::Ibeam),
+            "&" => Some(Self::Amp),
+            "&." => Some(Self::Under),
+            "&.:" => Some(Self::Undco),
+            "&:" => Some(Self::Ampco),
+            "." => Some(Self::Dot),
+            ":" => Some(Self::Colon),
+            ":." => Some(Self::Obverse),
+            "::" => Some(Self::Adverse),
+            ";." => Some(Self::Cut),
+            "@" => Some(Self::At),
+            "@." => Some(Self::Atdot),
+            "F." => Some(Self::Fdot),
+            "F.." => Some(Self::Fdotdot),
+            "F.:" => Some(Self::Fdotco),
+            "F:" => Some(Self::Fco),
+            "F:." => Some(Self::Fcodot),
+            "F::" => Some(Self::Fcoco),
+            "H." => Some(Self::Hgeom),
+            "L:" => Some(Self::Lcapco),
+            "S:" => Some(Self::Scapco),
+            "^:" => Some(Self::Powop),
+            "`" => Some(Self::Grave),
+            "`:" => Some(Self::Grco),
+            "f:" => Some(Self::Fixs),
+            "m." => Some(Self::Mdot),
+            "t." => Some(Self::Tdot),
             _ => None,
         }
     }
@@ -1321,465 +1540,63 @@ impl ConjunctionId {
             Self::Atco => "@:",
             Self::Lev => "[.",
             Self::Dex => "].",
+            Self::Fit => "!.",
+            Self::Ibeam => "!:",
+            Self::Amp => "&",
+            Self::Under => "&.",
+            Self::Undco => "&.:",
+            Self::Ampco => "&:",
+            Self::Dot => ".",
+            Self::Colon => ":",
+            Self::Obverse => ":.",
+            Self::Adverse => "::",
+            Self::Cut => ";.",
+            Self::At => "@",
+            Self::Atdot => "@.",
+            Self::Fdot => "F.",
+            Self::Fdotdot => "F..",
+            Self::Fdotco => "F.:",
+            Self::Fco => "F:",
+            Self::Fcodot => "F:.",
+            Self::Fcoco => "F::",
+            Self::Hgeom => "H.",
+            Self::Lcapco => "L:",
+            Self::Scapco => "S:",
+            Self::Powop => "^:",
+            Self::Grave => "`",
+            Self::Grco => "`:",
+            Self::Fixs => "f:",
+            Self::Mdot => "m.",
+            Self::Tdot => "t.",
         }
     }
 }
 
-/// Recognized core function identity whose execution/construction is pending.
-/// Fields are private: descriptors come only from the reviewed core catalog.
-/// POS recognition does not assert rank, effects, lowering or runtime support.
+/// Implementation status is metadata, never a distinct core identity.
+/// Bounded implementations still require valence/type/rank/route verification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct VocabularyPrimitive {
-    spelling: &'static str,
-    part_of_speech: PrimitivePartOfSpeech,
+pub enum PrimitiveSupport {
+    Bounded,
+    Unimplemented,
 }
-impl VocabularyPrimitive {
-    pub fn names(self) -> &'static PrimitiveNames {
-        PrimitiveNames::from_spelling(self.spelling()).expect("named core primitive")
-    }
-
-    pub const ALL: &'static [Self] = &[
-        Self {
-            spelling: "!",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "!.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "!:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "\".",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "\":",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "#.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "#:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "$:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "$::",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "%.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "%:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "&",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "&.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "&.:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "&:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "*.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "*:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "+.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "+:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ",.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ",:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "-.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "-:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ".",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "/..",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "/:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "0:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "1:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "2:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "3:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "4:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "5:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "6:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "7:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "8:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "9:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ":",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: ":.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "::",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: ";",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ";.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: ";:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "<.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "<:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ">.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: ">:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "?",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "?.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "@",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "@.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "A.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "C.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "F.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "F..",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "F.:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "F:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "F:.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "F::",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "H.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "L.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "L:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "M.",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "S:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "T.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "Z:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "\\.",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "\\:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "^",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "^.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "^:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "_1:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_2:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_3:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_4:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_5:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_6:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_7:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_8:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_9:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "_:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "__:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "`",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "`:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "b.",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "c.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "f.",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "f:",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "j.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "m.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "o.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "p.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "p..",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "p:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "q:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "r.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "t.",
-            part_of_speech: PrimitivePartOfSpeech::Conjunction,
-        },
-        Self {
-            spelling: "u:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "x:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "{:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "{::",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "}",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "}:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "~",
-            part_of_speech: PrimitivePartOfSpeech::Adverb,
-        },
-        Self {
-            spelling: "~.",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-        Self {
-            spelling: "~:",
-            part_of_speech: PrimitivePartOfSpeech::Verb,
-        },
-    ];
-    pub fn from_spelling(spelling: &str) -> Option<Self> {
-        Self::ALL.iter().copied().find(|id| id.spelling == spelling)
-    }
-    pub const fn spelling(self) -> &'static str {
-        self.spelling
-    }
-    pub const fn part_of_speech(self) -> PrimitivePartOfSpeech {
-        self.part_of_speech
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PrimitiveSemanticId {
     Verb(PrimitiveId),
     Adverb(AdverbId),
     Conjunction(ConjunctionId),
-    Vocabulary(VocabularyPrimitive),
     Extension(&'static str),
 }
 
+impl PrimitiveSemanticId {
+    pub const fn support(self) -> Option<PrimitiveSupport> {
+        match self {
+            Self::Verb(id) => Some(id.support()),
+            Self::Adverb(id) => Some(id.support()),
+            Self::Conjunction(id) => Some(id.support()),
+            Self::Extension(_) => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PrimitivePartOfSpeech {
     Verb,
@@ -1821,7 +1638,6 @@ impl PrimitiveHandle {
             PrimitiveSemanticId::Verb(_) => PrimitivePartOfSpeech::Verb,
             PrimitiveSemanticId::Adverb(_) => PrimitivePartOfSpeech::Adverb,
             PrimitiveSemanticId::Conjunction(_) => PrimitivePartOfSpeech::Conjunction,
-            PrimitiveSemanticId::Vocabulary(id) => id.part_of_speech(),
             PrimitiveSemanticId::Extension(_) => {
                 unreachable!("extension handles must declare their parser part of speech")
             }
@@ -1920,8 +1736,7 @@ impl PrimitiveResolver {
         if let Some(id) = ConjunctionId::from_spelling(spelling) {
             return Some(PrimitiveHandle::core(PrimitiveSemanticId::Conjunction(id)));
         }
-        VocabularyPrimitive::from_spelling(spelling)
-            .map(|id| PrimitiveHandle::core(PrimitiveSemanticId::Vocabulary(id)))
+        None
     }
 
     /// Lookup for the parser/name-binding layer after a word has entered as NAME.

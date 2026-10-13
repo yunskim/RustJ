@@ -2,8 +2,8 @@ use rustj::{
     Engine,
     enqueuer::{EnqueueClass, EnqueuedPayload, enqueue},
     primitive::{
-        PrimitivePartOfSpeech, PrimitiveResolver, PrimitiveSemanticId, PrimitiveSourceOrigin,
-        VocabularyPrimitive,
+        AdverbId, ConjunctionId, PrimitiveId, PrimitivePartOfSpeech, PrimitiveResolver,
+        PrimitiveSemanticId, PrimitiveSourceOrigin, PrimitiveSupport,
     },
     semantic::{ExprKind, FunctionHead, FunctionPartOfSpeech},
 };
@@ -11,37 +11,81 @@ use rustj::{
 #[test]
 fn recognized_core_functions_preserve_pos_identity_without_execution_claims() {
     let mut spellings = std::collections::HashSet::new();
-    for &id in VocabularyPrimitive::ALL {
-        assert!(spellings.insert(id.spelling()));
+    let ids = PrimitiveId::ALL
+        .iter()
+        .copied()
+        .map(PrimitiveSemanticId::Verb)
+        .chain(
+            AdverbId::ALL
+                .iter()
+                .copied()
+                .map(PrimitiveSemanticId::Adverb),
+        )
+        .chain(
+            ConjunctionId::ALL
+                .iter()
+                .copied()
+                .map(PrimitiveSemanticId::Conjunction),
+        );
+    let mut count = 0;
+    for id in ids {
+        let (spelling, pos, expected_head) = match id {
+            PrimitiveSemanticId::Verb(v) => (
+                v.spelling(),
+                PrimitivePartOfSpeech::Verb,
+                FunctionHead::PrimitiveVerb(v),
+            ),
+            PrimitiveSemanticId::Adverb(v) => (
+                v.spelling(),
+                PrimitivePartOfSpeech::Adverb,
+                FunctionHead::PrimitiveAdverb(v),
+            ),
+            PrimitiveSemanticId::Conjunction(v) => (
+                v.spelling(),
+                PrimitivePartOfSpeech::Conjunction,
+                FunctionHead::PrimitiveConjunction(v),
+            ),
+            PrimitiveSemanticId::Extension(_) => unreachable!(),
+        };
+        assert!(spellings.insert(spelling));
+        if id.support() != Some(PrimitiveSupport::Unimplemented) {
+            continue;
+        }
+        count += 1;
         let handle = PrimitiveResolver::core()
-            .resolve_core_for_enqueue(id.spelling())
+            .resolve_core_for_enqueue(spelling)
             .unwrap();
-        assert_eq!(handle.semantic_id, PrimitiveSemanticId::Vocabulary(id));
+        assert_eq!(handle.semantic_id, id);
         assert_eq!(handle.source_origin, PrimitiveSourceOrigin::Core);
-        let queue = enqueue(id.spelling()).unwrap();
-        let expected = match id.part_of_speech() {
+        let queue = enqueue(spelling).unwrap();
+        let expected = match pos {
             PrimitivePartOfSpeech::Verb => EnqueueClass::Verb,
             PrimitivePartOfSpeech::Adverb => EnqueueClass::Adverb,
             PrimitivePartOfSpeech::Conjunction => EnqueueClass::Conjunction,
         };
         assert_eq!(queue[0].class, expected);
-        let EnqueuedPayload::Function(f) = &queue[0].payload else {
-            panic!()
-        };
-        assert_eq!(f.head, FunctionHead::VocabularyPrimitive(id));
-        assert_eq!(f.innate_ranks(), None);
-        let program = rustj::semantic::parse(id.spelling()).unwrap();
+        assert!(matches!(
+            (&queue[0].payload, id),
+            (EnqueuedPayload::Verb(_), PrimitiveSemanticId::Verb(_))
+                | (EnqueuedPayload::Adverb(_), PrimitiveSemanticId::Adverb(_))
+                | (
+                    EnqueuedPayload::Conjunction(_),
+                    PrimitiveSemanticId::Conjunction(_)
+                )
+        ));
+
+        let program = rustj::semantic::parse(spelling).unwrap();
         let entity = match program.expression.unwrap().kind {
             ExprKind::VerbValue(v) => v.entity,
             ExprKind::ModifierValue(f) => f,
             _ => panic!(),
         };
-        assert_eq!(entity.head, f.head);
-        assert_eq!(
-            entity.result_pos,
-            FunctionPartOfSpeech::from(id.part_of_speech())
-        );
+        assert_eq!(entity.head, expected_head);
+        assert_eq!(entity.innate_ranks(), None);
+        assert_eq!(entity.result_pos, FunctionPartOfSpeech::from(pos));
     }
+    assert_eq!(count, 105);
+    assert_eq!(spellings.len(), 140);
 }
 
 #[test]
@@ -105,7 +149,7 @@ fn bare_function_bindings_preserve_nameless_modifiers_and_late_verb_names() {
     };
     assert_eq!(
         f.head,
-        FunctionHead::VocabularyPrimitive(VocabularyPrimitive::from_spelling("t.").unwrap())
+        FunctionHead::PrimitiveConjunction(ConjunctionId::from_spelling("t.").unwrap())
     );
     assert_eq!(e.eval("+ saved 0").unwrap_err().kind(), "unsupported");
     for source in ["f=:(c. [. +)", "g=:(+ ]. c.)"] {
@@ -142,6 +186,79 @@ fn builtin_alphabet_and_ace_are_actual_nouns() {
     assert_eq!(values[0].type_code(), 1);
     assert!(values[0].is_empty());
     for word in ["?:", "`.", "s:", "d.", "I:", "with"] {
-        assert!(VocabularyPrimitive::from_spelling(word).is_none());
+        assert!(
+            PrimitiveResolver::core()
+                .resolve_core_for_enqueue(word)
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn support_tags_do_not_admit_unimplemented_execution_or_rank_contracts() {
+    for &id in PrimitiveId::ALL {
+        if id.support() != PrimitiveSupport::Unimplemented {
+            continue;
+        }
+        assert!(rustj::contracts::innate_rank(id).is_none());
+        for source in [
+            format!("{} 1", id.spelling()),
+            format!("1 {} 2", id.spelling()),
+        ] {
+            assert_eq!(
+                Engine::new().eval(&source).unwrap_err().kind(),
+                "unsupported",
+                "{source}"
+            );
+            assert!(Engine::new().analyze_a3(&source).is_err(), "{source}");
+        }
+    }
+    for &id in AdverbId::ALL {
+        if id.support() == PrimitiveSupport::Unimplemented {
+            let source = format!("+ {}", id.spelling());
+            assert_eq!(
+                Engine::new().eval(&source).unwrap_err().kind(),
+                "unsupported",
+                "{source}"
+            );
+        }
+    }
+    for &id in ConjunctionId::ALL {
+        if id.support() == PrimitiveSupport::Unimplemented {
+            let source = format!("+ {} -", id.spelling());
+            assert_eq!(
+                Engine::new().eval(&source).unwrap_err().kind(),
+                "unsupported",
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn unified_identity_keeps_unknown_graph_rules_and_rejects_stale_versions() {
+    use rustj::j_graph_ir::{GraphRuleRef, NodeKind, ResourceRuleRef};
+    for source in ["c. 1", "! 1", "0: 1"] {
+        let bound = Engine::new().prepare_semantic(source).unwrap();
+        let plan = rustj::j_graph_ir::Plan::from_bound(bound).unwrap();
+        plan.verify().unwrap();
+        let mut applies = 0;
+        for node in &plan.nodes {
+            if let NodeKind::Apply { rules, .. } = &node.kind {
+                applies += 1;
+                assert_eq!(rules.shape, GraphRuleRef::DynamicOrUnknown);
+                assert_eq!(rules.dtype, GraphRuleRef::DynamicOrUnknown);
+                assert_eq!(rules.rank_cell, GraphRuleRef::DynamicOrUnknown);
+                assert_eq!(rules.effect, GraphRuleRef::DynamicOrUnknown);
+                assert_eq!(rules.resource, ResourceRuleRef::Unknown);
+            }
+        }
+        assert_eq!(applies, 1);
+        let mut bad_registry = plan.clone();
+        bad_registry.header.primitive_registry_version -= 1;
+        assert!(bad_registry.verify().is_err());
+        let mut bad_schema = plan;
+        bad_schema.header.schema.minor -= 1;
+        assert!(bad_schema.verify().is_err());
     }
 }

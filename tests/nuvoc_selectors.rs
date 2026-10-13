@@ -24,7 +24,13 @@ fn current_nuvoc_selector_words_have_distinct_modifier_parts_of_speech() {
     );
     // @: is At; the rank-sensitive @ Atop is not an alias for it.
     assert_eq!(rustj::primitive::ConjunctionId::Atco.spelling(), "@:");
-    assert_eq!(rustj::primitive::ConjunctionId::from_spelling("@"), None);
+    let pending = rustj::primitive::ConjunctionId::from_spelling("@").unwrap();
+    assert_eq!(pending, rustj::primitive::ConjunctionId::At);
+    assert_ne!(pending, rustj::primitive::ConjunctionId::Atco);
+    assert_eq!(
+        pending.support(),
+        rustj::primitive::PrimitiveSupport::Unimplemented
+    );
 }
 
 #[test]

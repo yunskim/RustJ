@@ -39,7 +39,6 @@ impl JEntity {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FunctionHead {
     PrimitiveVerb(crate::primitive::PrimitiveId),
-    VocabularyPrimitive(crate::primitive::VocabularyPrimitive),
     PrimitiveAdverb(crate::primitive::AdverbId),
     PrimitiveConjunction(crate::primitive::ConjunctionId),
     NameRef(String),
@@ -163,7 +162,7 @@ impl FunctionEntity {
             return None;
         }
         match self.head {
-            FunctionHead::PrimitiveVerb(id) => Some(id.innate_ranks()),
+            FunctionHead::PrimitiveVerb(id) => id.innate_ranks(),
             FunctionHead::NameRef(_) => self.name_ranks,
             FunctionHead::ExplicitDefinition(_) | FunctionHead::Hook | FunctionHead::Fork => {
                 Some([63; 3])
@@ -222,7 +221,6 @@ impl FunctionEntity {
                                     FunctionHead::PrimitiveVerb(_)
                                         | FunctionHead::PrimitiveAdverb(_)
                                         | FunctionHead::PrimitiveConjunction(_)
-                                        | FunctionHead::VocabularyPrimitive(_)
                                 )
                         }
                     }))
@@ -239,17 +237,16 @@ impl FunctionEntity {
     /// Registered, operand-free core modifier identity known without a call.
     pub(crate) fn is_primitive_modifier(&self) -> bool {
         self.operands.is_empty()
-            && (matches!(&self.head, FunctionHead::VocabularyPrimitive(id) if FunctionPartOfSpeech::from(id.part_of_speech()) == self.result_pos && self.result_pos != FunctionPartOfSpeech::Verb)
-                || matches!(
-                    (&self.head, self.result_pos),
-                    (
-                        FunctionHead::PrimitiveAdverb(_),
-                        FunctionPartOfSpeech::Adverb
-                    ) | (
-                        FunctionHead::PrimitiveConjunction(_),
-                        FunctionPartOfSpeech::Conjunction
-                    )
-                ))
+            && matches!(
+                (&self.head, self.result_pos),
+                (
+                    FunctionHead::PrimitiveAdverb(_),
+                    FunctionPartOfSpeech::Adverb
+                ) | (
+                    FunctionHead::PrimitiveConjunction(_),
+                    FunctionPartOfSpeech::Conjunction
+                )
+            )
     }
     /// Construction identity can be observed without applying the modifier.
     /// A known train identity does not imply its application is implemented.

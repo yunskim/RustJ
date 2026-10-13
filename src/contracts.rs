@@ -69,8 +69,8 @@ impl RankContract {
     }
 }
 /// Consume the authoritative primitive registry rather than duplicating its table.
-pub fn innate_rank(id: crate::primitive::PrimitiveId) -> RankContract {
-    RankContract::from_normalized(id.innate_ranks())
+pub fn innate_rank(id: crate::primitive::PrimitiveId) -> Option<RankContract> {
+    id.innate_ranks().map(RankContract::from_normalized)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
