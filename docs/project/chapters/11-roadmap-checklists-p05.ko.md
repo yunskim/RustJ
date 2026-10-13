@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 10. 구현 계획과 체크리스트 — 계속 (5/5)
-
+<a id="a152-jaxa의-static-memory-claim을-rustj에서-해석하는-방식"></a>
 #### A1.5.2 JAXA의 static-memory claim을 RustJ에서 해석하는 방식
 
 JAXA의 중요한 주장 중 하나는 **배열 연산을 J DSL로 정적으로 표현하면 graph를 실행하기 전에 필요한 메모리 구조를 상당 부분 결정할 수 있다**는 것이다. RustJ는 이 주장을 버리지 않되, `logical memory`와 `physical memory`를 구분한다.
@@ -69,6 +66,7 @@ ResourceEstimate / bufferization
 - register pressure는 primitive register 숫자의 합이 아니라 **simultaneously-live symbolic values**를 중심으로 계산한다.
 
 
+<a id="a2--extension-primitive-registry와-analysis-contract"></a>
 ### A2 — Extension Primitive Registry와 analysis contract
 
 > **구현 주의:** 아래 목록 전체는 A2의 장기 architecture inventory다. A3-v0/첫 CPU vertical slice를 막는 하나의 거대한 선행 milestone로 취급하지 않는다.
@@ -136,6 +134,7 @@ ResourceEstimate / bufferization
 
 완료 조건: 새 NN primitive 하나를 추가할 때 scanner/parser 수정 없이 registry/spec/lowering만 추가하면 되고, Semantic Analyzer가 rank·iteration domain·axis semantics·access relation·numeric/dependency/effect contract를 읽을 수 있으며, RustJ-native route에서는 별도 TargetProfile을 이용해 schedule/ResourceEstimate를 만들고 external route에서는 adapter가 같은 Logical IR contract를 검증해 lowering할 수 있다.
 
+<a id="a3--logical-execution-ir-core-verification-scheduling-boundary"></a>
 ### A3 — Logical Execution IR core, verification, scheduling boundary
 
 > **단계화:** APEX/Co-dfns/TAIL 반영 항목은 단계적으로 도입한다. 첫 verified single-block Logical IR(A3-v0)은 SSA ValueId + 최소 Type/Rank/Shape/Witness + verifier를 우선한다. full GraphIndex, full morphology fixpoint, interprocedural SpecializationKey cache, richer ArrayPropertyFacts는 A3-v0의 선행조건이 아니며 v1/later에서 추가한다.
@@ -210,6 +209,7 @@ A3-v2
 
 즉 장기 IR이 Region/Block을 지원한다고 해서 첫 구현에서 전체 CFG framework를 완성할 필요는 없다.
 
+<a id="g1--논리-값과-물리-표현의-경계"></a>
 ### G1 — 논리 값과 물리 표현의 경계
 
 상태: **완료**
@@ -227,6 +227,7 @@ A3-v2
 
 아직 evaluator/LogicalPlan 실행 경로와 완전히 연결된 것은 아니다.
 
+<a id="g2--복사-없는-structural-view"></a>
 ### G2 — 복사 없는 structural view
 
 - [ ] transpose stride permutation
@@ -238,6 +239,7 @@ A3-v2
 - [ ] backing identity/payload copy 테스트
 - [ ] transpose→reverse→slice 조합 테스트
 
+<a id="g3--cpu-kernel-및-cell-mapping-연결"></a>
 ### G3 — CPU kernel 및 cell mapping 연결
 
 - [ ] contiguous / fixed-stride / general-stride 경로
@@ -250,6 +252,7 @@ A3-v2
 - [ ] 일반 float reduction과 compensated `+/!.0` 같은 derived numeric policy를 구분한다.
 - [ ] NaN/Inf/signed zero/empty/fill-cell 테스트
 
+<a id="g4--rustj-native-최소-physical-plan과-cpu-executor"></a>
 ### G4 — RustJ-native 최소 Physical Plan과 CPU Executor
 
 - [ ] plan-time `PlanBufferId` / `PhysicalViewId` identity와 verifier
@@ -266,6 +269,7 @@ A3-v2
 - [ ] CPU executor
 - [ ] source → J Semantic Array IR → Semantic Analyzer/Lowering → Logical Array IR/Plan → RustJ-native Schedule/Physical Plan → CPU end-to-end
 
+<a id="g5--rustj-native-성능-및-physical-확장-경계"></a>
 ### G5 — RustJ-native 성능 및 physical 확장 경계
 
 - [ ] structural view 생성 비용
@@ -280,6 +284,7 @@ A3-v2
 
 <a id="out-of-core-io-checklist"></a>
 
+<a id="io--느린-ioout-of-core-실행-이행-계획수용-체크리스트-2026-10-06"></a>
 ### IO — 느린 I/O·Out-of-core 실행 이행 계획·수용 체크리스트 (2026-10-06)
 
 **I/O 프레임워크 처리·실행 구조 상세:** [§8.5.2](./09-memory-alias.ko.md#io-framework-execution-comparison)에서 기존 30개 게이트의 계층별 근거를 설명한다. 완료 판정은 이 표만 사용한다.
@@ -295,13 +300,13 @@ A3-v2
 |---|---|---|
 | IO-01 / A·M2 병행 | [ ] jsource/J 라이브러리 근거 pin (원본 코드 일부 검토, 실행 oracle 대기; §8.5.4) | `jmf.ijs` mapping modes, `xf.c` partial I/O, alias/in-place, boxed mapping 제약, Jd column/ptable/jmfx, Jfiles/keyfiles, JMF boxed 경로별 source pin·행동/미지원 표. C foreign oracle와 파일 fixture; 추측/확인 분리 |
 | IO-02 / A·M2~M3 | [ ] J 파일·mapping의 의미/효과 계약 (C oracle 15개 독립+6개 순서 사례 일부 실행; 핸들·권한·JMF·Jd 미검증, 수용 전; §8.5.4) | read/write/resize/flush/close, 오류·effect order, alias/late file changes, read-only/COW, J boxed/sparse, zero-frame case 목록. reorder/observable read omission 금지 negative test |
-| IO-03 / A·M3 | [ ] 기존 IR·공통 data-movement 계약과 identity verifier | J Graph의 source topology vs Verified Logical의 `Effect/Dependency`·`AccessRelation` vs Physical Plan의 buffer/file region·transfer·ready token을 분리. `ValueId≠BufferId≠StateResource≠StorageObject/Version`, foreign effect vs immutable backing read; 새 Data Movement IR 도입 금지. 잘못된 계층의 필드·unknown effect를 거부하는 verifier/negative tests. §8.5.3 연결 |
-| IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier |
+| IO-03 / A·M3 | [ ] 기존 IR·공통 data-movement 계약과 identity verifier | J Graph의 source topology vs Verified Logical의 `Effect/Dependency`·`AccessRelation` vs Physical Plan의 buffer/file region·transfer·ready token을 분리. `ValueId≠BufferId≠StateResource≠StorageObject/Version`, foreign effect vs immutable backing read; 새 Data Movement IR 도입 금지. 잘못된 계층의 필드·unknown effect를 거부하는 verifier/negative tests. §8.5.3 연결; `with`의 입력 semantic contract와 source capability·binding witness를 구별하고 mismatch/unknown provenance가 최적화에 사용되지 않도록 검사; [§8.5.5](./09-memory-alias.ko.md#io-static-source-contracts) 참조 |
+| IO-04 / A·M3 | [ ] storage capability matrix | local file, mapped, chunk, remote, GPU는 개별 capability; offset/alignment/EOF/seek/atomic write/consistency. Unknown은 route barrier; SequentialOnly/SinglePass vs RegionReadable/Repeatable, mutable vs snapshot/versioned, Hard/Soft 구분, 잘못된 schema/capability 선언·binding 거부를 테스트; [§8.5.5](./09-memory-alias.ko.md#io-static-source-contracts) 참조 |
 | IO-05 / B·M4 이후 | [ ] `read_at`/`write_at` 동기 독립 기준 | 일반 파일 offset/length, short read/EOF/overflow/error/permission 포함; 구현 전에 J file foreign과 physical array input 구분. 실제 fixture·C oracle 대조 |
 | IO-06 / B·M4 이후 | [ ] versioned dense chunk reader | shape/element type/endianness/alignment/checked address/last short chunk. 파일보다 작은 메모리 예산으로 1회 순차 scan; baseline과 결과/오류 일치 |
 | IO-07 / B·M4 이후 | [ ] mapped dense array 최소 경로 | read-only/mutable/COW·header/shape·flush/unmap/reference lifetime; mapping과 read_at 결과 비교. non-jmf typed boxed/JMF boxed 경로와 sparse capability를 구분해 검증 |
 | IO-08 / B·M4 이후 | [ ] bounded resident/retained memory 기준 | chunk reader·buffer lease·release; RAM보다 큰 데이터와 작은 예산 조건에서 peak bound, leak/early release/cancel 검사 |
-| IO-09 / C·M4~M5 | [ ] logical access region→physical byte-range witness | select/slice/reindex의 원소 범위를 증명한 뒤에만 `BufferSlice`/`FileByteRange` 접근 최적화 후보 생성; dynamic rank·alias·외부 변경·관찰 가능한 file/error effect·empty prototype은 opaque/barrier. byte omission과 J semantics 독립 검증. §8.5.3 연결 |
+| IO-09 / C·M4~M5 | [ ] logical access region→physical byte-range witness | select/slice/reindex의 원소 범위를 증명한 뒤에만 `BufferSlice`/`FileByteRange` 접근 최적화 후보 생성; dynamic rank·alias·외부 변경·관찰 가능한 file/error effect·empty prototype은 opaque/barrier. byte omission과 J semantics 독립 검증. §8.5.3 연결; 역방향 `None/Regions/Full/Unknown` demand·다중 소비자 합집합, slice/transpose/reduction/halo/gather의 witness 및 full/unknown fallback을 검증; [§8.5.5](./09-memory-alias.ko.md#io-static-source-contracts) 참조 |
 | IO-10 / C·M5 | [ ] scan projection/slice pushdown | source+consumer legality proof/guard, I/O 바이트 수와 결과/오류 측정; Reduce/Rank/sparse/boxed 반례 포함 |
 | IO-11 / C·M5 | [ ] shared scan/subplan reuse | 동일 external object+version/policy/byte range일 때만 cache; changed file/late binding/alias가 cache invalidation 유발 |
 | IO-12 / C·M5 | [ ] immutable snapshot/version contract | file content/version/staleness 검출·error precedence; speculative read는 no-visible-effect 조건에서만 허용 |
@@ -314,7 +319,7 @@ A3-v2
 | IO-19 / E·M5 | [ ] weight/scan reuse physical schedule | FlexGen식 layer-block/batch ordering 후보; read bytes↓/cache hit↑, dependency·effect·order unchanged, latency–throughput 별도 평가 |
 | IO-20 / E·M5 | [ ] 공통 physical data-movement·placement cost planner | 기존 Physical Plan에서 memory copy/CPU↔GPU 후보/file byte-range read/write/transfer를 위치·region·lifetime·ready dependency로 함께 계획. bytes/requests/seek/latency/peak/inflight/compute/overlap 분리; unknown capacity는 hard gate, heuristic cost는 미측정 표시. GPU 실행은 보류. 새 IR 필요성은 2개 실제 실패 사례가 있을 때만 재검토. §8.5.3 연결 |
 | IO-21 / F·M5 | [ ] 파일 크기·access shape 측정 suite | cold/warm, sequential/random, small/large, dense/strided, disk-backed NN weights, sparse/boxed guarded, 0-sized; bytes/wait/peak/time/latency |
-| IO-22 / F·M5 | [ ] 3방향 semantic·negative·movement 검증 | C reference(실제 J foreign 효과 있는 영역) / Rust sync / Rust optimized 독립 비교; skipped read vs error precedence, stale version, empty Rank virtual cell, boxed/sparse, alias/early-free/cancel, 중간 copy/전송 bytes 검증. pass/fail/ignored·unsupported 분리. §8.5.3 연결 |
+| IO-22 / F·M5 | [ ] 3방향 semantic·negative·movement 검증 | C reference(실제 J foreign 효과 있는 영역) / Rust sync / Rust optimized 독립 비교; skipped read vs error precedence, stale version, empty Rank virtual cell, boxed/sparse, alias/early-free/cancel, 중간 copy/전송 bytes 검증. pass/fail/ignored·unsupported 분리. §8.5.3 연결; 정적 schema mismatch, snapshot invalidation, capability 오선언, compressed read amplification, reduction streaming 반례 포함; [§8.5.5](./09-memory-alias.ko.md#io-static-source-contracts) 참조 |
 | IO-23 / F·M5 이후 | [ ] mmap vs read_at vs async 실측 선택 | OS page cache/hard faults, IO bound/compute bound, storage/media/target 차이. 유의미한 실측 이득과 regression 없을 때만 기본 경로 |
 | IO-24 / F·M6 이후 | [ ] 확장 후보 승인 게이트 | io_uring/direct I/O, remote object storage, compression, NVMe↔GPU/pinned DMA, multi-device, Jd adapter. portable implementation·검증 예산 확인 시 별도 소규모 작업으로 승격 |
 
@@ -325,13 +330,14 @@ A3-v2
 |---|---|---|
 | IO-25 / A·M2 병행 | [ ] Jd/jfiles/JMF boxed 원본 교차 감사 (소스 확인·JMF RW/RO/COW smoke 구축, 원본 mapping·boxed/Jd 실행 수용 검증 대기; §8.5.4) | jsource pin과 data_jd pin, J binary oracle, ptable pruning·keyfiles·JMF boxed 분기 검증. IO-01·02 연계 |
 | IO-26 / B·M4 이후 | [ ] Typed array storage metadata 검증 | dtype/shape/order/endian/offset/length/version; invalid overlap/duplicate/off-end/overflow, empty/scalar, sparse/boxed 경계. IO-05·06 연계 |
-| IO-27 / B·M4 이후 | [ ] Read chunk와 write shard 분리 | Zarr/HDF5를 참고해 access axis별 read amplification, coalescing, shard write cost 및 contiguous baseline 비교. IO-06·08 연계 |
+| IO-27 / B·M4 이후 | [ ] Read chunk와 write shard 분리 | Zarr/HDF5를 참고해 access axis별 read amplification, coalescing, shard write cost 및 contiguous baseline 비교. IO-06·08 연계; Read/Write/CodecChunk, IoRequestRange, ComputeTile을 분리하고 서로 다른 분할 경계의 증폭 및 버퍼 비용을 검증; [§8.5.5](./09-memory-alias.ko.md#io-static-source-contracts) 참조 |
 | IO-28 / B·M4 이후 | [ ] mmap·SIMD tail·lifetime 안전성 | EOF next-page, vector overfetch 금지, real page granularity, live lease/remap/unmap/readonly/COW/concurrent readers. IO-07·08 연계 |
 | IO-29 / C·M5 | [ ] Bounded decoded-chunk cache | identity/version/encoding/range cache key, budget+lease-safe eviction, mutation invalidation, strided reuse/cache thrash. IO-09~12 연계 |
 | IO-30 / F·M5 이후 | [ ] Workload별 load mode 선택 실측 | mmap vs buffered read vs async, cache warm/cold, NVMe/remote, NN weights, small/large working set; bytes/page faults/RSS/latency/throughput. IO-21·23 연계 |
 
 **Acceptance log 양식:** `IO-ID | code commit | jsource/library pin | command + OS/target + storage | J C oracle / Rust synchronous / optimized counts | measured cold/warm bytes/time/peak | failures/unsupported | CI 여부 | next gate`. 단순 기법 소개나 파일 존재만으로 [x] 금지. 성능은 의미·자원 안전 통과 후 평가하고, 미지원은 조용한 fallback 성공으로 계산하지 않는다. [`8.5 소유권과 실행 계약](./09-memory-alias.ko.md#out-of-core-io-contract) 참조.
 
+<a id="c--frontend--언어-의미-확장"></a>
 ### C — frontend / 언어 의미 확장
 
 Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 수정한다. 일반적인 언어 기능 확장은 A1~A3의 core IR 경계를 먼저 안정화한 뒤 진행하며, G2~G5와는 필요 의존성에 따라 병행한다.
@@ -348,6 +354,7 @@ Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 �
 
 <a id="formal-ir-verification-checklist"></a>
 
+<a id="fv--ir-정확성-형식-검증-장기-후속-체크리스트-2026-10-08-계획만-기록"></a>
 ### FV — IR 정확성 형식 검증: 장기 후속 체크리스트 (2026-10-08; 계획만 기록)
 
 **상태와 우선순위:** IR 정확성을 수학적으로 검증할 수 있는 체계는 장기적으로 필요하다. **도구 도입·형식 모델 작성·정리 증명·SMT 실행·Rust 검증·CI 연동은 전부 미착수**이며 지금 진행하지 않는다. M2 frontend 의미 수렴 → M3 경계 → M4 첫 native CPU 실행 우선순위를 바꾸거나 초기 CPU slice의 선행 조건으로 추가하지 않는다. 기존 verifier/negative tests, jsource differential/golden 검증은 계속 별개로 필요하다.
@@ -373,6 +380,7 @@ Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 �
 
 ---
 
+<a id="cuda--보류"></a>
 ### CUDA — 보류
 
 - [ ] CUDA storage
@@ -385,11 +393,3 @@ Semantic IR/Logical IR 경계의 정확성을 막는 frontend 결함은 즉시 �
 재개 조건: 사용자 요청과 검증 가능한 GPU 환경 확보.
 
 ---
-
-<a id="validation-policy"></a>
-
-<a id="read-validation"></a>
-
----
-
-[← 이전 부분](./11-roadmap-checklists-p04.ko.md)

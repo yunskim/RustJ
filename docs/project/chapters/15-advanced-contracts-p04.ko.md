@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (4/10)
-
+<a id="41149-첫-differential-test-matrix"></a>
 ##### 4.11.4.9 첫 differential test matrix
 
 ```text
@@ -23,6 +20,7 @@ L. generic CellApply vs absorbed path equivalence
 
 특히 nested rank는 jsource `cr.c`가 명시한 intermediate fill-boundary 사례를 포함한다. 이 테스트가 통과하기 전에는 adjacent rank boundaries를 자동 collapse하지 않는다.
 
+<a id="411410-jsource-구현에서-가져올-구조적-아이디어"></a>
 ##### 4.11.4.10 jsource 구현에서 가져올 구조적 아이디어
 
 2026-09-30 current jsource master `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`의 `t.c`, `cr.c`, `ar.c`, `cf.c`, `result.h`, `jtype.h`를 기준으로 검토한다.
@@ -58,6 +56,7 @@ RustJ는 jsource의 C object layout, pointer/rank bit encoding, function-pointer
 | in-place/pristine/zappable flags | liveness/alias/bufferization 이후 physical reuse legality |
 | pointer/rank bit encoding | 가져오지 않음 |
 
+<a id="411411-이후-ir에서-사용할-정보의-provenance와-삽입-시점"></a>
 ##### 4.11.4.11 이후 IR에서 사용할 정보의 provenance와 삽입 시점
 
 jsource 조사에서 얻은 정보는 **가능한 한 이른 시점**이 아니라 **의미를 정확히 알 수 있는 가장 이른 시점**에 넣는다. Parser가 알 수 없는 fact를 Parser IR에 미리 넣거나, target-dependent hint를 Logical IR semantic payload에 박지 않는다.
@@ -130,6 +129,7 @@ G. PhysicalDecision
 | tile/vector/workgroup mapping | implementation fast path | `PhysicalSchedule` | **Schedule stage** | codegen |
 | resource/cost estimate | implementation-specific | `ResourceEstimate/CostEstimate` | **schedule + target 이후** | candidate ranking |
 
+<a id="semantic-node는-intrinsic-summary를-직접-소유한다"></a>
 ###### Semantic node는 intrinsic summary를 직접 소유한다
 
 Parser-produced `FunctionEntity`는 source identity/operand 관계뿐 아니라 **그 entity 자체에 안정적으로 귀속되는 semantic summary를 직접 소유**한다. derived entity는 이미 완성된 child entity의 `semantic_info`를 재귀적으로 참조해 bottom-up으로 summary를 만든다.
@@ -160,6 +160,7 @@ side table/cache는 다음에만 사용한다.
 
 즉 semantic traversal에서 매번 전역 table을 조회해야만 child의 의미를 알 수 있는 구조는 기본 모델로 삼지 않는다.
 
+<a id="call-time에만-알-수-있는-정보는-resolvedcallfacts로-모은다"></a>
 ###### call-time에만 알 수 있는 정보는 ResolvedCallFacts로 모은다
 
 rank agreement, actual frame/cell, repeated side, output constraints는 function 자체의 속성이 아니라 **function + valence + actual argument facts**의 속성이다.
@@ -182,6 +183,7 @@ ResolvedCallFacts
 
 Semantic Analyzer가 이를 만든 뒤 필요한 부분을 verified Logical IR payload/annotation으로 내린다.
 
+<a id="logical-ir-payload와-재계산-가능한-analysis-fact를-구분한다"></a>
 ###### Logical IR payload와 재계산 가능한 analysis fact를 구분한다
 
 다음은 semantic correctness를 위해 Logical IR에 남아야 한다.
@@ -211,6 +213,7 @@ recomputable
 
 외부 IR adapter가 correctness를 위해 필요한 fact는 adapter precondition/witness로 승격하며, 단순 optimizer hint는 export semantics에 포함하지 않는다.
 
+<a id="jsource의-memory-management-flags는-physical-ir로-바로-복사하지-않는다"></a>
 ###### jsource의 memory-management flags는 Physical IR로 바로 복사하지 않는다
 
 `WILLOPEN`, in-place, pristine, zappable은 jsource의 reference-counted runtime에서 매우 중요한 정보지만 RustJ에서는 대부분 **use graph + liveness + ownership/alias + representation**으로 다시 유도하는 편이 낫다.
@@ -233,6 +236,7 @@ MaterializationElisionCandidate
 
 즉 jsource의 `WILLOPEN` bit를 parser/LogicalOp에 복사하지 않는다.
 
+<a id="verifier는-fact의-출처와-가정을-구분한다"></a>
 ###### verifier는 fact의 출처와 가정을 구분한다
 
 향후 analysis fact에는 필요하면 다음 provenance를 둔다.
@@ -249,6 +253,7 @@ FactProvenance
 
 특히 dynamic shape/rank/name binding을 compile-time fact로 사용했다면 `GuardedAssumption` 또는 runtime semantic dependency가 있어야 한다. 근거 없는 `Known` fact는 verifier가 허용하지 않는다.
 
+<a id="이-설계를----y에-적용하면"></a>
 ###### 이 설계를 `(+/ % #) y`에 적용하면
 
 `y =: i. 2 3`에서:
@@ -310,6 +315,7 @@ Schedule/Physical
 
 따라서 `(+/ % #)` 예제에서 **mean이라는 정보는 Parser가 넣는 정보가 아니다.** Parser는 Fork를 보존하고, Analyzer는 rank/cell/access semantics를 넣고, Logical Optimizer가 mean pattern을 발견하며, target lowering이 실제 fused mean implementation을 선택한다.
 
+<a id="구현-순서에-반영"></a>
 ###### 구현 순서에 반영
 
 IL1/IL2 구현과 함께 다음 infrastructure를 추가한다.
@@ -326,6 +332,7 @@ IL1/IL2 구현과 함께 다음 infrastructure를 추가한다.
 
 <a id="mean-proof-example"></a>
 
+<a id="411412-canonical-e2e-표본-----y"></a>
 ##### 4.11.4.12 Canonical E2E 표본 — `(+/ % #) y`
 
 이 표현을 compiler pipeline의 고정 추적 표본으로 사용한다. 단순 vector 입력만 사용하면 implicit cell application이 드러나지 않으므로 두 입력을 구분한다.
@@ -376,6 +383,7 @@ CellApply2
 | verifier / reference execution | `Plan::verify()`와 `logical_executor::execute_closed()`가 존재한다 | closed-plan reference 실행을 named/environment 전체 지원 또는 Physical Executor로 오인하지 않는다 |
 | route / physical execution | `LoweringRegistry`와 contiguous route-partition prototype이 존재한다 | 선택된 native Schedule/Physical Plan/CPU Physical Executor는 M4 이후의 미완료 경계다 |
 
+<a id="같은-표본의-stage-by-stage-compiler-trace"></a>
 ###### 같은 표본의 stage-by-stage compiler trace
 
 이 표본은 앞으로 문서와 구현에서 **한 source를 처음부터 끝까지 같은 provenance로 추적하는 canonical trace**로 사용한다. 현재 구현된 경계와 planned 경계를 섞지 않는다.
@@ -467,6 +475,7 @@ source generic graph
 
 현재 `j_graph_fusion`의 등록 규칙이나 `fusion_planning`이 이 Mean specialization 전체를 이미 선택·lowering한다고 해석하지 않는다. 이 부분은 **future optimization example**이며, 먼저 generic graph의 semantic/physical E2E가 검증되어야 한다.
 
+<a id="이-trace의-provenance-연결-규칙"></a>
 ##### 이 trace의 provenance 연결 규칙
 
 - parser `FunctionEntity`의 Fork/operand/source span을 J Graph region과 연결한다.
@@ -486,7 +495,3 @@ shape `[3]` 추론만으로 `%`의 prefix agreement와 residual-frame repetition
 
 `tests/analysis.rs::canonical_mean_fork_lowers_to_reduce_tally_divide_in_jsource_order`는 `analyze_a3 + verify`와 h → f → g ordering을 확인하는 smoke test다. 실제 실행이나 compiler-native E2E 완료의 증거는 아니다. M4의 실행 체크리스트와 이 semantic 표본의 조건은 별개로 추적한다.
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p03.ko.md) | [다음 부분 →](./15-advanced-contracts-p05.ko.md)

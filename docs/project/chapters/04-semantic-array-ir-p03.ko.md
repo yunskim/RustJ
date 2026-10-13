@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 3. J Semantic Array IR — 계속 (3/4)
-
+<a id="371-explicit-definition-control-flow-handoff-example"></a>
 #### 3.7.1 Explicit-definition control-flow handoff example
 
 control-flow handoff의 orientation 표본으로 다음 monadic explicit definition을 사용한다.
@@ -89,6 +86,7 @@ future CFG lowering이 추가될 때 필요한 최소 증명:
 
 현재 회귀와 runtime tests는 `DefinitionCode` construction/control metadata뿐 아니라 **지원 straight-line invocation의 LocalFrame·scope·assignment/effect 동작도 일부 검사한다.** 그러나 control-flow body를 J Graph/A3 CFG로 낮추는 planned compiler 경계의 완료 증거는 아니다.
 
+<a id="372-jsource-name-정합성-감사-및-f1p4-수용-조건-2026-10-07-설계코드-조사"></a>
 #### 3.7.2 jsource NAME 정합성 감사 및 F1/P4 수용 조건 (2026-10-07; 설계·코드 조사)
 
 **명세 우선순위:** 고정 `jsource@13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`의 [`sn.c::vnm/vlocnm/nfs`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c), [`w.c::jtenqueue`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/w.c), [`p.c::jtparsea`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [`s.c::jtsyrd/jtsymbis`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c), [`sl.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sl.c) 및 [J Dictionary의 NAME/locative/assignment 관찰 의미](https://jsoftware.com/help/dictionary/dicti.htm)를 기준으로 한다. RustJ 고유 NAME **문법·의미 제한을 추가하지 않는다.** 허용되는 차이는 내부 carrier·hash layout·lookaside·refcount·JIT cache 구현 등 외부에서 보이지 않는 방식뿐이다. 아래는 **현재 main의 정적 감사**이며 실제 differential PASS 기록이 아니다.
@@ -103,7 +101,7 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **Indirect 명사 검증 선행 행렬:** 자동 NAME 차분에 boxed holder 재대입, named own-miss z 조회와 own 쓰기, snapshot, 실패 RHS 후 값 보존, holder 없음/숫자/비박스 오류 및 오른쪽 오류 우선순위를 추가한다. Rust 미지원 결과는 unsupported gap으로 남기며 locale/value 오류 혼동은 의미론 불일치로 분류한다. C 관찰은 내부 holder/version witness의 증거가 아니며 indirect runtime 구현과 full NJ-04/L3는 미완료다.
 
-**전체 primitive 이름 catalog:** 고정 jsource ws.c의 공개 spellin 표기 139개와 상수 동사 계열의 _1:…_9:·__:를 포함한 149개 표기에 PrimitiveName/PrimitiveNames를 부여한다. CPLUS 같은 기호별 코드 이름과 t.c의 monad/dyad handler 이름을 별도 metadata로 기록한다. 같은 기호의 valence 이름은 구분하며 atomic 공용 handler 이름은 의미 계약으로 추론하지 않는다. 기존 core identity의 names()로 실행/recognition-only 구분 없이 접근한다. noun·copula·괄호 및 미설치 spellin 항목도 이름을 기록하지만 함수 수용을 넓히지 않는다. 숫자 C opcode·ds 객체·kernel 재사용을 복제하지 않으며 registry/IR identity·rank·effect·실행 지원은 유지한다. pinned source 표 전체 대조와 core/Vocabulary exhaustive 회귀로 검증한다. 실행용 PrimitiveId·AdverbId·ConjunctionId와 frontend, J Graph/Logical IR, 분석, runtime, 예제, 테스트 및 문서의 primitive 참조도 동일한 기호 이름을 사용한다(Plus, Dollar, Slash, Qq, Atco 등). 의미별 별칭 Add/Shape/Insert/Rank/Atop은 primitive 식별자에서 제거한다. valence별 함수 이름과 논리 연산·커널 이름은 각 계층의 의미를 유지한다. 공개 Rust enum/API 및 Debug 이름은 변경되지만 표기, enum 순서, 의미론과 registry version 10은 유지한다. 모든 실행 identity 이름과 카탈로그 이름의 일치 및 lexer→semantic→Logical IR 전파를 회귀 검증한다.
+**전체 primitive 이름 catalog:** 고정 jsource ws.c의 공개 spellin 표기 139개와 상수 동사 계열의 _1:…_9:·__:를 포함한 149개 표기에 PrimitiveName/PrimitiveNames를 부여한다. CPLUS 같은 기호별 코드 이름과 t.c의 monad/dyad handler 이름을 별도 metadata로 기록한다. 같은 기호의 valence 이름은 구분하며 atomic 공용 handler 이름은 의미 계약으로 추론하지 않는다. 기존 core identity의 names()로 실행/recognition-only 구분 없이 접근한다. noun·copula·괄호 및 미설치 spellin 항목도 이름을 기록하지만 함수 수용을 넓히지 않는다. 숫자 C opcode·ds 객체·kernel 재사용을 복제하지 않으며 registry/IR identity·rank·effect·실행 지원은 유지한다. pinned source 표 전체 대조와 전체 core exhaustive 회귀로 검증한다. 실행용 PrimitiveId·AdverbId·ConjunctionId와 frontend, J Graph/Logical IR, 분석, runtime, 예제, 테스트 및 문서의 primitive 참조도 동일한 기호 이름을 사용한다(Plus, Dollar, Slash, Qq, Atco 등). 의미별 별칭 Add/Shape/Insert/Rank/Atop은 primitive 식별자에서 제거한다. valence별 함수 이름과 논리 연산·커널 이름은 각 계층의 의미를 유지한다. 이름 통일 단계에서 공개 Rust enum/API 및 Debug 이름은 변경되었고 표기, 기존 enum 순서와 의미론은 유지했다. 현재 통합 catalog의 registry version은 11이다. 모든 실행 identity 이름과 카탈로그 이름의 일치 및 lexer→semantic→Logical IR 전파를 회귀 검증한다.
 
 **현재 rank 63 표현:** 현재 PrimitiveId::innate_ranks와 rank 정규화는 jsource 호환 정수 표현 63을 유지한다. 고정 jtype.h의 RANKT는 8비트이며 플래그 2비트를 제외한 6비트의 최대값 RMAX = 63이다. 이는 실제 배열 rank의 허용 최대값이기도 하므로 실제 rank 63은 63차원을 뜻한다. 동사의 innate rank 63은 모든 허용 인수를 전체 cell로 받는 사실상 무한 rank 역할을 하며, 적용 cell rank는 인수 rank를 넘지 않는다(인수 rank 3이면 cell rank 3). 배열 rank와 동사 rank의 역할을 혼동하지 않는다. 명시적 Infinite 표현은 장기 IR 설계이며 이번 변경에서 도입하지 않는다. [jsource 정의](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L68-L79)
 
@@ -113,7 +111,7 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **단일 boxed holder 명사 abandon 경계:** `name__holder_:`는 stack 조회 시 local → base → z holder를 선택하고 boxed base/named 시작 locale의 own → 기본 z 경로에서 찾은 명사를 반환한 뒤 발견 table에서만 삭제한다. locative 대상은 explicit local table을 우회한다. 새 named locale 준비는 삭제 전 관찰보다 먼저 수행하여, 처음 z hit를 삭제해도 시작/발견 scope·holder와 noun version/generation을 캡처에 보존한다. holder 자체 삭제도 삭제 전 증거를 유지한다. 고정 p.c의 undefname 분기에 따라 abandon의 holder 조회 실패(rank/domain/length/잘못된 이름/부재 numeric locale)는 value error로 보고하며, 일반 읽기·대입의 상세 오류는 유지한다. 실패는 base/named/z binding과 버전을 삭제하거나 변경하지 않는다. RHS 최초 오류는 삭제를 방지하지만 abandon 완료 후 왼쪽 오류는 삭제를 되돌리지 않는다. 배열 snapshot, own 삭제 후 z fallback, z 삭제 후 ordinary value error, local holder 우선과 event/NameUse 변조 음성 검증을 고정 C 및 두 실행 경로로 확인한다. indirect guard·J Graph/compiler 수용은 계속 거부하며 함수·future reference·복합/번호/debug holder·일반 path/full L3는 미완료다.
 
-**명사 인수 선택 동사 `[`, `]` runtime 경계:** `t.c`의 CLEFT/CRIGHT와 `v.c::jtright1/jtleft2/jtright2`에 따라 두 동사의 monad는 y, dyad `[`는 x, dyad `]`는 y를 그대로 반환한다. innate rank는 모두 RMAX(63)이며 operand는 공유 parser가 오른쪽부터 모두 평가한 뒤 선택한다. 무시되는 operand의 오류·효과를 생략하지 않는다. 수치 변환/shape agreement를 적용하지 않고 선택된 명사의 dtype·shape·boxed/sparse/extended 값과 snapshot을 보존한다. 기존 VocabularyPrimitive recognition에서 PrimitiveId::Left/Right로 실행 identity를 이관하고 registry version을 갱신한다. runtime noun 실행을 검증했으며 compiler alias/evaluation proof 계약은 unknown으로 유지한다. 함수 이름 이관·최적화 수용·일반 rank prototype 및 full L3 완료를 뜻하지 않는다. 고정 C 차분과 default/portable·semantic-reference 회귀는 noun 종류·RHS holder 변경·양 operand 오류 순서를 검증한다.
+**명사 인수 선택 동사 `[`, `]` runtime 경계:** `t.c`의 CLEFT/CRIGHT와 `v.c::jtright1/jtleft2/jtright2`에 따라 두 동사의 monad는 y, dyad `[`는 x, dyad `]`는 y를 그대로 반환한다. innate rank는 모두 RMAX(63)이며 operand는 공유 parser가 오른쪽부터 모두 평가한 뒤 선택한다. 무시되는 operand의 오류·효과를 생략하지 않는다. 수치 변환/shape agreement를 적용하지 않고 선택된 명사의 dtype·shape·boxed/sparse/extended 값과 snapshot을 보존한다. 이전 recognition-only 항목에서 PrimitiveId::Left/Right로 실행 identity를 이관하고 registry version을 갱신한다. runtime noun 실행을 검증했으며 compiler alias/evaluation proof 계약은 unknown으로 유지한다. 함수 이름 이관·최적화 수용·일반 rank prototype 및 full L3 완료를 뜻하지 않는다. 고정 C 차분과 default/portable·semantic-reference 회귀는 noun 종류·RHS holder 변경·양 operand 오류 순서를 검증한다.
 
 **단일 boxed holder 명사 대입 경계:** RHS 평가 완료 후 holder를 local → base → z에서 선택하고 boxed base/named locale의 own table에 명사를 기록한다. z에서 읽은 버전은 대입 previous version이 아니다. `=.`/`=:` 모두 explicit local target을 우회한다. RHS 실패는 target locale/binding을 만들거나 바꾸지 않으며, RHS holder 재대입은 완료 시점 대상에 반영한다. commit이 holder 자체를 바꾸어도 캡처 버전은 commit 직전 대상 이름을 고정하여 기록한다. 읽기와 대입은 동일 holder 오류 검증을 공유한다. pinned C 차분은 named/base/z 보존, local bypass, RHS 오류 우선순위와 자기 holder 재대입을 검증한다. 이 bounded runtime/capture 구현은 indirect compiler/guard/Graph 증명이 아니며 함수·복합 holder·computed·일반 path와 full NJ-04/L3는 미완료다. 단일 boxed holder 명사 abandon은 위 별도 경계에서 지원한다.
 
@@ -173,6 +171,7 @@ NAME 감사 도구는 `--reference-root .reference`로 Linux/WSL의 `build_refer
 
 **부정·긍정 수용 시험 등록부:** `NJ-V01` simple/internal underscore·valid direct/indirect/base alias·`name_:` vs invalid/limit/spelling; `NJ-V02` env=0/1/2+locative `=.` 플래그; `NJ-V03` local shadow/unbound fallback/locale path 한 단계와 missing/invalid locale error; `NJ-V04` indirect holder의 값·재바인딩·오류, 숫자/소멸 locale; `NJ-V05` locative function의 실행 current locale, 경로에서 발견된 function, recursive/frame restoration; `NJ-V06` noun snapshot vs late function NameRef·POS 변화 및 `name_:`의 삭제; `NJ-V07` 계산된/복수 assignment·local/global 충돌·first J error/effect 순서. 기록: `source revision | 실제 C binary hash/variant | Rust commit | positive + one-mutated-negative | value/POS/locale/path/effect/error | pass/fail/unrun`. 현재 **모두 미수용**이며 기존 소규모 enqueue 테스트의 통과를 full name compliance로 승격하지 않는다.
 
+<a id="373-name-의미론적-조회와-최적화-provenance-분리-2026-10-07-설계-전용"></a>
 #### 3.7.3 NAME 의미론적 조회와 최적화 provenance 분리 (2026-10-07; 설계 전용)
 
 **결정:** `jsource`의 NAME 조회 **시점**은 그대로 두면서, NAME이 값으로 치환되더라도 **원본 NAME occurrence와 조회 사건·증거**를 J Graph/A3 및 최적화기에 남긴다. Compiler가 편하다는 이유로 noun을 늦게 조회하거나 verb를 미리 실행 함수로 확정하지 않는다. 새 실행용 NAME IR을 강제하지 않고 기존 `EnqueuedWord`, `ParseCapture`, `FunctionHead::NameRef`, J Graph `ReadNoun`, A3 `ReadNoun/VerbReference`를 우선 확장한다. 여기의 명칭은 **제안된 개념 계약**이지 구현된 Rust 타입이 아니다.
@@ -264,6 +263,7 @@ f =: *
 
 등록 양식: `source revision | NAME occurrence/event→SSA IDs | oracle/binary | positive + one-invariant-negative | proof/guard owner | PASS/FAIL/UNRUN | CI SHA`. **문서 설계 완료가 F1/P4/P5/M3 구현 완료를 뜻하지 않는다.**
 
+<a id="374-name-최적화-캐시와-멀티프로세서-인계-계약-2026-10-07-설계-전용"></a>
 #### 3.7.4 NAME 최적화 캐시와 멀티프로세서 인계 계약 (2026-10-07; 설계 전용)
 
 §3.7.3과 **NP-01~07이 유일한 수용 체크리스트**다. 이 절은 최신 NAME 감사(`cd6ac8c`)에 실행 수명·동시성·캐시 계약을 보강하며 새로운 NAME 구현이 완료됐다는 뜻이 아니다. 이전 채팅의 인계는 저장소의 M3→M4 계약을 기준으로 이어간다. 첫 구현은 단일 CPU로 닫고, 동일 계약을 이후 worker/device 실행으로 확장한다.
@@ -286,6 +286,7 @@ f =: *
 
 NP-03 부정 테스트에 frame/locale/symbol 삭제·재생성과 stale stamp, NP-04에 최적화 후 provenance 및 중간 payload 비보유, NP-05에 guard→lease 사이 재바인딩·worker 완료 전 buffer reuse·효과 이후 guard miss를 추가한다. 구현 순서는 NP-01/02 occurrence/event → NP-03 namespace/stamp → NP-04 IR 연결 → NP-05 guard/lease → NP-06 특수 NAME → NP-07 독립 차분이다. **모든 전체 수용 게이트는 계속 미완료**이며 C probe 일부 통과로 체크하지 않는다.
 
+<a id="375-추가-배열-compiler-비교와-name-호환성-재검토-2026-10-07"></a>
 #### 3.7.5 추가 배열 compiler 비교와 NAME 호환성 재검토 (2026-10-07)
 
 **판정:** §3.7.3/4의 NAME carrier는 필요한 출발점이지만 충분한 compiler 계약이나 jsource 호환 구현은 아니다. 이름 출처 보존에 더해 **SSA use-def/CFG 합류, namespace effects, alias·escape·liveness, shape facts의 범위, transformation provenance와 verifier**가 있어야 최적화의 적법성을 검증할 수 있다. 다음은 upstream 자료에서 관찰한 구조와 RustJ에 대한 설계 판단을 구분한 보강이다. 새 IR 계층을 의무화하지 않는다.
@@ -322,6 +323,7 @@ NP-03 부정 테스트에 frame/locale/symbol 삭제·재생성과 stale stamp, 
 
 이번 변경은 **설계·감사 도구만 추가**했으며 Rust semantic 구현은 수정하지 않았다. Native Windows의 enqueuer 19 + modifier_scope 8 + parser_capture 41 + semantic 54 = **122 tests를 default/portable 각각 통과**, audit 분류 회귀 **6건 통과**. 조사한 C source pin과 DLL asset pin은 서로 다르므로 실제 oracle은 binary hash로 구별하며, pinned source에서 같은 DLL을 재빌드한 증거는 없다. 전체 upstream J suite·전체 reflection/locale suite·Miri·GPU·Linux·GitHub CI는 실행하지 않았다. NP 전체 수용 게이트는 계속 미완료다.
 
+<a id="376-parsercompiler의-구체-전달-계약-지연-noun과-concrete-jentity-2026-10-07"></a>
 #### 3.7.6 Parser→compiler의 구체 전달 계약: 지연 noun과 concrete JEntity (2026-10-07)
 
 **정정·결정:** parser reduction과 kernel execution은 같은 동작이 아니다. Compiler 경로의 기본 출력은 **아직 배열 연산을 실행하지 않은 semantic computation program**이다. noun-producing row 0–2를 줄인다는 것은 noun-result expression/reference를 stack에 넣는 것이며, 결과 POS가 Noun이라는 이유로 데이터를 계산하지 않는다. 별도의 unreduced AST와 계산된 결과를 항상 함께 보관하는 방식도 아니다. 아래 계약은 기존 단계들을 명확하게 한 것이며 새 mandatory IR pass를 추가하지 않는다.
@@ -369,6 +371,7 @@ Runtime: supply values at semantic read points, execute, commit b at its write p
 
 **이번 확인:** native Windows `static_explain 'data + data * data'`를 `data: Float[1000000000000]` metadata만으로 실행해 `ReadNoun` 3개·`Apply` 2개의 graph를 생성했다. 데이터 배열이나 해당 multiply/add 결과를 계산한 것이 아니다. 이것은 현재의 지연 graph 구성 증거이며 full runtime binding guard·allocation 계측·M4 end-to-end 검증은 아니다. 기존 execution-free semantic 회귀 2건은 default/portable 각각 통과했고 `git diff --check`도 통과했다. 이번에는 문서만 변경했으며 전체 suite·fmt/clippy·GitHub CI를 실행하지 않았다. 다음 구현 우선순위는 이 지연 경로를 실제 CPU 실행으로 닫는 것이며, eager capture를 compiler의 유일한 입력으로 만드는 것이 아니다.
 
+<a id="377-semantichandoff-v1-논리-데이터-구조-확정-2026-10-07-논리-계약첫-구현"></a>
 #### 3.7.7 SemanticHandoff v1 논리 데이터 구조 확정 (2026-10-07; 논리 계약·첫 구현)
 
 **현재 계획의 부족과 이번 결정:** 앞 절들은 정보·순서·경계 계약이었으며 구체 carrier가 구현되지는 않았다. 이제 parser→analyzer 전달 단위를 **`SemanticHandoff` 하나**로 정한다. `program`은 reduction으로 구성한 의미 결과, `context`는 reduction 전 입력·해석 맥락, `origins`는 둘의 연결이다. 아래는 **논리 계약을 표현한 목표 Rust schema**다. 첫 구현은 기존 `Program` + `frontend: Option<Arc<FrontendContext>>`에 대응시키며 실제 필드·검증 범위는 이 절 끝의 구현 표에 명시한다. arena로 Program 전체를 이미 교체했다는 뜻은 아니다. 변경은 NP-01/02/04의 단계적 이행으로 수행하고, 같은 stage에 두 의미 정본을 영구 유지하지 않는다.
@@ -552,7 +555,3 @@ FrontendContext
 
 **실행 검증 (2026-10-07, Windows native):** default와 portable 각각 **560 passed / 17 ignored / 0 failed**. 신규 frontend 통합 회귀 15개와 library 전체 68개를 포함한다. `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings` 통과. Python audit 분류·전달 회귀 8개와 oracle protocol 회귀 9개 통과. C j64/AVX2 × Rust direct/semantic-reference 비교에서 explicit/direct NAME scope 10 fixture의 **40 observation 모두 일치** (`reports/name-scope-handoff-windows.json`); 기존 NAME 26 fixture는 **64 일치 / 40 미지원**, semantic boundary 10 fixture는 **36 일치 / 4 미지원**. 각 observation은 setup/error 후 read를 포함하는 문장 sequence이며 C 내부 event trace나 compiled route 검증이 아니다. 여러 줄 explicit block setup만 C script 입력으로 전달하고 양쪽 원문은 동일하게 보존한다. 보고서는 binary/DLL hash와 source/asset revision 차이를 기록한다. 미지원 locale·execute 등은 통과로 계산하지 않는다. GPU/Linux/remote CI 검증은 실행하지 않았다.
 
-
----
-
-[← 이전 부분](./04-semantic-array-ir-p02.ko.md) | [다음 부분 →](./04-semantic-array-ir-p04.ko.md)

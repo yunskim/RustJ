@@ -1,7 +1,8 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="read-architecture"></a>
+<a id="2-최상위-아키텍처"></a>
 ## 2. 최상위 아키텍처
 
 채택한 목표 파이프라인은 다음과 같다.
@@ -80,6 +81,7 @@ route boundaries are bridged after representation requirements are known
 핵심 원칙은 **J의 고수준 배열 변환 구조를 Semantic Analyzer가 보기 전에 없애지 않고, analyzer/lowering 단계가 그 구조를 분석한 뒤 backend-independent logical dataflow로 낮추는 것**이다.
 
 
+<a id="frontend-결과물과-j-graph-ir-결과물의-차이"></a>
 ### Frontend 결과물과 J Graph IR 결과물의 차이
 
 이 경계는 RustJ를 읽을 때 가장 쉽게 혼동되는 부분이므로 명시적으로 구분한다. **둘은 같은 프로그램을 서로 다른 질문으로 표현하며, 서로 대체하는 IR이 아니다.**
@@ -173,12 +175,14 @@ Physical planning / backend
 
 **J Graph IR은 frontend 결과물의 대체물이 아니다. Frontend가 J 의미를 소유하고, J Graph IR이 그 의미에서 optimizer가 사용할 계산 topology를 추출하는 단계적 관계다.** 이 경계를 무너뜨려 frontend에서 graph/physical 결정을 너무 일찍 하거나, 반대로 Graph IR에 source parser mechanics를 그대로 끌고 내려오지 않는다.
 
+<a id="기억용-4단계-요약--상세-구현에서-다시-확인할-경계"></a>
 #### 기억용 4단계 요약 — 상세 구현에서 다시 확인할 경계
 
 처음 읽는 사람은 [도입부의 네 단계 모델](./01-introduction.ko.md#read-intro)부터 읽는다. 이 절의 Rank/Fork 예제와 아래 §2.1 이후 계약은 그 모델을 구현 관점에서 구체화한 것이다.
 
 **Execution IR은 semantic execution plan이지 하드웨어 실행 계획이 아니다.** Check·effect·error ordering과 SSA dependency는 여기서 확정하지만, AVX2 선택, GPU block 크기, concrete BufferId와 materialization은 physical planning이 담당한다. 동일한 `CellApply(f, y)`도 여러 backend realization을 가질 수 있다.
 
+<a id="21-rustj-compiler-stage의-위상"></a>
 ### 2.1 RustJ compiler stage의 위상
 
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
@@ -240,10 +244,12 @@ Semantic Analyzer ─X→ source-text reparsing
 반대로 parser-produced `Hook`/`Fork` parent, 이들의 중첩으로 이루어진 train, result POS를 가진 derived entity, 그리고 `"` conjunction application 같은 **semantic structure를 Semantic Analyzer가 아는 것은 의도된 설계**다. 이는 별도 `Train` 또는 `Rank(u,r)` special semantic node를 둔다는 뜻이 아니다.
 
 
+<a id="211-두-compiler-ir은-목적이-다르며-둘-다-canonical-boundary다"></a>
 ### 2.1.1 두 compiler IR은 목적이 다르며 둘 다 canonical boundary다
 
 RustJ/JAXA에는 서로 다른 질문에 답하는 두 graph IR이 필요하다.
 
+<a id="a-j-graph-ir--이-배열-계산은-j-대수로-어떤-graph인가"></a>
 #### A. J Graph IR — “이 배열 계산은 J 대수로 어떤 graph인가?”
 
 이 IR은 **표기/결합 구조에서 optimization 정보를 최대한 정적으로 추출하는 것**이 목적이다.
@@ -280,6 +286,7 @@ node는 실제 argument ValueId와 함께 다음 종류의 intrinsic graph 정�
 
 J Graph IR은 일반 SSA DAG의 단순 복사본이 아니다. 예를 들어 fork를 세 call로 즉시 잃어버리지 않고 `Fork/BranchJoin`이라는 algebraic form을 보존하며, `@:` chain을 generic producer-consumer 검색 없이 Pipeline으로 안다.
 
+<a id="b-logical-execution-ir--이-j-graph를-정확히-실행하려면-어떤-operationdata-dependency가-필요한가"></a>
 #### B. Logical Execution IR — “이 J graph를 정확히 실행하려면 어떤 operation/data dependency가 필요한가?”
 
 이 IR은 **J 실행 의미와 compiler lowering contract를 정확히 표현하는 것**이 목적이다.
@@ -317,6 +324,7 @@ Insert
 
 **한 J Graph node가 여러 Execution op로 펼쳐질 수 있으므로 1:1 대응을 가정하지 않는다.** `j_origin` provenance로 many-to-one 관계를 유지한다.
 
+<a id="두-ir-사이의-최적화-책임"></a>
 #### 두 IR 사이의 최적화 책임
 
 ~~~text
@@ -346,6 +354,7 @@ Physical/Schedule
 
 현재 `StructuralOpportunity`는 이 두 층을 연결하는 bridge다. 앞으로는 J Graph IR의 `GraphForm/GraphHint`가 source이며, Execution lowering이 이를 실제 execution ValueId에 투영해 `StructuralOpportunity<ValueId>`를 만든다. 후자가 generic DAG를 다시 pattern-match해서 원래 J topology를 복원하는 경로는 보조 수단으로만 사용한다.
 
+<a id="22-물리적으로-함께-논리적으로-독립"></a>
 ### 2.2 물리적으로 함께, 논리적으로 독립
 
 초기에는 경계가 계속 바뀌므로 별도 GitHub repository로 분리하지 않는다.
@@ -369,6 +378,7 @@ rustj/
 
 실제 crate 분리는 인터페이스가 안정된 뒤 진행한다. **repository 분리보다 dependency 방향과 API 경계가 우선**이다.
 
+<a id="23-logical-ir은-실행-backend를-강제하지-않는다"></a>
 ### 2.3 Logical IR은 실행 backend를 강제하지 않는다
 
 RustJ의 목표는 J 의미를 정확히 분석하여 **좋은 IR과 정확한 계약을 만드는 것**이지, 모든 최적화와 code generation을 직접 다시 구현하는 것이 아니다.
@@ -412,6 +422,7 @@ RustJ may delegate:
 
 이 원칙은 compiler의 책임을 포기하는 것이 아니라 **의미와 legality는 RustJ가 책임지고, 검증된 외부 최적화 infrastructure는 재사용한다**는 뜻이다.
 
+<a id="24-ir-export-adapter의-계약"></a>
 ### 2.4 IR export adapter의 계약
 
 외부 IR로 내보내는 adapter는 단순 pretty-printer가 아니다.
@@ -445,6 +456,7 @@ Guarded {
 
 외부 IR로 내릴 때 J semantic origin과 source span을 가능한 범위에서 metadata/provenance로 유지한다.
 
+<a id="241-semantic-operation과-architecture-specific-realization을-분리한다"></a>
 ### 2.4.1 Semantic operation과 architecture-specific realization을 분리한다
 
 J built-in primitive와 NN/array extension primitive는 **semantic operation 계층에서는 동일한 원칙**으로 관리한다.
@@ -507,7 +519,3 @@ ResolvedOp::Conv(...)
 
 `Attention`처럼 하나의 semantic op가 여러 primitive sequence 또는 fused kernel로 realization될 수 있으므로 **semantic op 하나 = kernel 하나**로 가정하지 않는다. fused realization은 lowering candidate이며 semantic identity가 아니다.
 
-
----
-
-[다음 부분 →](./03-architecture-p02.ko.md)

@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (10/10)
-
+<a id="executionbasisexpansion"></a>
 ##### ExecutionBasisExpansion
 
 큰 semantic/structured op가 basis graph와 동등하다고 알려져도 원래 identity를 삭제하지 않는다.
@@ -36,6 +33,7 @@ Mean
 
 expansion은 mandatory lowering이 아니다. planner/optimizer는 original identity와 expansion 양쪽을 이용할 수 있다. refinement는 4.24.11의 성능 기준을 만족할 때 추가한다.
 
+<a id="공통-logicalbasisop-contract"></a>
 ##### 공통 LogicalBasisOp contract
 
 모든 basis operation은 conceptually 최소한 다음 query가 가능해야 한다.
@@ -60,6 +58,7 @@ LogicalBasisOp
 
 모든 field가 항상 Known일 필요는 없다. Unknown/Opaque는 language invalidity가 아니라 해당 optimization/route의 정보 부족이다.
 
+<a id="lowering-capability-공통-형태"></a>
 ##### lowering capability 공통 형태
 
 basis node는 implementation을 내장하지 않는다. registry가 다음 형태의 후보를 제공한다.
@@ -91,6 +90,7 @@ preferred(candidate, CostProfile)
 
 library가 존재하거나 specialized kernel이라는 이유만으로 자동 선택하지 않는다.
 
+<a id="execution-basis별-최소-node-contract"></a>
 ##### execution basis별 최소 node contract
 
 | Basis family | 최소 logical payload | 최소 facts / SemanticCheck | 최소 lowering capability family |
@@ -117,6 +117,7 @@ library가 존재하거나 specialized kernel이라는 이유만으로 자동 �
 | LinearSolve | A/B operands, problem kind, transpose/least-squares/inverse semantic contract | rank/shape compatibility, numeric dtype, singularity/rank-deficiency/error semantics | generic reference solver, LU/QR/SVD family, dense CPU/GPU library, sparse solver route |
 | StateMachine | transition table, input classifier, initial state, emission/output policy | table shape/type, state/input-class bounds, output assembly, error semantics | scalar sequential reference, table-specialized loop, transition composition/vector route when proven legal |
 
+<a id="execution-basis-간-composition-rule"></a>
 ##### execution basis 간 composition rule
 
 basis가 커졌다고 해서 nested structure를 즉시 평탄화하지 않는다.
@@ -139,6 +140,7 @@ NestedTraverse → CellApply(...)
 
 반대로 named high-level op를 basis graph로 열었더라도 optimizer가 library/tensor/solver route를 위해 original semantic identity를 이용할 수 있어야 한다.
 
+<a id="a3-v0--v1-구현-범위"></a>
 ##### A3-v0 / v1 구현 범위
 
 basis vocabulary 전체를 A3-v0의 선행조건으로 만들지 않는다.
@@ -174,9 +176,10 @@ later / workload-driven
 
 later로 둔 operation도 language semantics를 later까지 금지한다는 뜻이 아니다. 해당 basis lowering이 없으면 기존 native/runtime semantic path 또는 structured-op fallback이 correctness를 담당한다.
 
+<a id="현재-a3-direct-lowering-구현-경계"></a>
 ##### 현재 A3 direct-lowering 구현 경계
 
-M1 cutover 이후 `analysis::lower_graph()`가 canonical `logical_ir::Plan`을 직접 생성한다. 모듈/API와 완료 상태의 정본은 [§10 M1](./10-implementation-scope.ko.md#architecture-migration-checklist), [§12](./12-validation.ko.md#current-implementation-status)다. 아래는 basis 계약의 구현 경계다.
+M1 cutover 이후 `analysis::lower_graph()`가 canonical `logical_ir::Plan`을 직접 생성한다. 모듈/API와 완료 상태의 정본은 [§10 M1](./11-roadmap-checklists-p01.ko.md#architecture-migration-checklist), [§12](./13-current-status.ko.md#current-implementation-status)다. 아래는 basis 계약의 구현 경계다.
 
 shared execution-semantic contract:
 - `CallOp.execution_basis`: outer→inner `ExecutionBasis.layers`를 기록한다. 예: ranked reduction은 `[CellApply, Reduce]`를 보존한다.
@@ -209,6 +212,7 @@ A3 logical_ir 쪽:
 
 zero-result SemanticCheck는 canonical A3 op/result-separated IR에서 표현한다. 제거된 transition container를 새 기능을 위해 복원하지 않는다.
 
+<a id="basis-contract-검증"></a>
 ##### basis contract 검증
 
 각 basis op에는 최소 세 종류의 test가 필요하다.
@@ -231,7 +235,3 @@ J error가 있는 case는 값만 비교하지 않고 **error class와 observable
 
 ---
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p09.ko.md)

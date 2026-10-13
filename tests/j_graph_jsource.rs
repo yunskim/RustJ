@@ -83,8 +83,8 @@ fn optimization_vocabulary_pos_is_not_a_compiler_optimization_license() {
             .unwrap_or_else(|| panic!("missing known J vocabulary {spelling}"));
         assert_eq!(handle.result_pos, expected_pos, "{spelling}");
         assert!(
-            matches!(handle.semantic_id, PrimitiveSemanticId::Vocabulary(_)),
-            "{spelling} must remain a vocabulary identity until its semantic implementation exists"
+            handle.semantic_id.support() == Some(rustj::primitive::PrimitiveSupport::Unimplemented),
+            "{spelling} must retain the unimplemented support tag"
         );
     }
 

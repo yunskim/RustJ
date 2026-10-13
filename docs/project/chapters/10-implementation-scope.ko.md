@@ -1,9 +1,11 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="read-scope"></a>
+<a id="9-언어-및-구현-범위"></a>
 ## 9. 언어 및 구현 범위
 
+<a id="91-현재-지원하는-주요-값"></a>
 ### 9.1 현재 지원하는 주요 값
 
 - Boolean
@@ -14,6 +16,7 @@
 
 추가 scalar/storage 기반은 존재하지만 전체 J 의미와 모든 primitive 연결이 완료된 것은 아니다.
 
+<a id="92-현재-직접-실행-경로에서-지원하는-대표-기능"></a>
 ### 9.2 현재 직접 실행 경로에서 지원하는 대표 기능
 
 - 숫자 scalar/vector literal
@@ -38,6 +41,7 @@
 - 일부 index/search verbs
 - domain/length/rank/index/value/limit/syntax 오류
 
+<a id="93-배열-조작"></a>
 ### 9.3 배열 조작
 
 구현된 범위에는 다음이 포함된다.
@@ -50,6 +54,7 @@
 
 여러 축의 count list, dyadic transpose, 일반 fill, 모든 고차원 규칙은 아직 완전하지 않다.
 
+<a id="94-indexsearch-계열"></a>
 ### 9.4 index/search 계열
 
 구현된 범위에는 다음이 포함된다.
@@ -64,6 +69,7 @@
 
 다차원·고급 interval/search 의미는 아직 제한적이다.
 
+<a id="95-이름과-품사"></a>
 ### 9.5 이름과 품사
 
 중요한 J 의미 원칙:
@@ -81,6 +87,7 @@
 - `=.`/`=:`는 binding을 갱신하면서 assigned J entity(noun/verb/adverb/conjunction 등)도 반환하므로 statement-only IR로 축소하지 않는다.
 - parser가 깊은 식에서 임의의 작은 recursion/height 한계로 J 의미를 바꾸지 않도록 한다.
 
+<a id="96-direct--explicit-definition"></a>
 ### 9.6 direct / explicit definition
 
 direct/explicit definition의 parser·AST·binding·execution은 아직 완전 구현되지 않았다.
@@ -94,6 +101,7 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 5. control flow
 6. conformance
 
+<a id="97-아직-큰-미지원-영역"></a>
 ### 9.7 아직 큰 미지원 영역
 
 - 전체 boxed semantics
@@ -113,7 +121,3 @@ GPU 배열 작업과 compiler boundary 정리가 우선이며, 이후 다음 순
 - 완전한 CUDA backend
 
 ---
-
-<a id="architecture-migration-checklist"></a>
-
-<a id="read-roadmap"></a>

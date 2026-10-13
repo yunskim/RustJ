@@ -1,10 +1,9 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
+<a id="16-다음-작업--정본-체크리스트로-이동"></a>
 ## 16. 다음 작업 — 정본 체크리스트로 이동
 
-작업 순서는 [§10 M0–M6](./10-implementation-scope.ko.md#architecture-migration-checklist)만 유지하고, 현재 구현 상태는 [§12](./12-validation.ko.md#current-implementation-status)를 따른다. 이 절에 별도의 Proof Slice 완료표나 과거 단계별 상태표를 복제하지 않는다.
+작업 순서는 [§10 M0–M6](./11-roadmap-checklists-p01.ko.md#architecture-migration-checklist)만 유지하고, 현재 구현 상태는 [§12](./13-current-status.ko.md#current-implementation-status)를 따른다. 이 절에 별도의 Proof Slice 완료표나 과거 단계별 상태표를 복제하지 않는다.
 
 1. **M2/frontend**: F0–F2/P0–P8의 jsource-compatible construction/name/assignment cutover를 완료한다. M1 canonical Logical IR cutover는 완료 상태다.
 2. **M3/배열 경계**: logical value와 physical representation의 code/API 분리를 수렴시킨다.
@@ -14,6 +13,7 @@
 
 6. **IO-01~IO-30 병행·후속 트랙:** [§8.5 I/O 설계 계약](./09-memory-alias.ko.md#out-of-core-io-contract)과 [§10 IO 체크리스트](./11-roadmap-checklists-p05.ko.md#out-of-core-io-checklist)를 기준으로, M2 중에는 IO-01·IO-25의 source audit와 IO-02의 효과/오류 계약 검토만 병행한다. 동기 I/O baseline(IO-05~08, IO-26~28)은 첫 native CPU vertical slice 이후, 불필요한 읽기 제거와 cache(IO-09~12, IO-29)는 의미 증명 이후, async/transfer(IO-13~20)는 그다음, 비교/확장(IO-21~24, IO-30)은 실측으로 수용한다. **문서 계획을 구현 완료로 표시하지 않는다.**
 
-장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](./11-roadmap-checklists-p05.ko.md#validation-policy)과 대응 semantic golden을 먼저 충족한다.
+장기 architecture의 full TargetProfile/mixed-route/async 모델이나 확장 primitive 전체를 첫 CPU slice의 선행 조건으로 삼지 않는다. 해당 의미를 최적화 대상으로 열 때는 [§11의 검증 정책](./12-validation.ko.md#validation-policy)과 대응 semantic golden을 먼저 충족한다.
 
 ---
+

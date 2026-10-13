@@ -216,7 +216,7 @@ fn core_noun(word: &str) -> Option<Value> {
 
 fn interpret_word<'a>(
     word: &'a str,
-    span: &Range<usize>,
+    _span: &Range<usize>,
     primitives: &crate::primitive::PrimitiveContext,
 ) -> Result<(EnqueueClass, EnqueuedPayload<'a>, EnqueueFlags)> {
     if let Some(value) = core_noun(word) {
@@ -264,22 +264,6 @@ fn interpret_word<'a>(
                 }
                 (PrimitivePartOfSpeech::Conjunction, PrimitiveSemanticId::Conjunction(id)) => {
                     (EnqueueClass::Conjunction, EnqueuedPayload::Conjunction(id))
-                }
-                (pos, PrimitiveSemanticId::Vocabulary(id)) => {
-                    let class = match pos {
-                        PrimitivePartOfSpeech::Verb => EnqueueClass::Verb,
-                        PrimitivePartOfSpeech::Adverb => EnqueueClass::Adverb,
-                        PrimitivePartOfSpeech::Conjunction => EnqueueClass::Conjunction,
-                    };
-                    (
-                        class,
-                        EnqueuedPayload::Function(crate::semantic::FunctionEntity::derived(
-                            crate::semantic::FunctionHead::VocabularyPrimitive(id),
-                            pos.into(),
-                            span.clone(),
-                            Vec::new(),
-                        )),
-                    )
                 }
                 _ => unreachable!("primitive handle POS must match semantic ID"),
             };

@@ -1,13 +1,11 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 4. J Graph Analyzer와 Execution Semantic Lowering — 계속 (2/2)
-
+<a id="4126-다른-배열-컴파일-프레임워크와의-대조"></a>
 ##### 4.1.2.6 다른 배열 컴파일 프레임워크와의 대조
 
 [정본 내 프레임워크 비교](#framework-graph-hints)에 JAX/XLA, MLIR Linalg, TVM Relax, Halide의 공식 설명과 소스를 바탕으로 F1–F9를 기록했다. 추가 힌트는 fork 재결합 영역, consumer 수, 입력 수명, cell mapping, window 공유 영역, loop invariant, 값/effect live-out이다. 각 항목은 출처와 J 적용 추론을 분리한다.
 
+<a id="4127-rustj에-반영할-설계와-검증-체크리스트"></a>
 ##### 4.1.2.7 RustJ에 반영할 설계와 검증 체크리스트
 
 제안하는 처리 순서:
@@ -41,6 +39,7 @@ Graph 노드/영역의 설계 후보: `Fork`, `Hook`, `Compose`, `CellApply`, `B
 
 <a id="framework-graph-hints"></a>
 
+<a id="414-candidate-lifecycle와-proof-discharge-contract"></a>
 #### 4.1.4 Candidate lifecycle와 proof-discharge contract
 
 J Graph IR이 candidate를 발견한 뒤 실제 transformation으로 commit하기까지의 상태를 **하나의 `selected` bool로 표현하지 않는다.** legality, target feasibility, resource feasibility, cost, selection은 서로 다른 질문이며 서로 다른 evidence를 가진다.
@@ -79,6 +78,7 @@ AwaitingProofs
 
 단, 이 화살표는 분석 pass의 실행 순서를 강제하지 않는다. resource/work-depth/cost 분석은 legality proof가 끝나기 전에도 **speculative side analysis**로 계산할 수 있다. 금지되는 것은 필요한 legality proof가 끝나기 전에 candidate를 실행 plan으로 **commit**하는 것이다.
 
+<a id="evidence-owner"></a>
 ##### Evidence owner
 
 | Evidence / 질문 | 주 소유자 | 의미 | selection에 대한 규칙 |
@@ -94,6 +94,7 @@ AwaitingProofs
 | empirical profitability | CostProfile / planner | legal candidates 중 무엇이 유리한가 | legal candidate를 단지 느리다는 이유로 semantic invalid로 만들지 않음 |
 | final compatibility/selection | Schedule/Transform planner | 후보들의 겹침·순서·route를 함께 선택 | selected set 전체가 상호 호환되어야 함 |
 
+<a id="guarded-legality"></a>
 ##### Guarded legality
 
 `Guarded(GuardId)`는 “증명하지 못했지만 일단 실행”이라는 뜻이 아니다. 다음 조건을 모두 만족해야 한다.
@@ -106,6 +107,7 @@ AwaitingProofs
 
 effect가 이미 commit된 뒤에는 guard miss/Unsupported를 이유로 source region을 자동 replay하지 않는다.
 
+<a id="candidate-overlap과-selection"></a>
 ##### Candidate overlap과 selection
 
 candidate overlap은 곧바로 오류도 아니고 곧바로 composition 가능도 아니다. v0에서는 보수적으로 다음을 적용한다.
@@ -117,6 +119,7 @@ candidate overlap은 곧바로 오류도 아니고 곧바로 composition 가능�
 - `CandidateId`/analysis-local index는 특정 Plan/graph version에 귀속되며 source/registry version이 바뀌면 재검증한다.
 - selection 결과는 semantic IR 자체가 아니라 별도 Transform/Schedule plan이다.
 
+<a id="현재-코드와-목표-계약의-대응"></a>
 ##### 현재 코드와 목표 계약의 대응
 
 현재 구현은 이 전체 lifecycle의 일부만 갖는다.
@@ -143,6 +146,7 @@ FusionReadinessReport
 
 아직 공통 `CandidateEvidence`/`ProofBundle`, obligation별 proof discharge 결과, compatibility-aware selection plan, committed transform identity는 구현되어 있지 않다. 위 타입 이름은 목표 개념을 설명하며 현재 API 완료를 주장하지 않는다.
 
+<a id="구현-시-분리-순서"></a>
 ##### 구현 시 분리 순서
 
 현재 M2 frontend 우선순위를 바꾸지 않는다. optimizer 단계에 착수할 때는 다음처럼 **한 번에 한 의미 + 한 verifier/test**로 추가한다.
@@ -155,6 +159,7 @@ FusionReadinessReport
 6. costed candidate set에서 별도 SelectionPlan 생성
 7. selected candidate만 committed transform/lowering으로 넘기고 source provenance를 검증
 
+<a id="42-execution-semantic-lowering의-책임"></a>
 ### 4.2 Execution Semantic Lowering의 책임
 
 - J Graph node를 explicit execution dataflow로 전개
@@ -192,6 +197,7 @@ old "JAXA analyzer"
 
 현행 RustJ에서 **Semantic Analyzer라는 좁은 단계만** target-independent다. 과거 analyzer의 hardware-dependent 기능을 버린 것이 아니라 downstream planning 단계로 분리한 것이다.
 
+<a id="43-두-middle-end가-공통으로-하지-않는-일"></a>
 ### 4.3 두 middle-end가 공통으로 하지 않는 일
 
 - source text tokenization
@@ -204,6 +210,7 @@ old "JAXA analyzer"
 
 즉 Graph Analyzer와 Execution Lowering은 scanner/parser stack mechanics를 재실행하지 않는다. 대신 parser가 완성한 FunctionEntity와 J Graph IR의 구조를 정식 compiler input으로 사용한다.
 
+<a id="44-execution-semantic-lowering-이후의-generic-경계"></a>
 ### 4.4 Execution semantic lowering 이후의 generic 경계
 
 다른 frontend와 공유할 가능성이 높은 지점은 J Graph IR 이전이 아니라 **J graph analysis와 execution semantic lowering을 마친 뒤의 Logical Execution IR / Plan**이다. J Graph IR은 의도적으로 J-specific하다.
@@ -231,6 +238,7 @@ Route partition / export
 
 따라서 **middle-end를 generic tensor IR consumer처럼 만들기 위해 J의 구조를 일찍 버리지 않는다.**
 
+<a id="441-분석-fact는-typed-lattice로-관리하고-semantic-error와-분리한다"></a>
 #### 4.4.1 분석 fact는 typed lattice로 관리하고 semantic error와 분리한다
 
 shape, alias, invariance, effect, binding, constraint 같은 서로 다른 분석 정보를 하나의 범용 `Unknown` 값으로 뭉개지 않는다.
@@ -296,9 +304,3 @@ JSemanticError(domain/rank/length/value/...)
 - 어떤 path에서 반드시 error가 발생한다고 증명되더라도 optimizer는 그 error의 관찰 가능한 순서를 `SpeculationSemantics`와 effect ordering에 따라 보존해야 한다.
 
 따라서 분석 lattice의 bottom/top 개념과 사용자-visible error contract를 같은 `Invalid` 상태로 합치지 않는다.
-
-<a id="read-physical"></a>
-
----
-
-[← 이전 부분](./05-graph-execution-lowering-p01.ko.md)

@@ -1,7 +1,8 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="read-graph-execution"></a>
+<a id="4-j-graph-analyzer와-execution-semantic-lowering"></a>
 ## 4. J Graph Analyzer와 Execution Semantic Lowering
 
 RustJ middle-end는 하나의 Analyzer가 모든 일을 하는 구조가 아니라 **두 서로 다른 IR과 두 분석 단계**를 가진다.
@@ -20,6 +21,7 @@ Logical Execution IR
 
 JAXA의 핵심 연구 대상은 첫 번째 middle-end인 **J Graph Analyzer**다. Execution Semantic Lowering은 J 전체를 정확히 실행 가능한 compiler IR로 옮기기 위해 RustJ에서 강화된 두 번째 단계다.
 
+<a id="41-j-graph-analyzer의-책임"></a>
 ### 4.1 J Graph Analyzer의 책임
 
 - completed FunctionEntity를 실제 noun application과 결합하여 J Graph IR 생성
@@ -41,6 +43,7 @@ JAXA의 핵심 연구 대상은 첫 번째 middle-end인 **J Graph Analyzer**다
 - generic execution SSA로 먼저 평탄화한 뒤 J topology를 다시 추측
 - concrete bufferization/schedule 선택
 
+<a id="410-canonical-j-graph-example-suite"></a>
 #### 4.1.0 Canonical J Graph example suite
 
 J Graph IR을 읽을 때 예제마다 같은 다섯 질문을 사용한다.
@@ -98,6 +101,7 @@ hook
 
 <a id="j-graph-opportunities"></a>
 
+<a id="411-j-syntax-derived-structural-opportunity-ir-문법을-optimization-information-source로-사용한다"></a>
 #### 4.1.1 J syntax-derived Structural Opportunity IR: 문법을 optimization information source로 사용한다
 
 과거 JAXA의 핵심 주장은 “J를 컴파일한다”보다 더 강했다.
@@ -155,6 +159,7 @@ adjoint/VJP → expanded graph topology (후속 연구)
 operation kind × graph topology × semantic facts
 ~~~
 
+<a id="jaxa에서-계승하는-첫-세-topology"></a>
 ##### JAXA에서 계승하는 첫 세 topology
 
 **1. @: — Pipeline fusion opportunity**
@@ -253,6 +258,7 @@ ParallelFanOutOpportunity
 
 이 또한 실제 concurrent kernel 실행을 의미하지 않는다. effect/accumulation ordering과 target bandwidth/resource analysis가 뒤따른다.
 
+<a id="opportunity와-legality를-분리한다"></a>
 ##### opportunity와 legality를 분리한다
 
 StructuralOpportunity는 **후보 발견**이다.
@@ -310,6 +316,7 @@ commit:
   chosen FusionRegion / ParallelSchedule
 ~~~
 
+<a id="flowstorage와의-연결"></a>
 ##### Flow–Storage와의 연결
 
 StructuralOpportunity는 4.24 Flow–Storage의 storage 결정을 앞당겨 확정하지 않는다.
@@ -349,12 +356,14 @@ ExternalResource
 
 즉 **syntax가 lifetime/topology 힌트를 주고, Flow–Storage가 semantic obligation을 설명하며, hardware planner가 실제 storage를 선택한다.**
 
+<a id="현재-구현-경계의-정본"></a>
 ##### 현재 구현 경계의 정본
 
 `j_graph_ir::classify_function()`이 `GraphForm/GraphHint`를 만들고, execution lowering은 이를 canonical `logical_ir::Plan`의 opportunity/provenance로 투영한다. `Operation.j_origin`이 graph→execution 대응을 보존한다. `CompilationAnalysis`는 `j_graph`와 `logical`을 함께 반환한다.
 
-세부 구현과 남은 graph 연구는 [A1.5](./11-roadmap-checklists-p04.ko.md#j-graph-implementation-checklist), 단일 execution IR cutover는 [M1](./10-implementation-scope.ko.md#architecture-migration-checklist), 전체 상태는 [§12](./12-validation.ko.md#current-implementation-status)에서 추적한다. adjoint/VJP expansion은 여전히 schema/연구 단계이며 실제 AD transform이나 병렬 실행 완료가 아니다.
+세부 구현과 남은 graph 연구는 [A1.5](./11-roadmap-checklists-p04.ko.md#j-graph-implementation-checklist), 단일 execution IR cutover는 [M1](./11-roadmap-checklists-p01.ko.md#architecture-migration-checklist), 전체 상태는 [§12](./13-current-status.ko.md#current-implementation-status)에서 추적한다. adjoint/VJP expansion은 여전히 schema/연구 단계이며 실제 AD transform이나 병렬 실행 완료가 아니다.
 
+<a id="중요한-불변조건"></a>
 ##### 중요한 불변조건
 
 1. StructuralOpportunity는 optimization hint보다 강한 **semantic-topology provenance**지만, physical schedule은 아니다.
@@ -368,12 +377,14 @@ ExternalResource
 
 <a id="syntax-graph-hints"></a>
 
+<a id="412-j-syntax에서-얻는-graph-최적화-힌트-분류"></a>
 #### 4.1.2 J syntax에서 얻는 graph 최적화 힌트 분류
 
 검토일: 2026-10-02. 범위: primitive의 산술·배열 구현 정보를 사용하기 전에, J의 구문 구조에서 얻는 graph 정보를 분류하고 검토한다.
 일반 컴파일러 정보 분류 → syntax로 해석 가능한 분류 → J 구문 대응 → graph 정보와 최적화 후보의 순서로 정리한다.
 문서·설계 검토이며 구문 지원이나 실행 최적화를 새로 구현한 것은 아니다.
 
+<a id="4121-먼저-바로잡는-기준-fork-구조-자체가-병렬-실행-후보를-드러낸다"></a>
 ##### 4.1.2.1 먼저 바로잡는 기준: fork 구조 자체가 병렬 실행 후보를 드러낸다
 
 `(loss_adjoint [ (loss emit))`의 parallel 가능성은 **`[`를 가운데 verb로 둔 fork 구문 자체**에서 나온다. `loss_adjoint`가 미분 연산이라는 사실이나 `loss`의 구현을 알아야 이 후보를 발견하는 것은 아니다.
@@ -400,6 +411,7 @@ ExternalResource
 
 `(loss emit)` 안의 hook 구조도 별도로 해석한다. 두 이름이 verb로 해석된 경우 내부는 `y loss (emit y)`의 의존성을 가지며, 바깥 fork의 fan-out과 내부 hook의 의존성은 함께 보존한다. 실제 JAXA binding이 다른 품사라면 먼저 해당 품사/파싱을 확정한다. `emit`의 효과는 JAXA 계약에서 얻으며 표준 J 키워드로 간주하지 않는다.
 
+<a id="4122-먼저-분류-graph에서-읽을-수-있는-일반-컴파일러-정보"></a>
 ##### 4.1.2.2 먼저 분류: graph에서 읽을 수 있는 일반 컴파일러 정보
 
 | 분류 | 일반적으로 필요한 정보 | primitive 내부를 보지 않고 syntax에서 얻을 수 있는 부분 |
@@ -416,6 +428,7 @@ ExternalResource
 
 위 분류는 [GCC 속성](https://gcc.gnu.org/onlinedocs/gcc-15.2.0/gcc/Common-Function-Attributes.html), [LLVM 언어 참조](https://llvm.org/docs/LangRef.html)의 최적화 정보 구분을 참고해 graph 관점으로 정리한 것이다.
 
+<a id="4123-syntax-자체에서-얻는-힌트-leaf-verb를-black-box로-둔-검토"></a>
 ##### 4.1.2.3 Syntax 자체에서 얻는 힌트: leaf verb를 black box로 둔 검토
 
 여기서 syntax는 train 문법과 verb를 조합하는 modifier 구문까지 포함한다. J 용어로는 `@`, rank 등의 modifier도 primitive에 속할 수 있지만, 이 문서에서는 **leaf 연산이 무엇을 계산하는지의 정보**와 **연산을 어떻게 연결·적용하는지의 정보**를 분리한다.
@@ -441,6 +454,7 @@ ExternalResource
 
 특히 S1–S6은 leaf verb의 배열 연산 의미를 몰라도 graph 연결을 얻는다. S7–S10은 modifier의 일반 적용 의미와 상수 operand를 해석하며, leaf verb의 산술 속성은 요구하지 않는다.
 
+<a id="41231-구문별로-후보와-허가를-분리한다"></a>
 ###### 4.1.2.3.1 구문별로 후보와 허가를 분리한다
 
 - **Fork**: 두 branch의 반환값이 서로의 직접 입력이 아니라는 사실을 제공한다. 숨은 global/slot 상태 의존성까지 없다는 선언은 아니다. 효과·오류 검사는 후보를 없애는 근거일 수 있지만, 후보의 출처는 syntax다.
@@ -454,6 +468,7 @@ ExternalResource
 - **괄호**: grouping이 parse 구조를 바꿀 때만 정보가 달라진다. 같은 parse를 둘러싼 여분의 괄호는 fusion fence·순서 보장·메모리 materialization 선언이 아니다.
 - **반복 표현**: 같은 이름의 두 출현만으로 공통식 제거를 허가하지 않는다. binding·입력·효과·관찰 가능한 오류의 동등성을 확인해야 한다.
 
+<a id="4124-leaf-primitive-힌트와-섞지-않을-modifier-구조"></a>
 ##### 4.1.2.4 Leaf primitive 힌트와 섞지 않을 modifier 구조
 
 다음은 syntax로 표현되는 고수준 적용 구조다. 구조 자체와 leaf를 알아야 얻는 최적화 정보를 별도 열로 분리한다.
@@ -471,6 +486,7 @@ ExternalResource
 
 근거: [Insert/Table](https://www.jsoftware.com/help/dictionary/d420.htm), [Prefix/Infix](https://www.jsoftware.com/help/dictionary/d430.htm), [Cut](https://www.jsoftware.com/help/dictionary/d331.htm), [Key/Oblique](https://www.jsoftware.com/help/dictionary/d421.htm), [Dot](https://www.jsoftware.com/help/dictionary/d300.htm).
 
+<a id="4125-binding-정보와-일반-graph-대비-추가-가치"></a>
 ##### 4.1.2.5 Binding 정보와 일반 graph 대비 추가 가치
 
 명시적 `u f.`는 이름 참조를 당시 referent로 고정하는 의미를 제공하지만, 순수한 grouping 문법만의 사실과는 구분한다. `$:` 포함 부분은 Fix의 예외다. 사용자가 쓰지 않은 Fix를 자동 적용해 동적 이름 의미를 바꾸지 않는다. [J Fix](https://www.jsoftware.com/help/dictionary/dfdot.htm)
@@ -479,7 +495,3 @@ ExternalResource
 
 현재 가장 중요한 설계는 leaf kernel 목록으로 일찍 풀지 않고 syntax에서 유래한 fork/hook/compose/cell/partition/loop/selection 구조를 보존하는 것이다. ‘syntax origin’ 기록은 구문이 어떤 최적화 후보를 제공했는지 설명하는 진단에도 사용할 수 있다.
 
-
----
-
-[다음 부분 →](./05-graph-execution-lowering-p02.ko.md)

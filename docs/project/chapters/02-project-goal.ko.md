@@ -1,7 +1,9 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+
+<a id="read-goal"></a>
+<a id="1-프로젝트-목적"></a>
 ## 1. 프로젝트 목적
 
 RustJ는 `jsource`의 C 구현을 줄 단위로 Rust로 번역하는 프로젝트가 아니다.
@@ -22,12 +24,14 @@ RustJ는 `jsource`의 C 구현을 줄 단위로 Rust로 번역하는 프로젝�
 
 C J 엔진을 RustJ의 정상 실행 fallback으로 사용하지 않는다.
 
+<a id="12-핵심-배열-모델-결정--logical-array와-physical-array를-분리한다"></a>
 ### 1.2 핵심 배열 모델 결정 — Logical Array와 Physical Array를 분리한다
 
 Logical Array는 J-visible type·shape·atom order와 boxed/sparse 의미를 소유한다. Physical Array는 buffer·stride·offset·layout·placement 등 실행 표현을 소유한다. logical value의 존재는 별도 buffer 할당을 뜻하지 않는다.
 
-모델과 완료 조건은 [§6](./06-plans-executor-p02.ko.md#logical-physical-array-model), GPU view/placement는 §7, alias/lifetime 조건은 §8에서 정의한다. 도입부에 상세 구조와 완료표를 복제하지 않는다.
+모델과 완료 조건은 [§6](./07-array-model.ko.md#logical-physical-array-model), GPU view/placement는 §7, alias/lifetime 조건은 §8에서 정의한다. 도입부에 상세 구조와 완료표를 복제하지 않는다.
 
+<a id="13-이름-정책"></a>
 ### 1.3 이름 정책
 
 현재 아키텍처에는 `Jaxa`라는 별도 compiler component 이름을 두지 않는다.
@@ -47,5 +51,3 @@ Jaxa physical plan → Physical Planner / Physical Plan
 
 
 ---
-
-<a id="read-architecture"></a>

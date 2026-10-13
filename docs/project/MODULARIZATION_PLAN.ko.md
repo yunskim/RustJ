@@ -94,3 +94,7 @@
 `inventory → slice 선택 → source/destination mapping → 한영 파일 이동 → 링크/보존 검사 → PR 검토 → 기준 main 재확인 → 이슈 #64 체크 → 다음 slice`.
 
 분할을 위해 도중에 설계를 재작성하지 않는다. 새 기능·NN extension의 구현 상태는 원래 소유한 구현/검증 체크리스트가 계속 결정한다.
+
+## 2026-10-13 PR 통합 검증
+
+최신 통합 본문을 기준으로 한국어 40개 모듈을 다시 생성하고, 분할 전후 본문 보존·명시 및 제목 앵커의 이동·저장소 내부 유입 링크를 `tools/check_project_docs.py`로 검사한다. 원본 커밋과 구간 체크섬은 `reports/project-modularization.json`에 보존하며 Linux CI에서 재검사한다. 영어 미러의 모듈 분할과 의미 정합성 수용은 계속 미완료다. 런타임 의미나 구현 수용 상태는 변경하지 않는다.

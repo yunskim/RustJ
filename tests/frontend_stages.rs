@@ -147,3 +147,66 @@ fn pytorch_named_nn_catalog_is_complete_and_frontend_only() {
         ExprKind::ReadName(ref name) if name == "relu"
     ));
 }
+
+#[test]
+fn nn_adjoint_candidates_cover_each_family_without_autograd() {
+    use rustj::nn_extensions::{
+        ADJOINT_CANDIDATES, AdjointAvailability, FAMILIES, NAMES, adjoint_candidate,
+    };
+    use std::collections::HashSet;
+
+    assert_eq!(ADJOINT_CANDIDATES.len(), 34);
+    let mut seen = HashSet::new();
+    for candidate in ADJOINT_CANDIDATES {
+        assert!(
+            seen.insert(candidate.family_id),
+            "duplicate Adjoint family: {}",
+            candidate.family_id
+        );
+        assert!(
+            FAMILIES
+                .iter()
+                .any(|family| family.id == candidate.family_id)
+        );
+        assert!(!candidate.input_vjp.is_empty());
+        assert!(!candidate.required_values.is_empty());
+        assert!(!candidate.rank_frame_route.is_empty());
+        assert!(!candidate.unresolved_contract.is_empty());
+    }
+    assert_eq!(seen.len(), FAMILIES.len());
+    assert!(
+        ADJOINT_CANDIDATES
+            .iter()
+            .all(
+                |candidate| candidate.availability != AdjointAvailability::NotApplicable
+                    || matches!(candidate.family_id, "NN-16" | "NN-17" | "NN-18")
+            )
+    );
+    assert_eq!(
+        adjoint_candidate("NN-04").unwrap().availability,
+        AdjointAvailability::Candidate
+    );
+    assert!(
+        adjoint_candidate("NN-04")
+            .unwrap()
+            .input_vjp
+            .contains("conv2d_grad_input")
+    );
+    assert_eq!(
+        adjoint_candidate("NN-11").unwrap().availability,
+        AdjointAvailability::Conditional
+    );
+    assert_eq!(
+        adjoint_candidate("NN-32").unwrap().availability,
+        AdjointAvailability::NoVjp
+    );
+    assert!(adjoint_candidate("NN-35").is_none());
+    assert!(NAMES.iter().any(|name| name.spelling == "register_adjoint"
+        && name.family_id == "NN-18"
+        && !name.frontend_preview));
+    assert!(
+        !NAMES
+            .iter()
+            .any(|name| name.spelling == "register_autograd")
+    );
+}

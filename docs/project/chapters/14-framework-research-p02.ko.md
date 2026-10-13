@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 13. 프레임워크 조사에서 채택한 원칙 — 계속 (2/3)
-
+<a id="c-rustj-계층-경계"></a>
 ##### C. RustJ 계층 경계
 
 ~~~text
@@ -37,6 +34,7 @@
 1. **jsource의 special entry point를 Graph IR node 종류로 일대일 복제하지 않는다.** 예를 들어 `jtfslashatg` 자체가 semantic op가 아니다. RustJ에서는 source graph가 transform→reduce이고 fusion/materialization-elision candidate와 schedule choice가 분리된다.
 2. **jsource runtime flag를 그대로 semantic property로 승격하지 않는다.** `WILLOPEN`, `USESITEMCOUNT`, `RANKATOP`의 의미를 producer-consumer demand, iteration-domain compatibility, result assembly/materialization contract 같은 일반 fact로 옮긴다.
 
+<a id="d-구현-원칙"></a>
 ##### D. 구현 원칙
 
 - jsource의 special case는 **최적화 아이디어의 source oracle**이지 RustJ rewrite의 correctness proof 자체가 아니다.
@@ -49,6 +47,7 @@
 
 이 절은 **jsource 최적화를 전수 구현했다는 상태 보고가 아니다.** 향후 optimizer 작업에서는 각 catalog 항목을 `source pattern → semantic preconditions → graph candidate/rewrite → downstream realization → C differential regression` 형식의 구현 항목으로 전개한다.
 
+<a id="e-독립-재검토-결과-2026-10-06"></a>
 ##### E. 독립 재검토 결과 (2026-10-06)
 
 - **수정:** `jtfslashatg`를 범용 kernel fusion으로 설명하지 않는다. cell-at-a-time cache-footprint optimization과 full kernel fusion은 서로 다른 실행 선택이다. 이 구현은 빈/sparse·in-place 수익성·dtype mismatch 등에서 일반 경로를 택하고 overflow 발생 시에도 reversion할 수 있다.
@@ -58,6 +57,7 @@
 - **설계 경계:** J Graph에는 원 식과 후보/provenance를 남기고, Execution Semantic Lowering에서 call-dependent facts/equivalence를 discharge하며, Physical Planner가 buffer/cache/SIMD/GPU execution을 선택한다. source의 fast path가 존재한다는 사실은 RustJ에서 무조건 rewrite하라는 proof가 아니다.
 - **범위:** 위 catalog는 조사한 source 영역에서 검증한 **대표 최적화 계열**이며 jsource 전체의 exhaustive inventory 또는 RustJ 구현 완료를 뜻하지 않는다. 이번 검토는 source/doc audit이고 Rust/C differential 또는 benchmark는 실행하지 않았다.
 
+<a id="f-별도-기준으로-실시한-3회-검증-2026-10-06"></a>
 ##### F. 별도 기준으로 실시한 3회 검증 (2026-10-06)
 
 | 독립 검증 | 출발 질문 | 확인한 근거·결론 | 남은 한계 |
@@ -68,6 +68,7 @@
 
 **Source revision 재확인:** 고정된 소스 검토 기준은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이다. 2026-10-05의 jsource `master` HEAD `0a5101cfdd834b23a0b89d455e4f327310520a08`는 이 기준보다 20 commit 앞서고 `ap.c/ar.c/va2.c` 변경을 포함한다. 두 revision의 `jtmovavg`, `jtmovfslash`, `jtmean`, `jtreduce`, `jtfslashatg`, `jtsumattymes1`의 **검토한 진입·핵심 guard 발췌는 동일**했다. 이는 함수 전체, 모든 동작 경로 또는 jsource 전체에 변화가 없다는 증명이 아니다.
 
+<a id="g-이후-optimizer-구현-시-필요한-차등-검증-항목--아직-미실행"></a>
 ##### G. 이후 optimizer 구현 시 필요한 차등 검증 항목 — 아직 미실행
 
 | 대상 후보 | 반드시 비교할 경계 | 증명/실행 확인점 |
@@ -81,6 +82,7 @@
 
 **결론:** jsource 소스는 optimization 후보를 발견하는 근거이지 RustJ rewrite의 correctness proof나 측정된 속도 향상의 증거가 아니다. 검증하지 않은 후보는 candidate로 남기며 선택된 transform으로 표시하지 않는다.
 
+<a id="h-추가-전역-조사에서-발견한-누락-계열-2026-10-06"></a>
 ##### H. 추가 전역 조사에서 발견한 누락 계열 (2026-10-06)
 
 기존 A절의 18개 항목은 jsource 전체를 대표하지 않는다. jsource 고정 revision의 `jsrc/` 파일 목록을 재확인하고, **기존 목록에 없거나 한 행에 과도하게 뭉쳐 있었던** 아래 계열을 별도 감사했다. 문서에 추가하는 것은 **설계 입력**이며 최적화 구현·성능 검증 완료를 뜻하지 않는다.
@@ -100,6 +102,7 @@
 
 **별도 계열로 분리한 이유:** `GroupReduce`는 단순 Search가 아니고, full `+/ . *`는 rank-1 dot idiom보다 넓으며, `Sort/Ranking`은 단순 graph-pattern recognition을 넘어 선택 가능한 여러 알고리즘의 family다. 반면 virtual·inplace·hash table·SIMD 구현은 Graph semantic node를 새로 늘리는 이유가 아니라 downstream planner의 결정 자료다.
 
+<a id="i-범위-및-누락-여부에-대한-보수적-판정"></a>
 ##### I. 범위 및 누락 여부에 대한 보수적 판정
 
 - **기존 catalog에는 중요 계열의 누락이 있었다.** 위 H절에서 10개 family를 보강했다. 항목 수는 jsource 전체의 완전한 optimization inventory나 구현 우선순위를 의미하지 않는다.
@@ -108,6 +111,7 @@
 - **우선 적용 순서 제안:** (1) 고수준 `Key/GroupReduce`, `Contraction`, `Grade/Ranking`, `IntervalLookup` 후보·provenance를 표현할 수 있는지 확인; (2) J rank/tolerance/group ordering/numeric error witness 정의; (3) `Hash/Search`, sparse, view/gather, physical buffer, name cache 등 execution-route 별로 독립 구현·jsource 차등 시험. current frontend/optimizer gate를 건너뛰어 착수했다는 뜻은 아니다.
 - **검증 경계:** 이 절은 GitHub 소스/설계 문서 검사다. native J 실행, RustJ differential test, CPU/GPU benchmark를 수행하지 않았으며 각 효익·동등성·fallback 적법성은 미검증이다.
 
+<a id="j-rustj-프레임워크에-맞춘-구현-연결-2026-10-06"></a>
 ##### J. RustJ 프레임워크에 맞춘 구현 연결 (2026-10-06)
 
 이 절부터는 H–I의 source survey를 **현 RustJ 소스 코드 경계에 적용한 결과**를 기록한다. 전수 J semantics 증명이나 jsource 성능 재현을 의미하지 않는다.
@@ -140,6 +144,7 @@
 4. **target gate:** CPU vector/BLAS, sparse implementations, GPU library/custom-kernel 경로는 `LoweringRegistry`와 target/resource/cost에서 별도 선택한다. `Unknown`은 실패가 아니라 **보수적 미최적화 경로**다.
 5. **regression gate:** jsource와 empty/sparse, boxed/tolerance, `!.0/!.1`, NaN/overflow, rank/frame, error/locale/cache-invalidating writes를 비교한다. differential과 성능 측정 없이 최적화 완료로 표시하지 않는다.
 
+<a id="k-후속-원본-재검토--단항-mean-guard와-런타임-최적화-경계-2026-10-06"></a>
 ##### K. 후속 원본 재검토 — 단항 Mean guard와 런타임 최적화 경계 (2026-10-06)
 
 **발견 및 수정:** 고정된 [`cf.c::jtfolk` 98행](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L93-L101)은 `(+/ % #)`에서 **`f1=jtmean`만** 지정한다. 이항 executor `f2`를 Mean으로 바꾸지 않는다. 이전 `src/j_graph_jsource.rs`는 fork의 구성만 확인하고 적용 valence를 보지 않아 이항 호출에도 `MeanIdiom`을 만들 수 있었다. 이제 **`NodeKind::Apply`가 `Valence::Monad`인 경우에만** mean 후보를 등록한다. `tests/j_graph_jsource.rs`에는 동일한 fork의 이항 호출에 대한 부정 회귀 사례를 추가했다. 이것은 후보 발견의 정확도 수정이며 mean 수치 동등성·kernel 구현의 증명이 아니다.
@@ -156,6 +161,7 @@
 
 **적용 판정:** 단항 Mean의 오검출은 즉시 수정한다. 나머지 다섯 경로는 기존 frontend/runtime, semantic numerical contract, Scatter/Buffer planner의 source-evidence backlog로 둔다. 새로운 J Graph node/실행 최적화가 구현된 것으로 표시하지 않는다. `FOUNDATIONS.ko.md`의 semantic/physical 경계 원칙과 모순되지 않아 해당 파일은 변경하지 않았다. **이번 변경은 pinned C source와 Rust 코드의 정적 검토이며, Rust 테스트·jsource 차등 실행·benchmark는 아직 실행하지 않았다.**
 
+<a id="l-jsource-후보--a3-logical-ir--기존-loweringregistry-연결-2026-10-06"></a>
 ##### L. jsource 후보 → A3 Logical IR → 기존 LoweringRegistry 연결 (2026-10-06)
 
 **이번 이행 단위:** `src/lowering.rs::LoweringRegistry::jsource_planning_reports`는 각 `JsourceOpportunity`의 출처를 `candidate.verify(&j_graph)`로 다시 확인한 뒤, `Operation.j_origin`으로 연결된 **canonical A3 호출**을 찾는다. `OpKind::Basis`는 **이미 등록된 일반 execution-basis lowering**에 `legal_candidates`로 질의하고, `OpKind::SemanticCall`은 기존 semantic-call 경계로 표시한다. J Graph/A3의 source 및 node-count 정합성과 양쪽 verifier 검사를 선행한다.
@@ -174,6 +180,7 @@
 
 <a id="jsource-audit-m"></a>
 
+<a id="m-jsource-재감사-기존-catalog-밖의-구조적수치적상태적-최적화-2026-10-06"></a>
 ##### M. jsource 재감사: 기존 catalog 밖의 구조적·수치적·상태적 최적화 (2026-10-06)
 
 **감사 방법과 범위.** 같은 [jsource 고정 revision](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc)에서 (1) \`ca.c\`의 \`@/@:/&:\` 조합 dispatch 및 \`cf.c\`의 hook/fork construction, (2) \`ao/cc/v/vi/vg/vrand/vx/vz/va1/vo/a.c\`의 실제 실행·reversion 경로, (3) RustJ의 \`j_graph_ir.rs\`, \`j_graph_jsource.rs\`, \`analysis.rs\`, \`logical_ir.rs\`, \`execution_semantics.rs\`, \`lowering.rs\` 경계를 **서로 다른 출발점으로 대조**했다. 앞선 A/H/K의 대표 최적화 목록에는 다음 구조·소유권이 개별 항목으로 **빠져 있거나 충분히 분리되지 않았다.** 원본 dispatch의 존재는 RustJ parser 지원, 의미론적 등가성 또는 성능 개선의 증명이 아니다.
@@ -193,6 +200,7 @@
 
 **이미 H절에 있는 GroupAggregate/GEMM/Grade/Search/virtual/sparse와 중복 등록하지 않는다.** 이 표는 그 범주에 감춰졌던 **서로 다른 operator topology, legality, target/runtime mechanism**을 드러내는 출처 목록이다. 새로운 family ID를 \`JSOURCE_FAMILY_RULES\`에 자동으로 늘리거나 파싱되지 않는 J 구문을 조작해 applied Graph 후보를 생성하지 않는다. 소스 근거 등록 시에도 \`AwaitingFrontendOrFacts\` 또는 \`DownstreamOnly\` 상태로 시작한다.
 
+<a id="m1-rustj-프레임워크-수정-필요성-판정"></a>
 ###### M.1 RustJ 프레임워크 수정 필요성 판정
 
 **판정: canonical compiler architecture의 전면 변경은 불필요하다. 하지만 아래 경계의 국소적 확장은 최적화 실행을 시작하기 전에 필요하다.**
@@ -210,6 +218,7 @@
 1. [\`cc.c::jtrazecut2\` 주석](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cc.c#L983-L993)은 **zero-cut에서 최적 경로와 일반 경로의 결과 축이 달라질 수 있다**고 명시한다. 따라서 jsource의 특수 구현을 **equivalence oracle로 사용하면 안 된다**. J 언어에서 요구되는 실제 결과·fill/assembly 정책을 독립적으로 확정하고 두 경로의 동작을 차등 분석해야 한다. 미해결이면 결합 최적화는 불허한다.
 2. [\`vg.c::jtordstat\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vg.c#L779-L790)은 내부 pivot 생성에 \`jtrollksub\`를 부른다. 해당 RNG 상태 변화가 이후 J 호출에 관찰되는지 **확인하기 전**에 "Grade→Select는 pure rewrite"라고 선언하지 않는다. 난수 state를 관찰 가능하다고 확정한 경우에는 trace/seed 동등성 또는 J 사양상 허용된 차이를 별도로 증명해야 한다.
 
+<a id="m2-이행-순서검증-범위"></a>
 ###### M.2 이행 순서·검증 범위
 
 1. **M2/front-end coverage 우선 유지:** \`/. /.., ;., M., ?/?.\` 및 hook/fork/grade 조합의 정확한 POS·derived construction/valence·fallback을 먼저 인식한다. 아직 미지원인 형태는 \`AwaitingFrontendOrFacts\`.
@@ -222,6 +231,7 @@
 
 <a id="jsource-index-family"></a>
 
+<a id="n-roger-hui의-index-of-family와-rustj-단계적-구현-2026-10-06"></a>
 ##### N. Roger Hui의 Index-Of family와 RustJ 단계적 구현 (2026-10-06)
 
 **연구·원본 근거.** Roger Hui, *Index-Of, A 30-Year Quest* (J Conference, 2014; [후대의 서지 기록](https://www.sigapl.org/Articles/APL%20Since%201978_3386319.pdf)) 및 *Hashing for Tolerant Index-Of* ([Jsoftware 논문](https://www.jsoftware.com/papers/Hashing.htm), 2010). RustJ 설계의 실행 근거는 별도로 [고정 jsource \`vi.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185), [\`viavx.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c), [\`viavx2.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx2.c), [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c)의 dispatch/실행/guard이다. 발표의 역사적 중요성과 소스의 구현 상태를 구분한다.
@@ -238,6 +248,7 @@
 | Sparse search 및 Key self-classification | sparse fill/axes/empty, grouping first-occurrence order; [\`visp.c\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/visp.c#L68-L106), [\`ao.c::jtkeyct\`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ao.c#L213-L255) | \`LookupClassify\` / \`GroupBy\` → sparse/group route |
 | Prehash 및 result-mode fused loops | 재사용하는 dictionary의 key equality/rank/tolerance/version, saved-table lifetime, output \`first/last/presence/compact/count/any/all\`; [\`vi.c\` mode 목록](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185) | A3 result intent/provenance → cache/algorithm planning; grouped/count output은 별도 유효성 필요 |
 
+<a id="n1-첫-구현-단위--기존-ir-변경-없이-실행-경로-개선"></a>
 ###### N.1 첫 구현 단위 — 기존 IR 변경 없이 실행 경로 개선
 
 2026-10-06 코드 연결:
@@ -250,6 +261,7 @@
 
 이 변화는 **CPU reference implementation의 제한된 알고리즘 개선**이지 jsource의 모든 searching mode를 구현했거나 Graph 후보에 최적화 실행 권한을 준 것이 아니다. \`JSOURCE_FAMILY_RULES\`의 \`SearchAlgorithm\` 및 \`TolerantHash\`를 그대로 사용하며 새 Graph basis를 추가하지 않는다.
 
+<a id="n2-다음-구현-gate--프레임워크-재설계-필요성"></a>
 ###### N.2 다음 구현 gate — 프레임워크 재설계 필요성
 
 **N.2의 초기 확장 계획 중 기초 단계는 O절에서 구현되었다.** A3 `LookupClassify { search: SearchDescriptor }`가 first/last/membership/interval/self-classify 및 indexed/queried origin을 보유한다. 그러나 `!.ct`의 **runtime comparison-policy/version witness**, group/compact/count output, sortedness/uniqueness 및 prepared-lookup key의 완전한 의미론적 증명과 target-independent `CandidateEvidence`는 여전히 후속이다. `FunctionEntity`의 원래 구성·dynamic tolerance·Rank/CellApply 경계를 유지한다.
@@ -262,6 +274,7 @@
 
 
 
+<a id="n3-두-번째-구현-단위--reverse-hashing과-per-engine-prehash-2026-10-06"></a>
 ###### N.3 두 번째 구현 단위 — Reverse Hashing과 per-Engine Prehash (2026-10-06)
 
 **대응 근거.** [jsource \`viavx.c::indexofsub\`의 reverse hash 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/viavx.c#L738-L850)은 indexed/query cardinality와 지원 모드에 따라 반대 방향에 검색 테이블을 세운다. [\`vi.c\`의 prehash mode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/vi.c#L140-L185)는 파생 함수의 저장 테이블과 특정 비교 계약을 포함한다. 아래 RustJ 구현은 그 **기본 개념을 제한적으로 차용**한 것이며 C의 prehashed derived verb 전체를 재현하지 않는다.
@@ -282,10 +295,12 @@
 
 <a id="algorithm-planning-migration"></a>
 
+<a id="o-타-프레임워크-대조를-통한-algorithm-planning-확장--i-family-첫-적용-2026-10-06"></a>
 ##### O. 타 프레임워크 대조를 통한 Algorithm Planning 확장 — i. family 첫 적용 (2026-10-06)
 
 **프레임워크 결정:** jsource의 C 전용 특수 함수를 개별 J Graph IR 노드로 복제하거나, 그 선택을 모두 `src/index_ops.rs`에 넣지 않는다. `J semantic identity → A3 resolved operation/meaning → target legality + proof/guard evidence → Physical cost/choice → guarded executor/fallback`으로 분리한다. **이 구조는 검색에 대한 첫 구현이며 전체 optimizer의 SelectionPlan/자동 튜너 완성을 의미하지 않는다.** `PROJECT.ko.md`가 정본이고 `PROJECT.md`는 같은 구조의 영문 mirror다.
 
+<a id="o1-비교한-프레임워크와-채택비채택-사항"></a>
 ###### O.1 비교한 프레임워크와 채택·비채택 사항
 
 | 검토한 프레임워크·근거 | 해결 방식 (원본 근거) | RustJ에 채택한 원칙 / 하지 않은 것 |
@@ -297,6 +312,7 @@
 | **XLA GPU Priority Fusion / Cost Model** ([설계 설명](https://github.com/openxla/xla/discussions/10065), [pass 원본](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.h)) | fusion의 합법성과 별도로 estimated `time(unfused)-time(fused)`, memory/compute/launch overhead 등을 근거로 우선순위 결정 | **채택:** semantic proof와 profitability, target feasibility/임시 메모리 사용을 섞지 않음. **비채택:** GPU cost 추정을 임의 상수로 수치화하지 않음 |
 | **Futhark SOAC / incremental flattening** ([2026년 개발 설명](https://www.futhark-lang.org/blog/2026-07-31-full-flattening.html), [scan-scatter fusion](https://www.futhark-lang.org/blog/2026-03-24-scan-scatter-fusion.html)) | 고수준 array/dataflow를 보존하고 다양한 flatten/fuse/순차 실행 버전을 target/workload에 따라 선택 | **채택:** 여러 낮은 수준 알고리즘으로 내릴 수 있는 고수준 `LookupClassify`/향후 `GroupBy`·`Reduce` 구조 유지. **비채택:** J의 오류 순서·동적 binding/tolerance 없이 functional fusion 동치식을 사용하지 않음 |
 
+<a id="o2-실제-코드로-반영한-세-경계"></a>
 ###### O.2 실제 코드로 반영한 세 경계
 
 1. **Execution Semantic Lowering / A3:** `src/logical_ir.rs`의 `ExecutionBasisPayload::LookupClassify { search: SearchDescriptor }`에 **original primitive와 valence에서 도출한** `SearchOutputKind::{FirstIndex,LastIndex,MembershipMask,IntervalIndex,SelfClassify}`, `SearchComparison::{JEquality,JOrderedInterval}`, indexed/queried SSA `ValueId`, original `rank_boundary`를 보유한다. `i.`/`i:` 및 이항 `I.`는 **왼쪽이 indexed set, 오른쪽이 query**이고, 이항 `e.`는 **오른쪽이 indexed set, 왼쪽이 query**다. A3는 이 방향을 이미 바르게 기록하며 Physical strategy가 인수 방향을 추측하지 않는다. 모호한/미지원 derived target은 `Deferred`로 남기고 새 실행 의미를 만들지 않는다. `A3_SCHEMA_VERSION`을 **0.4→0.5**로 올렸고 `Plan::verify`는 payload와 현재 `CallOp`이 일치하지 않는 변조를 거부한다. `JEquality`는 **runtime cct/`!.`를 준수할 의미**이지 float bit-exact hash 허가가 아니다.
@@ -305,6 +321,7 @@
 
 **경계 반례:** 근사 동등성은 비추이적일 수 있어 `!.ct`/floating/boxed를 exact hash로 보내지 않으며 `TolerantNeighborHash`는 `NeedsSemanticProof`. `I.` interval은 Index-Of 일반 hash 후보가 아니다. unknown J name/POS/locale·effect/error ordering·empty prototype은 sidecar/guard 없이 우회하지 않는다. 이 선택기는 **CPU interpreter exact scalar에 대한 검증 전제 실행 경로**이며 `J Graph candidate commit`, `PhysicalArray` 생성, GPU backend, 일반 A3-to-native codegen과 동일하지 않다.
 
+<a id="o2a-동작-예시--3-1-3-i-3-4"></a>
 ###### O.2a 동작 예시 — `3 1 3 i: 3 4`
 
 - **J Frontend / Graph IR:** 원문의 dyadic `i:`(Last index) semantics, 3의 마지막 위치 및 4의 not-found sentinel을 보존한다.
@@ -313,6 +330,7 @@
 - **Runtime/Physical:** 양측 Int/Bool 단항 셀임을 실행시 확인하며 `3 × 2 <= 32`이므로 순차 검색을 택한다. 예상 결과는 `2 3`이다. 같은 의미의 큰 입력에서는 검색 크기·범위·prehash 조건에 따라 다른 알고리즘을 고를 수 있지만, 의미론적 Last/missing은 불변이다.
 - **검증 경계:** 해당 입력에 대한 A3/verifier·Registry·Physical 계획 테스트는 **추가만 했고 실행하지 않았다**. 이 예시는 코드 의도와 J 의미의 계약을 보여줄 뿐 실행 성공/성능 측정 증거는 아니다.
 
+<a id="o3-앞으로-공통화할-설계-계약과-검증"></a>
 ###### O.3 앞으로 공통화할 설계 계약과 검증
 
 이 첫 search-specific adapter에서 확인한 **재사용 가능한 최적화 질문**은 다음과 같다.
@@ -338,6 +356,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 
 
+<a id="o4-검색-계열을-통한-공통-프레임워크-역설계--독립-4관점-재검토-2026-10-06"></a>
 ###### O.4 검색 계열을 통한 공통 프레임워크 역설계 — 독립 4관점 재검토 (2026-10-06)
 
 **검토 질문과 판정.** jsource `i.` family를 *어떻게 해시로 구현할까*보다 **왜 한 의미론적 연산에 여러 실행 알고리즘·결과 소비 형태·재사용 수명이 존재하며, RustJ 전체가 이를 어떤 경계로 표현해야 하는가**의 사례로 사용한다. **프레임워크의 큰 층 구분은 이미 옳다. 하지만 ‘검색 의미론 ↔ 후보의 증거 ↔ 자료구조 준비/수명 ↔ 비용/선택 ↔ 독립 실행 기준선’ 사이의 실행 가능한 연결 계약이 미완성**이다. 별도 검색 전용 IR, `vi.c` 모드별 연산, 즉각적인 범용 optimizer 또는 새로운 공통 crate를 추가하지 않는다. 기존 §O.3과 §4.1.4의 모델을 **구현 가능한 소규모 인터페이스 계약**으로 점진적으로 닫는다.
@@ -381,6 +400,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 <a id="framework-migration-checklist"></a>
 
+<a id="o5-지연-최적화-프레임워크-이행-계획체크리스트-2026-10-06-살아-있는-작업표"></a>
 ###### O.5 지연 최적화 프레임워크 이행 계획·체크리스트 (2026-10-06, 살아 있는 작업표)
 
 **목적·범위.** §O.4의 네 관점 독립 검토를 **실제로 수정하고 검사할 수 있는 단일 체크리스트**로 전환한다. `i.` 계열은 최초 검증 사례이고, 최종 목표는 **J 의미론을 유지한 채 다른 연산군에도 적용 가능한 ‘발견 → 증명/가드 → 하드 자원/타깃 판정 → 비용 → 선택 → 실행’ 계약**이다. §P.1은 계속 **검색 알고리즘 자체의 상세 체크리스트**로 유지한다. **이 표가 단계 간 우선순위·완료 판정의 정본**이며, 새 로드맵 Markdown이나 새 범용 optimizer crate를 만들지 않는다.
@@ -420,11 +440,12 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 <a id="index-family-roadmap"></a>
 
+<a id="p-i-family-통합-로드맵진행-체크리스트--roger-hui--marshall-lochbaum-2026-10-06"></a>
 ##### P. i. family 통합 로드맵·진행 체크리스트 — Roger Hui × Marshall Lochbaum (2026-10-06)
 
 **교차 참조:** [§O.5 프레임워크 이행 계획](#framework-migration-checklist)은 **공통 구조·단계 게이트**를 관리하며, 여기 §P.1은 검색-family 알고리즘별 세부 검증을 관리한다. 두 표의 [x] 규칙은 다르므로 이행 계획의 [x]를 코드 존재만으로 변경하지 않는다.
 
-**정본 운영 규칙.** 이 체크리스트는 [§N: i. 원본 및 1·2차 구현](#jsource-index-family), [§O: A3/Registry/Physical 경계](#algorithm-planning-migration), [§4.1.4: proof→selection lifecycle](../../../PROJECT.ko.md)에 종속된 **살아 있는 구현 게이트**다. 항목마다 **근거 / 실행 계층 / 완료 조건 / 검증 상태**를 명시한다. [x]는 **코드·문서가 저장소에 존재함을 정적으로 확인**했음을 뜻할 수 있으며, 테스트 실행·jsource 동등성·성능 달성을 자동으로 의미하지 않는다. 별도 문서를 늘리지 않고 이 절에서 관리하며 완료될 때마다 실제 검증 근거를 기록한다. **Linux milestone은 별도로 만들거나 완료 조건에 넣지 않는다.**
+**정본 운영 규칙.** 이 체크리스트는 [§N: i. 원본 및 1·2차 구현](#jsource-index-family), [§O: A3/Registry/Physical 경계](#algorithm-planning-migration), [§4.1.4: proof→selection lifecycle](../../../PROJECT.ko.md#)에 종속된 **살아 있는 구현 게이트**다. 항목마다 **근거 / 실행 계층 / 완료 조건 / 검증 상태**를 명시한다. [x]는 **코드·문서가 저장소에 존재함을 정적으로 확인**했음을 뜻할 수 있으며, 테스트 실행·jsource 동등성·성능 달성을 자동으로 의미하지 않는다. 별도 문서를 늘리지 않고 이 절에서 관리하며 완료될 때마다 실제 검증 근거를 기록한다. **Linux milestone은 별도로 만들거나 완료 조건에 넣지 않는다.**
 
 **독립 참고 원본 및 적용 기준:**
 
@@ -432,6 +453,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 - Marshall Lochbaum, [*BQN: Implementation of search functions*](https://mlochbaum.github.io/BQN/implementation/primitive/search.html): 작은 배열 순차/SIMD, lookup table, one-shot hash, reverse hash, lazy/sparse **table initialization**, open-addressing/linear probing, collision observation, partitioning/radix 및 cache 비용을 비교하는 **알고리즘·물리 최적화 참고**. BQN과 J의 비교 동등성, Fit, Rank, Boxed/AxisSparse 의미가 같다고 가정하지 않는다. BQN의 *sparse lookup*은 **직접 주소 테이블 일부만 초기화하는 기법**이며 J sparse array와 다르다.
 - 외부 프레임워크 [§O](#algorithm-planning-migration)의 MLIR dynamic legality, IREE target lowering, TVM measured cost, XLA resource/cost 분리는 **알고리즘 소유권 경계**로 재사용한다. 새로운 IR 계층이나 C 함수별 Graph node를 만들지 않는다.
 
+<a id="p0-지연-최적화-정책과-m2-우선순위-검토-2026-10-06"></a>
 ###### P.0 지연 최적화 정책과 M2 우선순위 검토 (2026-10-06)
 
 **판정: 구조적 분리는 대체로 적합하지만, 작업 우선순위와 일부 조기 실행 전문화는 조정해야 한다.** 프로젝트 최상단의 정본 우선순위는 **M2 word formation → enqueue → J parser/이름·POS·derived entity 의미론 수렴, 이후 M3 경계와 M4 Native CPU vertical slice**이다. `FOUNDATIONS.ko.md` Part XX는 J source를 실행 계획으로 취급하지 않고, 높은 수준의 rank/train/reduce/scan 구조와 source provenance를 보존하며, logical legality와 target-specific profitability/materialization을 분리하라고 규정한다. 여기서 **지연된 최적화**는 모든 분석을 뒤로 미루는 것이 아니라, **특수 실행 알고리즘의 확정·materialization·선택을 충분한 의미론/타깃/비용 증거 이후로 미루는 것**이다.
@@ -450,6 +472,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **지연 최적화 재검토에서 드러난 기준선 혼합:** `eval_semantic_reference`는 캐시 사용을 끄지만 `index_ops::lookup`의 일반 exact scalar Physical search planner는 여전히 호출한다. 'reference path'라는 명칭이 최적화와 독립인 순차 oracle을 보장하지 않는다. P.3에서 M2 우선 과제로 분리한다.
 
+<a id="p1-구현-단계와-수용-기준-계속-갱신"></a>
 ###### P.1 구현 단계와 수용 기준 (계속 갱신)
 
 | 순서 | 체크 항목 | RustJ 소유 계층·수용 기준 | 현재 상태 |
@@ -468,6 +491,7 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 | 11 | [ ] `i.` 외 가족으로 공통 알고리즘 선택 패턴 이식 | Nub/Key/`I.@e.`의 결과 모드와 순서 계약을 확장한 후, Reduce/GroupBy/Grade/Contract는 **각자 독립 semantic proof**를 둔 generic `AlgorithmCandidate`/SelectionPlan을 사용 | interface prototype 일부만 존재 |
 | 12 | [ ] Release gate: Rust/C differential + 비용 실측 | 기본/portable Rust tests, J C 두 경로의 first/last/NaN/±0/empty/rank/boxed/sparse/`!.ct`/error, 참조 순차 vs 모든 활성 fast path, 무작위·충돌 유도 벤치 및 memory/time 회귀. **측정 전 threshold 고정 최적화 주장 금지** | 수행하지 않음 |
 
+<a id="p2-독립-검증-루프-반복결과-기록"></a>
 ###### P.2 독립 검증 루프 (반복·결과 기록)
 
 - [ ] **A — source-first 독립 검토:** Hui 논문 → 고정 jsource dispatch(`vi.c`)/tolerance(`viavx2.c`)/prehash 모드 → J 오류·Rank·Fit 계약을 추출. BQN 코드를 의미론적 oracle로 대체하지 않음.
@@ -478,7 +502,3 @@ CommittedLowering (only witnessed/guarded, preserves errors/effects)
 
 **반복 기준:** 한 번의 점검에서 실패 사례가 나오면 관련 코드·proof/fallback과 회귀 테스트를 수정하고 A~E 중 직접 관련되지 않은 관점에서도 다시 검증한다. [ ]를 [x]로 바꿀 때는 **실행 명령, 환경, 테스트 개수/결과, 비교 원본의 commit 또는 측정 데이터**를 같은 절에 기록한다. Linux 전용 milestone은 생성하지 않는다. CI를 실행하지 않았으면 통과라고 기록하지 않는다.
 
-
----
-
-[← 이전 부분](./14-framework-research-p01.ko.md) | [다음 부분 →](./14-framework-research-p03.ko.md)

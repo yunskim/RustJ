@@ -16,6 +16,12 @@ The important principle is not SQL-like syntax:
 
 > **J source is not an execution plan.**
 
+The canonical design now includes a **[falsifiable common array-algebra research hypothesis](PROJECT.md#common-array-algebra-hypothesis)**, comparing cross-operation access contracts, witnessed equivalence and backward data demand. This is an analysis candidate over existing Graph Basis/Rewrite/FactWitness infrastructure, not a proved universal algebra or a new mandatory IR.
+
+**Prior-art first:** Rather than inventing array mathematics from scratch, use the [MoA (1988), APL operator calculus (1984), Remora (2019), Bird–Meertens, SPORES, Futhark and RISE mapping/checklist](docs/research/common-array-algebra-prior-art.md) as the research baseline. Admit only laws whose hypotheses have been revalidated for **actual J rank/shape, errors, NAME and floating semantics**. MoA's shape/Ψ calculus does not itself prove every J primitive lawful.
+
+**SPORES integration and E-Graph design:** [§7.9 relational access integration](PROJECT.md#spores-relational-integration) separates **which J array operations can be modeled using indexed access relations** from **which rewrites have actually been proven Exact-J**. It links the optional [§7.8 frontend-guided equality synthesis](PROJECT.md#frontend-equality-synthesis) and [§7.6 `egg` E-Graph](PROJECT.md#eqgraph-architecture) while preserving error/effect/Rank/empty-array semantics; unsound candidates never enter the selected executable plan. **This remains a design/checklist, not an implemented optimizer.**
+
 J's rank, cell/frame semantics, derived entities, trains/composition, reductions/scans, and shape/reindex operations expose high-level information about **what is being computed**. RustJ tries to preserve that information for as long as possible and lets the compiler choose **how to realize it** subject to semantic legality, resource constraints, and cost.
 
 ```text
@@ -37,6 +43,8 @@ As a relational database separates a query from its physical plan, RustJ separat
 Full J is not a purely declarative SQL-like language: names, assignment, effects, observable errors, and control semantics still matter. RustJ preserves **correct J semantics first**, then exploits this “SQL for array operations” optimization freedom inside analyzable array regions.
 
 The long-term framing is therefore broader than **“J with GPU support”**: RustJ aims to be **a heterogeneous array compiler/runtime using J as a high-level array language**. The analyzer and logical/physical separation ideas developed in JAXA are inherited as prior design work rather than retained as a separate current component.
+
+**R0 coordinate-access experiment:** [Static axis-permutation access composition](docs/research/common-array-access-composition.md) validates only shape and coordinate pullback. It is not a proven J operation equivalence or executable optimization.
 
 ## Core array model — Logical Array vs Physical Array
 
@@ -183,6 +191,8 @@ Extension primitives are ordinary J name bindings rather than reserved keywords.
 The actual part of speech of an ordinary name is not permanently fixed during enqueue. The parser performs normal J name-environment lookup when the name is used, while preserving late-bound nameref semantics for verbs, adverbs, and conjunctions. **The current definition-runtime subset implements current `LocalFrame` → global-namespace lookup; general user locale/path lookup is still incomplete.**
 
 `with` remains a conjunction extension bound to an ordinary J name and carries typed semantic annotations/contracts only. Physical policy such as tile, device, and register choices does not belong in `with`.
+
+The **static input contracts, DataSource I/O contracts, and backward data-demand analysis** proposal is documented in [PROJECT.md §13.5.1](PROJECT.md#io-static-source-contracts). `with` provides semantic inputs such as Shape/DType; storage access, consistency, chunk layouts and physical I/O policy remain separate. Track implementation and verification only through the existing [IO-01–IO-30 checklist](PROJECT.md#out-of-core-io-checklist).
 
 Hardware lowering applies to built-in J primitives as well as extensions. Existing primitives such as `+`, `*`, `+/`, and `|:` participate in the same target-independent semantic capability and backend/architecture-specific lowering architecture. Target-specific tile/register numbers are not embedded in primitive meaning; lowering is looked up by primitive/op identity.
 

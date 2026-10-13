@@ -3527,6 +3527,14 @@ impl Engine {
             ) => Err(Error::Unsupported(
                 "implicit-locative call requires caller-scope execution".into(),
             )),
+            FunctionHead::PrimitiveVerb(id)
+                if id.support() == crate::primitive::PrimitiveSupport::Unimplemented =>
+            {
+                Err(Error::Unsupported(format!(
+                    "core primitive {} execution",
+                    id.spelling()
+                )))
+            }
             FunctionHead::PrimitiveVerb(id) => Ok(ResolvedVerb {
                 id: *id,
                 reduce: false,
@@ -3583,8 +3591,7 @@ impl Engine {
                 })?);
                 Ok(resolved)
             }
-            FunctionHead::VocabularyPrimitive(_)
-            | FunctionHead::TakeName { .. }
+            FunctionHead::TakeName { .. }
             | FunctionHead::PrimitiveAdverb(_)
             | FunctionHead::PrimitiveConjunction(_)
             | FunctionHead::DefinitionConstructor(_)

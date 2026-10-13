@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (9/10)
-
+<a id="다른-array-languagecompiler-basis와의-역대조"></a>
 ##### 다른 array-language/compiler basis와의 역대조
 
 비교 자료:
@@ -35,6 +32,7 @@
 
 Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimization basis가 다르다**는 점이다. 많은 연산을 map+iota+scatter 류로 재구성할 수 있어도 reduce 같은 identity를 지우면 fusion/parallel implementation 선택을 잃을 수 있다. RustJ는 따라서 “분해 가능”을 refinement 이유로 사용하지 않는다.
 
+<a id="42412-j-primitive--provisional-execution-basis-coverage-matrix"></a>
 #### 4.24.12 J primitive → provisional execution-basis coverage matrix
 
 검토 기준:
@@ -134,6 +132,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 <a id="current-j-vocabulary"></a>
 
+<a id="현재-vocabulary-감사--nuvoc와-구현-상태-2026-10-05"></a>
 ##### 현재 vocabulary 감사 — NuVoc와 구현 상태 (2026-10-05)
 
 현재 NuVoc index와 관련 개별 페이지를 읽고 pinned `ws.c` spelling→code, `t.c` POS/constructor와 Windows C 기본·AVX2의 `4!:0` 결과를 대조했다. 웹 문서의 최신성, 검토 source pin, 실행 DLL release는 별도 provenance다. wiki를 보고 DLL이 최신 source로 빌드되었다고 주장하거나 POS/rank를 추측하지 않는다. NuVoc 개별 문서 `c.`, ObsoleteSyntax, `[.`, `$::`는 웹 fetch가 실패했으므로 index와 C 근거만 사용했다.
@@ -149,11 +148,12 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 <a id="nv2-core-recognition"></a>
 
+<a id="nv2--core-표기품사-인식과-실행-capability-분리"></a>
 ##### NV2 — core 표기·품사 인식과 실행 capability 분리
 
-`PrimitiveSemanticId::Vocabulary` / `FunctionHead::VocabularyPrimitive`는 검증된 spelling/POS를 가진 operand-free core 함수 identity다. private-field `VocabularyPrimitive` catalog 108개를 core resolver에 추가해 `EnqueuedPayload::Function`으로 정상 queue와 공유 parser에 전달한다. 기존 실행 primitive를 덮어쓰지 않으며 extension NAME이나 독립 parser를 만들지 않는다. registry **8**, Graph IR **0.8**이다. `t.`/`T.`·Fold·Key dyad·precision·scope·constant functions도 bare binding과 AR/POS 보존 대상이지만 이번 단계에서 실행 구현을 주장하지 않는다.
+**Core identity 통합:** 모든 140개 core 함수 표기를 PrimitiveId(verb), AdverbId, ConjunctionId의 동일한 품사별 identity catalog에 넣는다. 미구현 여부로 별도의 VocabularyPrimitive 타입·semantic/head variant를 만들지 않는다. 35개 기존 구현 항목은 PrimitiveSupport::Bounded, 아직 미구현인 105개는 PrimitiveSupport::Unimplemented 태그를 가진다. Bounded도 valence/type/rank/route별 기존 제한을 유지하며 완전 지원을 뜻하지 않는다. ExtensionPrimitive/extension registry는 core 밖의 ordinary NAME 확장만 별도로 관리한다. 이름·품사와 지원 상태는 독립이고, 미구현 verb의 innate rank는 None이다. 기존 ID 순서는 유지하고 미구현 항목을 추가하며 상수 동사는 표기별 Fcons0…Fcons9/FconsNeg1…FconsNeg9/FconsInf/FconsNegInf ID와 공통 CFCONS 이름 metadata를 가진다. 모든 core ID가 동일한 enqueue payload와 FunctionHead 품사 경로를 따른다. identity 구조 변경에 따라 registry **11**, Graph IR **0.11**로 갱신해 이전 graph를 거부한다. 새 실행 의미론을 추가하거나 미확인 rank/effect/purity/resource proof를 부여하지 않는다.
 
-새 descriptor의 rank/shape/dtype/effect/resource 계약은 미확인 상태로 둔다. `innate_ranks()`는 None, graph rule은 DynamicOrUnknown, 실행 lowering/executor 및 새 descriptor 자체의 modifier 적용은 Unsupported다. 기존 rank/selector/train이 검증된 구조를 만들 수 있으면 identity를 보존하되 새 kernel/purity/finite rank를 만들지 않는다. RHS Copy Rank에 미확인 descriptor가 들어가면 header를 추측하지 않는다. primitive modifier의 by-value stacking은 검토 `t.c`의 VF2NAMELESS 근거이며 purity와 별개다. ordinary verb alias의 late binding은 그대로 유지한다.
+Unimplemented 항목의 rank/shape/dtype/effect/resource 계약은 미확인 상태로 둔다. `innate_ranks()`는 None, graph rule은 DynamicOrUnknown, 실행 lowering/executor 및 Unimplemented primitive 자체의 modifier 적용은 Unsupported다. 기존 rank/selector/train이 검증된 구조를 만들 수 있으면 identity를 보존하되 새 kernel/purity/finite rank를 만들지 않는다. RHS Copy Rank에 미확인 core 항목이 들어가면 header를 추측하지 않는다. primitive modifier의 by-value stacking은 검토 `t.c`의 VF2NAMELESS 근거이며 purity와 별개다. ordinary verb alias의 late binding은 그대로 유지한다.
 
 `a.`는 byte 0–255의 char vector, `a:`는 empty bool vector를 담는 scalar box인 실제 noun이다. `OnceLock<Value>`에 immutable shared payload를 보존해 enqueue occurrence가 버퍼를 복사하지 않는다. 이 두 bounded builtin을 추가한 것이 대형 input/intermediate noun snapshot cache를 도입한 것은 아니다. 둘 다 기존 logical Value 경로로 처리하며 device/layout를 noun 의미에 넣지 않는다.
 
@@ -163,6 +163,7 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 **jsource 특수 경로 누락 재감사:** 아래 basis 대응 외에 확인된 convolution (\`f//.@:(g/)\`), Cut–Scan–Raze, byte LUT, boolean-index, order-statistic, shape-RNG, boxed link, explicit \`M.\`, numeric exactness, hook comparisons는 [§4.1.3.6 M](./14-framework-research-p02.ko.md#jsource-audit-m)의 source-guard/ownership 표를 기준으로 한다. 이 목록을 새로운 basis IR node의 필연적 추가로 해석하지 않는다.
 
+<a id="jsource-special-code-inventory와의-교차검증"></a>
 ##### jsource special-code inventory와의 교차검증
 
 | jsource special family | RustJ logical explanation |
@@ -183,10 +184,12 @@ Futhark가 보여 주는 중요한 경고는 **표현상 minimal basis와 optimi
 
 jsource가 phrase-by-phrase special code로 얻는 여러 이득을 RustJ에서는 **basis graph + capability/lowering rule**로 일반화할 수 있다.
 
+<a id="42413-derived-forms-closure-check-실제-execution-basis-graph"></a>
 #### 4.24.13 Derived forms closure check: 실제 execution-basis graph
 
 primitive 한 개만 매핑해서는 J semantics coverage를 검증할 수 없다. modifier/derived form이 만들어 내는 implicit traversal과 control을 실제 basis graph로 내려 보아야 한다.
 
+<a id="rank"></a>
 ##### Rank
 
 ~~~text
@@ -222,6 +225,7 @@ Resolve left cells      Resolve right cells
 
 CellApply(Elementwise), CellApply(Reduce), CellApply(Contract)는 각각 larger elementwise, batched/segmented reduction, batched contraction route로 흡수할 수 있다. semantic CellApply 자체는 optimization 전에도 보존한다.
 
+<a id="cut"></a>
 ##### Cut
 
 ~~~text
@@ -248,6 +252,7 @@ Assemble
 
 Cut 때문에 새 basis가 필요하지 않으며, 오히려 SegmentView와 WindowView를 구분할 근거가 된다.
 
+<a id="key--oblique"></a>
 ##### Key / Oblique
 
 ~~~text
@@ -274,6 +279,7 @@ GroupedReduce / ScatterCombine
 
 group array를 실제로 materialize하지 않는 것이 주요 성능 이점이다.
 
+<a id="power"></a>
 ##### Power
 
 ~~~text
@@ -287,6 +293,7 @@ Iterate {
 
 static small n에서는 unroll/cross-iteration fusion 후보가 될 수 있고 dynamic count는 loop로 남는다. fixed-point/inverse/boxed power의 J semantics는 control layer가 소유하며 새로운 array basis를 요구하지 않는다.
 
+<a id="boxed-level--spread--fetch"></a>
 ##### Boxed Level / Spread / Fetch
 
 ~~~text
@@ -319,6 +326,7 @@ selected nested value
 
 NestedReconstruct와 FlatAssemble는 output assembly policy이고 NestedTraverse가 traversal identity를 보존한다.
 
+<a id="sparse-composition"></a>
 ##### Sparse composition
 
 Sparse는 basis를 복제하지 않는다.
@@ -346,6 +354,7 @@ sparse cell route or conforming fallback
 
 따라서 SparseReduce, SparseTranspose, SparseCellApply 같은 별도 semantic basis family를 만들지 않는다. sparse axes/fill/index/value는 representation facts이며 같은 J observable semantics를 다른 physical realization으로 실행한다.
 
+<a id="closure-판정"></a>
 ##### closure 판정
 
 Rank, Cut, Key/Oblique, Power, boxed Level/Spread/Fetch, sparse composition을 실제 graph로 내린 결과:
@@ -358,6 +367,7 @@ Rank, Cut, Key/Oblique, Power, boxed Level/Spread/Fetch, sparse composition을 �
 
 
 
+<a id="42414-execution-basis-logical-ir-node-contract와-최소-analysislowering-interface"></a>
 #### 4.24.14 Execution-basis Logical IR node contract와 최소 analysis/lowering interface
 
 4.24.11–4.24.13의 v0.2 vocabulary를 실제 A3 Logical IR로 옮길 때 basis 이름마다 임의의 struct를 따로 만들지 않는다. 모든 basis node는 공통 contract를 공유하고, 각 operation family가 필요한 추가 payload/fact/check를 명시한다.
@@ -395,6 +405,7 @@ J Semantic entity / Resolved semantic op
 
 basis op는 target-independent다. warp width, SIMD width, tile, workgroup, shared memory, register budget, concrete layout, library handle 같은 것은 basis node payload에 넣지 않는다.
 
+<a id="resolvedinstantiation"></a>
 ##### ResolvedInstantiation
 
 polymorphic primitive/derived verb가 실제 call에서 어떤 instance가 되었는지를 ResolvedCallFacts와 specialization 사이에 명시적으로 기록한다.
@@ -422,6 +433,7 @@ ResolvedInstantiation
 
 SpecializationKey에는 이 전체를 복사하지 않고 algorithm/lowering 선택에 실제 영향을 주는 field만 추출한다.
 
+<a id="valuerolefacts"></a>
 ##### ValueRoleFacts
 
 ValueFacts.shape는 “이 value 자체의 shape”다. 반대로 어떤 noun의 값이 다른 operation의 shape/axis/index/window specification으로 사용된다는 사실은 별도 role이다.
@@ -446,6 +458,7 @@ ValueRoleFacts
 
 ValueRoleFacts는 J type system에 새로운 nominal type을 추가하지 않는다. 같은 integer vector가 문맥에 따라 ordinary data 또는 ShapeVector가 될 수 있다. role은 call/basis analysis가 만든 fact이며 witness를 가질 수 있다.
 
+<a id="first-class-semanticcheck"></a>
 ##### first-class SemanticCheck
 
 J-visible error condition을 compiler assertion과 구분한다.
@@ -474,7 +487,3 @@ SemanticCheck
 
 현재 transition 구현의 src/analysis.rs::Node는 아직 “node 하나 = ValueId 하나”인 inspection snapshot이다. 따라서 이 구조에 zero-result SemanticCheck를 가짜 value-producing node로 억지로 넣지 않는다. 현재 단계에서는 direct ExecutionBasisKind, ResolvedInstantiation, ValueRoleFacts seam만 추가하고, first-class SemanticCheck는 A3의 operation/result 분리에서 zero-result operation으로 구현한다. 이것은 SemanticCheck를 후순위 의미로 낮추는 것이 아니라 잘못된 migration representation을 만들지 않기 위한 단계화다.
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p08.ko.md) | [다음 부분 →](./15-advanced-contracts-p10.ko.md)

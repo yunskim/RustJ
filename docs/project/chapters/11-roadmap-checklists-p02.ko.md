@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 10. 구현 계획과 체크리스트 — 계속 (2/5)
-
+<a id="je2-구현--namespace와-runtime-result의-jentity-수렴-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — namespace와 runtime result의 JEntity 수렴 (2026-10-04, partial JE2)
 
 - runtime `SymbolValue`를 제거하고 `Binding { value: JEntity, version: NameVersion }`으로 저장한다. 함수 binding에는 `Arc<FunctionEntity>`만 남으며 별도 Verb wrapper/span/target 복제가 없다. runtime final result도 동일 JEntity를 사용한다. `ExprKind`는 noun application/dependency 구조를 보존하는 parser representation으로 남는다.
@@ -17,6 +14,7 @@
 
 **남은 JE2:** parser completed-result transport와 deferred application 구조의 경계, 전체 local/locale/definition scope, explicit body invocation 및 static/runtime/capture 경로의 더 넓은 수렴을 검증한다. 이번 namespace seam 완료를 JE2 전체 완료로 표시하지 않는다. FunctionOperand view는 아래 단계에서 완료했으며 semantic nested DD와 기존 M2 gaps도 계속 추적한다. JE3+ collection·broader storage migration·optimization·CUDA·GitHub CI는 보류한다.
 
+<a id="je2-구현--provenance를-보존하는-borrowed-operand-view-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — provenance를 보존하는 borrowed operand view (2026-10-04, partial JE2)
 
 `FunctionOperand::as_entity_ref()`는 noun과 모든 함수 POS를 공통 `JEntityRef`로 조회한다. `span()`은 noun operand의 저장된 source span 또는 함수 identity의 span을 빌려준다. 이후 application occurrence span과 합치지 않는다. 조회에서 Value 복사·Arc 증가·새 entity 할당이 없고, owning enum은 noun provenance와 함수 DAG 소유권을 보존하기 위해 유지한다. gerund collection이나 물리 배열 representation으로 확대하지 않는다.
@@ -29,6 +27,7 @@
 
 completed parser result와 deferred noun/application 구조를 구분한 공통 transport는 아래 단계에서 진행한다. 전체 local/locale/definition scope와 explicit body invocation은 미완료다. JE2 전체 완료로 표시하지 않는다.
 
+<a id="je2-구현--completed-parser-result의-공통-transport-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — completed parser result의 공통 transport (2026-10-04, partial JE2)
 
 `CompletedParseResult { entity: JEntity, span, height, verb_adapter }`는 완료된 RHS의 이동 경계다. noun Value와 함수 Arc를 복사하지 않고 이동하며, source occurrence/height와 Verb의 span/target adapter는 immutable FunctionEntity identity 밖에 둔다. `from_item`은 literal 또는 grouped literal noun만 받아들이고, 미계산 call·ReadName은 기존 unsupported 경계를 유지한다. 이 helper는 계산하거나 이름을 재조회하지 않는다. JEntity에 Clone을 추가하지 않는다.
@@ -43,6 +42,7 @@ runtime rows 0–2는 기존 host.apply를 한 번 실행한 뒤 이 경계로 c
 
 다음은 남은 parser value/constructor 경계에서 concrete completed result와 분석용 expression이 중복 전달되는 지점을 검토한다. 전체 stack enum 수렴, local/locale/definition scope 및 explicit body invocation은 미완료다. optimizer·CUDA·GitHub CI는 계속 보류한다.
 
+<a id="je2-구현--modifier-constructor-operand의-공통-경계-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — modifier constructor operand의 공통 경계 (2026-10-04, partial JE2)
 
 `CompletedParseResult::into_operand()`는 완료 noun을 기존처럼 한 번 `into_shared`하고 원본 occurrence span과 함께 FunctionOperand에 이동한다. 함수는 동일 Arc를 이동하며 occurrence용 Verb adapter를 semantic child에 복제하지 않는다. `modifier_train`의 Noun/Verb/Adverb/Conjunction 변환 중복을 이 경계로 대체했다. production rows 5/6과 gerund AR의 동일 modifier-train 생성 경로에 적용되며, result POS는 기존 cf.c disposition/constructor 결정으로 유지한다. raw NAME/control은 syntax error, deferred call/ReadName은 기존 unsupported로 남긴다.
@@ -55,6 +55,7 @@ conjunction rank/right-first audit, noun-left fork, definition constructor, imme
 
 다음은 rank/conjunction operand 경계에서 right-before-left 오류 우선순위와 gerund 감사 계약을 먼저 고정한 뒤 공통 transport 사용 여부를 검토한다. JE2 전체 완료와 전체 J parser 지원으로 표시하지 않는다.
 
+<a id="je2-구현--rankconjunction-operand와-오류-우선순위-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — rank/conjunction operand와 오류 우선순위 (2026-10-04, partial JE2)
 
 `apply_conjunction_at`의 좌우 Noun/Verb operand 전달을 `CompletedParseResult::from_item/into_operand`로 연결했다. 먼저 right operand의 형태를 검사하며 @:의 noun-right domain error는 미계산 noun의 unsupported보다 앞선다. rank의 noun-right는 rank→length→numeric domain 순서로 검사한 뒤에만 left operand를 읽거나 gerund를 감사한다. 원본 Expr span과 parser reinsertion span override의 기존 구분을 유지하고, noun freeze와 함수 DAG 이동은 공통 경계를 사용한다.
@@ -67,6 +68,7 @@ conjunction rank/right-first audit, noun-left fork, definition constructor, imme
 
 다음 JE2 후보는 noun-left fork와 definition constructor의 완료 값 전달 경계다. 각각 source span·생성 오류·본문을 실행하지 않는 계약을 먼저 확인한다. 전체 stack variant 수렴, scope와 definition invocation은 여전히 미완료다.
 
+<a id="je2-구현--noun-left-fork와-definition-생성-경계-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — noun-left fork와 definition 생성 경계 (2026-10-04, partial JE2)
 
 `CompletedParseResult::from_noun`은 grouped literal을 기존 completed_noun 규칙으로 이동하며 Expr span/height를 보존한다. 일반 from_item은 이 경계를 공유하되 기존 Item occurrence override를 복원한다. noun-left fork는 이 결과를 into_operand로 옮겨 source span·g/h DAG identity를 유지한다. 이전 fork만의 owned noun 경로를 공통 one-time freeze 정책으로 바꾸어 큰 상수의 이후 operand 재사용이 전체 배열 복사를 만들지 않도록 했다. allocator/physical representation 자체는 바꾸지 않았다.
@@ -79,6 +81,7 @@ conjunction rank/right-first audit, noun-left fork, definition constructor, imme
 
 다음은 남은 completed-result/function wrapper 경계를 다시 감사하여 필요 없는 adapter만 제거하고, frontend F/P 체크리스트의 지원 범위와 미지원 생성/실행 범위를 정리한다. 전체 stack variant 수렴·local/locale scope·definition invocation은 여전히 미완료다. CUDA·optimizer 구현·GitHub CI는 계속 보류한다.
 
+<a id="je2-구현--잔여-adapter-감사와-frontend-체크리스트-수렴-2026-10-04-partial-je2"></a>
 ##### JE2 구현 — 잔여 adapter 감사와 frontend 체크리스트 수렴 (2026-10-04, partial JE2)
 
 `ParseValue::function_entity()`로 Verb/Adverb/Conjunction의 완료 함수 Arc를 빌려 읽는다. construction success와 final function result capture의 중복 분기를 제거했으며, observation event가 함수 수명을 실제로 보유해야 할 때만 기존처럼 Arc를 clone한다. completed Verb의 이동도 기존 function factory로 통합하되 Item occurrence span과 Verb adapter span을 각각 유지한다. 새 J 문법이나 실행 지원을 추가하지 않았다.
@@ -102,6 +105,7 @@ F2의 same-stack 재삽입, P2의 같은 matcher 재순회·runtime/analysis eng
 
 후속 감사에서 확인한 immediate action의 기존 지원과 surface parser row 도달성은 아래 기록을 따른다. 이 단계의 “미지원 immediate action” 우선순위는 기존 구현을 충분히 구분하지 못한 계획이었다.
 
+<a id="je2p3-구현--immediate-constructor-결과-경계와-row-도달성-정정-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — immediate constructor 결과 경계와 row 도달성 정정 (2026-10-04, partial)
 
 C `cf.c::jthook`의 `fn == 0`은 invisible modifier 실행으로 생긴 V N / N/V A 및 N V N / N/V C N/V를 즉시 적용한다. RustJ의 `construct_modifier_bident`/`construct_modifier_trident`는 이미 AR decode와 derived modifier 실행에서 이를 지원한다. V N·N V N은 runtime host를 한 번 호출하여 실제 Noun을 반환하고, adverb/conjunction action은 해당 constructor가 반환한 실제 POS를 유지한다. “immediate executor가 전부 미구현”이라는 P3 설명을 정정한다. 지원 primitive/definition 범위를 넘어서는 실행은 여전히 Unsupported이며 전체 P3 완료를 뜻하지 않는다.
@@ -121,6 +125,7 @@ surface parser에서는 ordered rows 0/2/3/4가 이 즉시 적용 조합을 rows
 
 기준 소스: [cf.c bident/trident table](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L292), [cf.c invisible modifier의 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L355), [p.c ordered parser rows](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
+<a id="je2p3-구현--nonoperator-explicit-modifier의-첫-invocation-경계-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — nonoperator explicit modifier의 첫 invocation 경계 (2026-10-04, partial)
 
 rows 3/4와 AR/derived modifier 실행이 `ExplicitDefinition`을 적용할 때 runtime host의 `apply_definition`을 거쳐 실제 `JEntity` 결과를 받는다. `x/y`를 참조하지 않는 mode 1/2에서 선택된 valence의 **단일 Body 문장**을 공유 tokenizer/enqueuer/parser로 실행한다. literal 결과뿐 아니라 `u/`, `m+n`, global noun을 읽는 계산도 기존 semantic kernel 범위에서 실행한다. direct definition의 mode 1/2도 같은 DefinitionCode 경계를 사용한다. definition을 생성·대입하는 단계는 계속 본문을 실행하지 않는다.
@@ -147,6 +152,7 @@ capture에는 `ExplicitModifierApply` invocation marker와 noun 반환의 `Const
 
 기준 소스: [cx.c modifier 호출 및 local frame](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c u/v와 noun m/n 설치](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L322), [p.c mnuvxy의 by-value resolution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c VXOPR executor 선택](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
 
+<a id="je2p3-구현--modifier-지역전역-대입과-직선-본문-실행-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — modifier 지역·전역 대입과 직선 본문 실행 (2026-10-04, partial)
 
 이 단계는 앞 기록의 단일 문장 제한을 확장한다. `RuntimeParserHost`가 enqueue environment와 scoped assignment를 전달하고, definition 본문은 `ExplicitDefinition` 규칙으로 enqueue한다. 본문의 `=.`를 TopLevel의 전역 대입 규칙으로 승격하지 않는다. Engine은 global namespace와 별도의 호출별 `LocalFrame`을 유지하고 **현재 frame → global** 순서로 읽는다. caller의 다른 frame을 탐색하지 않는다. `u/v`와 noun 전용 `m/n`도 이 frame에 설치한다. noun은 공유 전에 한 번 freeze하며, 함수 Arc 및 큰 배열 payload를 유지한다. 전체 symbol table을 복제하지 않는다.
@@ -175,6 +181,7 @@ C 비교로 구분한 이름 규칙:
 
 기준 소스: [p.c 지역 조회와 global fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L631), [s.c bound private name의 global 대입 금지](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L718), [cx.c 중간 noun 결과 요구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L67), [cx.c implicit locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c implicit u/v 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L53), [jerr.h EVNONNOUN](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jerr.h), [i.c 오류 문구](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/i.c).
 
+<a id="je2p3-구현--ordinary-name-scope-경계-해소-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — ordinary NAME scope 경계 해소 (2026-10-04, partial)
 
 - [x] C native oracle로 ordinary NAME의 cross-frame 전달·global publication·미초기화 local 대입·operand/local 이름 충돌을 확인했다. 이전 scoped-reference 보수적 경계는 아래 범위에서 해소했다.
@@ -189,6 +196,7 @@ C 비교로 구분한 이름 규칙:
 
 Sources: [p.c ordinary lookup / mnuvxy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L616), [cx.c return-time implicit-locative fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c hasimploc / fix scope](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L17).
 
+<a id="je2p3-구현--xy-operator의-deferred-verb와-직선-호출-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — x/y operator의 deferred verb와 직선 호출 (2026-10-04, partial)
 
 - [x] C `cx.c::jtxop2/VXOPR`처럼 mode 1/2 operator의 operand application은 **본문을 실행하지 않고 Verb를 구성**한다. 기존 `FunctionHead::ExplicitDefinition`과 공유 DefinitionCode를 유지하며 원래 순서의 operand를 붙인다. code의 modifier POS와 적용 결과의 Verb POS를 구별한다. 새로운 modifier 전용 AST나 definition 본문 noun reduction을 만들지 않는다.
@@ -206,6 +214,7 @@ Sources: [p.c ordinary lookup / mnuvxy](https://github.com/jsoftware/jsource/blo
 
 Sources: [cx.c jtxop2](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L749), [cx.c operator operand extraction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L259), [cx.c x/y/u/v installation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L269), [cx.c result audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L671), [cx.c executor selection](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1316).
 
+<a id="je2p3-구현--implicit-operand의-반환-시-고정-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — implicit operand의 반환 시 고정 (2026-10-04, partial)
 
 - [x] C `t.c`처럼 `u.`/`v.`를 VERB primitive로 enqueue한다. ordinary NAME이나 extension keyword로 바꾸지 않는다. registry version은 4이다.
@@ -223,6 +232,7 @@ C `5!:1`은 source graph가 아닌 실행 객체의 표현이므로 `u. "0`에�
 
 Sources: [t.c primitive 등록](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L221), [cx.c mode 판정](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L766), [cx.c 반환 fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L679), [af.c 첫 implicit reference fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L117), [sc.c caller scope 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L124).
 
+<a id="je2p3-구현--implicit-operand의-caller-scope-호출-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — implicit operand의 caller scope 호출 (2026-10-04, partial)
 
 - [x] C `sc.c::unquote`와 Windows oracle에서 ordinary u와 implicit u.의 caller-local 조회 차이, v., monad/dyad, noun/missing operand 오류를 확인한다.
@@ -234,6 +244,7 @@ Rust 회귀 **2개**가 ordinary u와 u.의 caller-local 차이, u/v monad/dyad,
 
 Sources: [sc.c local operand와 caller 환경 전환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L122), [sc.c implicit primitive 호출](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L433).
 
+<a id="je2p3-구현--wrapper와-train의-scope-aware-실행-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — wrapper와 train의 scope-aware 실행 (2026-10-04, partial)
 
 - [x] C `ar.c::jtredg`의 오른쪽 결합, `j.h::FORK1/FORK2`의 오른쪽 가지 우선, rank의 cell/frame·prefix agreement를 검토한다.
@@ -248,6 +259,7 @@ Rust regression 2개와 기존 named-insert provenance regression은 source DAG 
 
 Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L513), [j.h fork execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249), [cr.c rank](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
 
+<a id="je2p3-구현--empty-identity와-순수-ravel-prototype-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — empty identity와 순수 ravel prototype (2026-10-04, partial)
 
 - [x] C `ai.c::jtiden`과 Windows oracle로 `+ - * %`의 identity를 확인했다. empty rank에서 사용자 verb가 prototype 계산용으로 한 번 실행되어 global 효과가 남을 수 있다는 점을 확인했다.
@@ -261,6 +273,7 @@ Sources: [ar.c reduce](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06
 
 Sources: [ai.c identities](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ai.c#L368), [ar.c empty reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L505), [cr.c rank execution](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c).
 
+<a id="je2p3-구현--noun-left-fork-호출과-snapshot-공유-2026-10-04-partial"></a>
 ##### JE2/P3 구현 — noun-left fork 호출과 snapshot 공유 (2026-10-04, partial)
 
 - [x] C `j.h` NVV 경로와 Windows oracle에서 왼쪽 noun은 생성 시 snapshot이고 오른쪽 h 실행 후 g에 넘겨진다는 것을 확인한다. monad/dyad와 이름 재대입·agreement 오류를 대조한다.
@@ -273,6 +286,7 @@ Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5
 
 **Noun-fork gate:** native Windows default/portable 각각 **412 passed / 17 ignored**, fmt/clippy/build 통과. Python **27 passed**. j64/AVX2 각각 세 runtime 경로 **5,156 cases / 5,155 passed / runtime 경계 1 / failed 0**, stage **10,511 checks / failed 0**, words **6,618 cases / failed 0**. capture graph 경계 **234건**, static 경계 **2건**은 별도다. report 10개의 actual binary/reference/source hash를 확인했고 새 waiver는 없다. Rust regression **2개**와 기존 computed-noun capture regression을 실제 실행 결과 검증으로 갱신했다. 공통 runtime **26건**, 이를 포함한 stage **37건**을 추가했다. full upstream·ignored definition acceptance·private C trace 동등성은 미검증이며 optimizer·CUDA·Linux/GitHub CI는 실행하지 않았다.
 
+<a id="je2p3-구현--capped-fork의-생성-의미와-graph-표현-2026-10-05-partial"></a>
 ##### JE2/P3 구현 — capped fork의 생성 의미와 graph 표현 (2026-10-05, partial)
 
 - [x] C `t.c::CCAP`, `cf.c::jtcap/jtfolk`와 `j.h`를 확인하고 Windows j64/AVX2의 finite probe를 기록했다. 기존 `reports/capped-fork-oracle-windows.json`은 **구현 전 reference-only 관찰**이며 conformance 통과 보고서로 바꾸지 않는다.
@@ -291,6 +305,7 @@ Sources: [cf.c noun fork](https://github.com/jsoftware/jsource/blob/13994ffa1ed5
 
 Sources: [t.c cap primitive](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c#L163), [cf.c single-name cap 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L38), [j.h capped call](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1249).
 
+<a id="je2p3-구현--verb-valued-rank의-생성-정보와-실행-이름-분리-2026-10-05-partial"></a>
 ##### JE2/P3 구현 — verb-valued rank의 생성 정보와 실행 이름 분리 (2026-10-05, partial)
 
 - [x] C `cr.c::jtqq`, `sc.c::jtnamerefacv`, `ja.h`의 rank accessor와 core primitive/derived constructor를 검토했다. `u"v`는 오른쪽 verb를 실행하지 않고 **그 함수 객체의 monad/left/right header rank**를 복사한다. negative requested rank와 derived verb의 실제 header rank는 다르다. 예를 들어 `+"_1`의 requested monad rank는 -1이지만 header monad rank는 `_`다. gerund rank-derived verb의 header도 모두 `_`다.
@@ -315,6 +330,7 @@ Sources: [cx.c modifier return fix](https://github.com/jsoftware/jsource/blob/13
 
 Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L734), [sc.c NAME header copy](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [ja.h rank accessor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ja.h#L745), [t.c primitive headers](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/t.c), [ap.c prefix/infix header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L965), [ar.c insert header](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ar.c#L1009).
 
+<a id="je3--operator-specific-higher-order-view-필요성-검증"></a>
 ##### JE3 — operator-specific higher-order view 필요성 검증
 
 - [ ] **기본값은 generic `EntityArray`가 아니다.** 먼저 `GerundView` / `InterpretedEntitySequence`처럼 해당 J operator의 semantic interpretation을 직접 표현한다.
@@ -328,6 +344,7 @@ Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994
 
 **JE3 완료 조건:** operator-specific view로 충분한지 먼저 판정하고, generic shaped collection은 실제 공통 semantic law가 발견된 경우에만 추출한다. jsource 내부 representation의 편의만으로 `EntityArray`를 만들지 않는다.
 
+<a id="je4--gerundboxed-higher-order-semantics-통합"></a>
 ##### JE4 — gerund/boxed higher-order semantics 통합
 
 - [ ] gerund를 새 global atom/POS type으로 만들지 않고 **boxed noun + modifier-context interpretation**이라는 기존 J semantics를 유지한다.
@@ -340,6 +357,7 @@ Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994
 
 **JE4 완료 조건:** gerund와 boxed data의 문맥적 차이를 잃지 않으면서 higher-order entity collection을 공통 abstraction으로 표현할 수 있다.
 
+<a id="je5--entity-algebra와-array-execution-algebra의-경계"></a>
 ##### JE5 — entity algebra와 array-execution algebra의 경계
 
 - [ ] `JEntity` layer와 `Logical Execution IR`의 역할을 분리한다: function entity 자체는 logical array value가 아니고, **적용된 verb가 noun input을 받아 noun result를 만드는 순간** array execution graph로 내려간다.
@@ -351,6 +369,7 @@ Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994
 
 **JE5 완료 조건:** `JEntity` 일반화가 현재의 “verb application = logical array computation” 모델을 흐리지 않고 오히려 그 경계를 명시적으로 만든다.
 
+<a id="je6--migration-cleanup과-비용-검증"></a>
 ##### JE6 — migration cleanup과 비용 검증
 
 - [ ] compatibility adapter와 중복 `Noun|Function` carrier를 제거한다.
@@ -364,6 +383,7 @@ Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994
 
 **운영 규칙:** 이후 `JEntity`/higher-order view 관련 진행 보고는 반드시 `JE0`–`JE6` 항목 번호로 보고한다. 새 요구사항은 임시 TODO로 분산시키지 않고 먼저 이 체크리스트의 적절한 단계에 추가한다. 최소 `JEntity`는 M2의 중복 carrier를 줄이는 작은 seam부터 허용하지만 broad rewrite는 금지한다. JE3에서 공통 shaped-entity algebra가 입증되지 않으면 generic `EntityArray`/`EntityCollectionView`를 구현 목표로 강제하지 않는다.
 
+<a id="a0--문서아키텍처-경계"></a>
 ### A0 — 문서/아키텍처 경계
 
 - [x] RustJ 내부 compiler stage의 논리적 경계를 확정한다.
@@ -373,6 +393,7 @@ Sources: [cr.c rank constructor](https://github.com/jsoftware/jsource/blob/13994
 - [x] 문서를 `PROJECT.ko.md`로 통합한다.
 - [x] 현재 지원 subset의 source frontend → FunctionEntity → J Graph → canonical Logical IR 분석 경계를 연결했다. full frontend/execution 완료는 M2/M4에서 별도로 추적한다.
 
+<a id="a05--jsource-compatible-parser-이행-체크리스트"></a>
 ### A0.5 — jsource-compatible parser 이행 체크리스트
 
 이 절의 **F0–F2 + P0–P7이 frontend/parser migration의 authoritative checklist**다. F0은 word formation, F1은 enqueue/primitive resolution, F2는 parse-queue skeleton을 담당한다. 그 뒤 P 단계에서 parser semantic construction/name-resolution/cutover를 완성한다. P8은 A1/A2/A3로 넘기는 integration handoff다.
@@ -392,6 +413,7 @@ RustJ가 그대로 맞춰야 하는 것은 **word/class resolution timing, row e
 
 RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST parser가 아니라는 점을 보존해야 한다. rows 0–2의 verb application은 **parser-visible effect/value dependency가 없다는 것이 증명된 경우에만** Noun-producing semantic application으로 defer할 수 있다. 그 실행이 이후 name/locale lookup, assignment state, modifier operand value, result POS 또는 construction-time error에 영향을 줄 수 있으면 정적 parser가 효과를 무시한 채 진행해서는 안 된다. v0 correctness baseline은 동일한 9-row engine의 runtime semantic action/fallback을 사용하고, 이후 guard/multiversion으로 정적 범위를 넓힌다. rows 3–4 역시 modifier application 시점에 필요한 J construction semantics를 수행하여 completed entity/POS/error를 결정해야 한다.
 
+<a id="frontend-파일-경계"></a>
 #### Frontend 파일 경계
 
 | 파일 | 책임 | 입력 → 출력 |
@@ -403,6 +425,7 @@ RustJ는 compiler이지만 jsource parser가 실행과 분리된 정적 AST pars
 
 Tokenizer·enqueuer·parser 구현은 각각 한 파일이 소유한다. 기존 `scanner` module과 `semantic::parse`/row API는 compatibility re-export만 남겨 기존 사용자를 보호하며 별도 grammar를 유지하지 않는다. parser는 enqueue 결과를 spelling으로 다시 분류하지 않는다. execution/target 선택을 이 세 파일에 넣지 않는다.
 
+<a id="최우선-실행-계획과-단계별-논리-동등성-2026-10-03"></a>
 #### 최우선 실행 계획과 단계별 논리 동등성 (2026-10-03)
 
 Tokenizer → Enqueuer → Parser의 jsource 충실도를 다른 구현 작업보다 먼저 완성한다. 기존 F0–F2/P0–P7 체크리스트를 그대로 사용하며 새 병렬 로드맵은 만들지 않는다. CUDA 구현은 계속 계획에만 둔다. representation·주소·refcount는 비교 대상이 아니며, 다음 의미 투영과 실패 동작을 비교한다.
@@ -436,12 +459,14 @@ python tools/frontend_stage_conformance.py --binary target/windows-validation/de
 
 <a id="noun-reduction-capture"></a>
 
+<a id="noun-reduction과-컴파일용-구조-보존--조사-및-구현-계획-2026-10-03"></a>
 #### Noun reduction과 컴파일용 구조 보존 — 조사 및 구현 계획 (2026-10-03)
 
 **결정:** runtime parser는 jsource처럼 verb application을 실행하여 실제 noun으로 reduce하고, 컴파일러는 별도 capture에서 생산 연산과 input/output 연결을 보존한다. noun이 된다는 이유로 provenance를 버리지 않는다. verb 중심의 tacit 표현은 구조를 노출하는 권장 방식이며 필수 언어 제한이 아니다. 이 절은 F2/P2–P6를 구체화하는 계획이고 별도 roadmap이나 두 번째 canonical IR을 만들지 않는다.
 
 **현재 남은 차이:** runtime rows 0–2는 이제 host를 통해 실제 noun으로 reduce한다. static context는 연산 Expr를 보존한다. capture v0는 source operation과 occurrence 연결을 별도로 보존하며, 성공 capture를 기존 J Graph로 변환하는 adapter도 구현했다. top-level single-name non-final assignment는 구현했다. explicit-local/locale/definition/effect 및 전체 modifier POS는 계속 미완료다. 일반 fork executor 미지원도 frontend construction 지원과 구분한다.
 
+<a id="다른-언어배열-프레임워크의-처리"></a>
 ##### 다른 언어·배열 프레임워크의 처리
 
 아래 공식 문서/소스는 2026-10-03 확인했다. `main`/`stable`/nightly URL은 움직이는 참고 자료이며 RustJ 호환성 oracle revision을 대신하지 않는다. framework 동작과 RustJ 적용 판단을 구분한다.
@@ -457,6 +482,7 @@ python tools/frontend_stage_conformance.py --binary target/windows-validation/de
 
 **RustJ 적용 판단:** 위 사례에서 실행/값과 graph representation이 분리될 수 있다는 점을 취한다. parser-time 의미 보존은 [jsource p.c](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c)가 기준이다. pure-array lazy evaluation은 이후 증명된 구간에서 사용할 최적화이며, 이번 baseline parser의 replacement가 아니다.
 
+<a id="값과-기록의-소유권"></a>
 ##### 값과 기록의 소유권
 
 예: `a + b * c`에서 parser의 오른쪽 reduction은 `b * c`를 실행해 noun을 얻는다. 별도 기록은 다음 연결을 보존한다. `v1/v2`는 설명용 observation id이며 메모리 주소가 아니다.
@@ -474,6 +500,7 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 - **성공/오류/효과:** invoke 직전에 attempt/input edges를 기록하고, 성공 시 output origin을 연결한다. 실패 시 기존 J ErrorKind/ErrorContext를 그대로 반환하고 실패 node와 partial graph를 남길 수 있다. partial graph는 complete executable plan이 아니다. 이미 수행된 J-visible effects를 capture 실패 때문에 문장 전체 rollback하거나 재실행하지 않는다. 아직 성공하지 않은 바깥 assignment를 commit하지 않는 기존 의미를 보존한다. trace 내부 실패는 J 오류를 덮어쓰지 않고 capture 불완전 상태로 분리한다.
 - **최적화 전달:** capture는 새 실행 IR이 아니라 기존 `j_graph_ir::Plan`을 생성/보강하는 입력 sidecar다. `logical_ir::Plan`이 canonical execution IR이라는 M1 원칙은 유지한다. J Graph verifier는 data edges와 effect/error sequencing을 검증한 후 기존 lowering으로 넘긴다. parser에는 target/device/schedule/fusion 결정을 넣지 않는다.
 
+<a id="실행-경로와-재사용-경계"></a>
 ##### 실행 경로와 재사용 경계
 
 1. **Reference semantic execution:** capture on/off 모두 같은 parser class matcher와 row actions를 사용한다. rows 0–2의 runtime action은 그 시점에 실제 noun을 생성한다. record 여부로 실행 횟수·name lookup·오류 시점이 달라지면 안 된다.
@@ -482,7 +509,3 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 4. **Captured graph reuse:** trace 한 번으로 모든 입력/branch가 표현되었다고 주장하지 않는다. observed shape·data-dependent constructor/POS·binding/environment assumptions를 constants/input dependencies/guards로 구분한다. reuse 전에 검증하거나 재capture/semantic execution으로 되돌린다. 재capture는 이미 일부 effects를 실행한 지점에서 문장 처음부터 다시 시작하는 방식으로 구현하지 않는다. v0 capture는 inspection에 한정하고 재사용 실행을 기본 제공하지 않는다.
 5. **효율:** execute-and-capture는 첫 실행의 array 계산 비용을 없애지 않는다. v0는 trace arena + shared function references + small facts를 기본으로 하여 capture 때문에 모든 temporary가 살아남지 않게 한다. pure-array region reuse/JIT/fusion이 subsequent execution의 성능 단계다. CUDA 구현은 계속 유예한다.
 
-
----
-
-[← 이전 부분](./11-roadmap-checklists-p01.ko.md) | [다음 부분 →](./11-roadmap-checklists-p03.ko.md)

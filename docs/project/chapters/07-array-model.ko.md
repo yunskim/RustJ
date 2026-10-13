@@ -1,9 +1,12 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="logical-physical-array-model"></a>
+
+<a id="6-논리-배열과-물리-배열--핵심-architecture-decision"></a>
 ## 6. 논리 배열과 물리 배열 — 핵심 architecture decision
 
+<a id="61-논리-j-noun-boxed-sparse와-verb"></a>
 ### 6.1 논리 J noun, boxed, sparse와 verb
 
 dense noun의 extensional value는 기본적으로 다음으로 본다.
@@ -68,6 +71,7 @@ verb는 noun array를 입력받아 noun array를 반환하는 array transformer�
 - CUDA block/thread
 - concrete sparse backend format(CSR/COO 등)
 
+<a id="62-valueid와-bufferid"></a>
 ### 6.2 ValueId와 BufferId
 
 `ValueId`와 `BufferId`는 다르다.
@@ -79,6 +83,7 @@ verb는 noun array를 입력받아 noun array를 반환하는 array transformer�
 
 반대로 수명·alias·effect 조건이 검증된 여러 ValueId가 같은 BufferId를 재사용할 수도 있다. Logical ArrayValue가 존재한다고 별도 buffer가 필요한 것은 아니다. view, fused-away intermediate, rematerialized value의 실제 저장과 reshape/transpose/reverse/slice의 copy 여부는 downstream planner가 결정한다.
 
+<a id="63-physicalarray"></a>
 ### 6.3 PhysicalArray
 
 개념 모델:
@@ -108,6 +113,7 @@ PhysicalArray {
 - standard-layout 판정
 - logical slice의 제한적 노출
 
+<a id="64-cpustorage의-위치"></a>
 ### 6.4 CpuStorage의 위치
 
 현재 `CpuStorage<T>`의 Inline / Owned / Shared 구조는 버리지 않는다.
@@ -126,6 +132,7 @@ Storage
   └─ ...
 ```
 
+<a id="641-현재-구현-상태와-완료-조건"></a>
 #### 6.4.1 현재 구현 상태와 완료 조건
 
 Logical/Physical Array 분리는 **아키텍처 결정으로는 확정**됐지만 runtime representation까지 완전히 이행된 상태는 아니다.
@@ -145,3 +152,4 @@ Logical/Physical Array 분리는 **아키텍처 결정으로는 확정**됐지�
 따라서 현재 `Value { shape, Data::Int(CpuStorage<_>), ... }` 구조는 semantic boundary의 최종형이 아니라 migration bridge다.
 
 ---
+

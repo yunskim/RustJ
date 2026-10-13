@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 13. 프레임워크 조사에서 채택한 원칙 — 계속 (3/3)
-
+<a id="p3-현재-known-gaps--바로-다음-순서--m2-우선으로-재정렬-2026-10-06"></a>
 ###### P.3 현재 known gaps / 바로 다음 순서 — M2 우선으로 재정렬 (2026-10-06)
 
 1. **M2 frontend 수렴이 우선:** word formation → enqueue → parser/name/POS/derived entity의 실제 미해결 의미론과 회귀 검증을 먼저 마무리한다. 검색 최적화 연구는 frontend 작업을 선점하지 않는다.
@@ -13,6 +10,7 @@
 
 **검증 정책:** semantic-reference와 optimized 경로가 동일한 내부 planner를 공유하는 동안 두 결과의 일치는 독립적인 최적화 검증 증거가 아니다. 추후 확인된 C oracle 및 순차 semantics 기준선과의 **3방향 비교**, 오류/효과 순서, fallback, 실제 비용 측정을 별도 gate로 둔다.
 
+<a id="p4-독립-검토-기록-1--제한된-float-search-후보-완전성-2026-10-06"></a>
 ###### P.4 독립 검토 기록 #1 — 제한된 float search 후보 완전성 (2026-10-06)
 
 **의미론·수학 관점 (코드 구현과 독립):** 현재 RustJ `kernels::near`는 `a == b || finite(a,b) && |a-b| <= t * max(|a|,|b|)`이고 `t = 2^-44`. `a,b`가 0이 아닌 유한수이며 비교가 성공했다면 서로 부호가 다를 수 없다(반대 부호이면 차이는 두 절대값의 합으로 `t<1` 조건을 위반). `M=max(|a|,|b|)`, `m=min(|a|,|b|)`이면 `M-m <= t M`이므로 `m >= (1-t)M > M/2`(`t<1/2`). 따라서 이진 지수 `floor(log2 |a|)`와 `floor(log2 |b|)` 차이는 최대 1. **query와 동일 부호인 지수 `e-1,e,e+1` bucket은 성공 가능한 source 항목을 누락하지 않는 필요조건**이다. 결과는 bucket 대표값이 아니라 **모든 원본 index를 취합한 뒤 원래 `near`로 재검사**하고, `i.`은 최소 원본 index, `i:`는 최대 원본 index를 택한다. 비추이적 연쇄 `a≈b≈c`, `a≉c`에서 앞의 원소 하나로 bucket을 대표시키는 방식은 불허한다. +0/-0, 동부호 ±Infinity는 exact equality로 별도 취급하고 NaN은 불일치한다.
@@ -22,6 +20,7 @@
 **계층·소스 독립 검토:** BQN 원문은 작은 인자 SIMD, sparse **table** initialization, reverse lookup과 large-input partitioning의 알고리즘 참고로만 사용한다. 실제 C의 tolerant 해시(`viavx2.c`)는 두 인접 tolerance 구간과 exact insert / tolerant probe를 활용하므로, 연구용 **부호·지수 3-bucket** 설계를 jsource의 bitmask 알고리즘과 동일하다고 주장하지 않는다. A3/Registry/Physical/Runtime/문서의 provenance/guard/비승격·체크리스트 항목 **13개 정적 확인을 통과**했다. `src/tolerant_search.rs`는 **`#[cfg(test)]` 등록만** 되어 있으며 실제 Runtime을 호출하지 않는다. **Cargo/CI/C differential/benchmark를 수행하지 않았으므로 P.1의 실행 수용 게이트는 계속 [ ]로 둔다.**
 
 
+<a id="p5-독립-검토-기록-2--ieee-754-인접-비트원본-순서-보강-2026-10-06"></a>
 ###### P.5 독립 검토 기록 #2 — IEEE-754 인접 비트·원본 순서 보강 (2026-10-06)
 
 **이번 변경과 완료 범위.** 연구 전용 `src/tolerant_search.rs`에 `fixed_near_candidate_filter_covers_ieee_neighbor_words_and_first_last` 회귀 테스트를 추가했다. subnormal/normal, 1·2의 거듭제곱 경계, 최대 유한수/Infinity/NaN, 부호별 인접 비트 패턴과 고정 seed 2,048개 임의 `f64` 비트 패턴을 포함한다. 각 query에 대해 (a) **원본 전체 배열**을 순차 `kernels::near` 비교한 참조 결과가 candidate 집합에 포함되는지, (b) 모든 candidate index가 유일·원본 순서대로 정렬되는지, (c) First/Last 반환값이 순차 참조와 같은지를 따로 확인하도록 작성했다. 이 테스트는 `#[cfg(test)]`로만 컴파일되는 기존 실험 모듈에 있으며 **실제 Rust 테스트 실행 완료를 의미하지 않는다**.
@@ -33,6 +32,7 @@
 **검증 상태 및 다음 게이트.** 이 환경에서 Rust/Cargo 실행 환경을 확보하지 못했으므로 `cargo test tolerant_search`, `cargo test --features portable tolerant_search`, `cargo fmt --check`, `cargo clippy`, jsource C 비교 및 성능 측정은 **미실행**으로 유지한다. P.1의 5–7, 12와 P.2의 C/E는 완료 처리하지 않는다. 다음 증거는 서로 다른 `!.ct` 설정, float/complex/boxed/Rank·empty 경계에 대한 **실제 C 결과**와 Rust 결과 차등, tolerance policy/version witness, 그리고 guard miss 시 원래 순차 의미를 보존하는 조건이다. `TolerantNeighborHash`의 `NeedsSemanticProof`는 변경하지 않았고 Physical 선택·런타임 실행에 연결하지 않았다.
 
 
+<a id="p6-원본-j-비교-정책증명-경계--source-first-독립-검토-2026-10-06"></a>
 ###### P.6 원본 J 비교 정책·증명 경계 — source-first 독립 검토 (2026-10-06)
 
 **확인 가능한 J 의미론 원본:** J Dictionary의 [Equal (=)](https://www.jsoftware.com/help/dictionary/d000.htm)은 유한 float/complex 비교 기본 허용오차를 `2^-44`로 설명하고 `!.t` 재정의를 명시한다. [Fit (!.)](https://www.jsoftware.com/docs/help806/dictionary/d411.htm)에는 `i.`, `i:`, `e.`, `E.` 등의 fit 대상이 열거되어 있고, [전역 매개변수 9!:18/9!:19](https://www.jsoftware.com/help/dictionary/dx009.htm)는 tolerance 조회/변경 계약이다. 즉 기본 값이 우연히 현재 `kernels::near`의 상수와 일치해도 **실행 시 적용되는 비교 정책의 동일성**을 추정할 수 없다.
@@ -44,6 +44,7 @@
 **실행 승인 필요조건(미승인 유지):** CPU finite scalar float 검색에서조차 **비교 정책을 실제로 witness/guard**하고, 모든 가능 일치 위치가 후보로 보존된다는 proof가 있으며, 후보마다 정확히 동일한 semantic comparator로 재검사하고, 최소/최대 원본 위치 및 no-match sentinel을 유지해야 한다. 가드 실패는 observable effect 전에 일반 순차 검색으로 돌아가야 한다. `NaN`/무한대/underflow, 혼합 타입, rank/cell, boxed/sparse, C와 Rust 기본 비교 차이를 회피하는 **명시적 지원 범위**가 필요하다. 지금 단계에서 proof는 고정 Rust `near`에만 제한되고, C differential·동적 policy와 `!.t`의 등가는 **미검증**이다. 따라서 `LoweringRegistry`의 `TolerantNeighborHash=NeedsSemanticProof`와 테스트 전용 배선을 유지한다.
 
 
+<a id="p7-고정-비교-정책-스냅샷-구현--dynamic-j-cct-미지원-경계-2026-10-06"></a>
 ###### P.7 고정 비교 정책 스냅샷 구현 — dynamic J CCT 미지원 경계 (2026-10-06)
 
 > **역사적 상태: 아래 `FixedRustNearV0` 실행 설명은 첫 구현 당시 기록이다. 현재 기본 CPU 실행은 §P.9의 `PinnedJDefaultCctV0`로 교체됐다.**
@@ -55,6 +56,7 @@
 **설계상 의미:** '비교 정책'을 실행 코드의 명시적 입력으로 캡처하는 첫 단계이고 **J의 `!.t`/전역 `9!:19`를 구현한 것이 아니다**. `FixedRustNearV0`는 현재 Rust CPU 함수의 정체성일 뿐, jsource `cct`-based 구현 동등성 witness가 아니다. 다음 기능을 활성화하려면 `Fit`-derived verb/동적 설정의 semantic ownership, 실제 호출 시점 policy identity + epoch, guarded supported-range proof, 전체 rank/cell·type·error 조건, 적절한 cache key/invalidation 및 독립 J C differential을 각각 충족해야 한다. 자동 TolerantNeighborHash 후보 선택, prepared float hash, LLVM/GPU 경로는 계속 금지한다. P.1 단계 5–7/12는 **[ ] 그대로**다.
 
 
+<a id="p8-jsource-기본-비교식의-경계-불일치--미해결-의미론-차이-발견-2026-10-06"></a>
 ###### P.8 jsource 기본 비교식의 경계 불일치 — 미해결 의미론 차이 발견 (2026-10-06)
 
 > **역사적 발견: 아래 8개 경계 불일치는 §P.9 실행 수정 이전의 상태다. 고정 기본 CCT는 이후 3방향 검증에서 수렴했지만 동적 CCT/Fit 구현을 뜻하지 않는다.**
@@ -69,6 +71,7 @@
 
 
 
+<a id="p9-기본-j-cct-비교-정책으로-실행-경로-정렬--fw-03-부분-증거-2026-10-06"></a>
 ###### P.9 기본 J CCT 비교 정책으로 실행 경로 정렬 — FW-03 부분 증거 (2026-10-06)
 
 **변경 이유와 최초 관찰.** `P.8`의 반례를 고정 `jsource@13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` C binary에서 직접 확인했다. [FW-03 진단 CI 37445080131](https://github.com/yunskim/RustJ/actions/runs/37445080131)은 j64·j64avx2 × Rust default·portable 네 조합 각각 **48개 중 40 일치 / 8 C-vs-Rust 불일치 / Rust baseline 대 optimized 불일치 0**을 기록했다. 8개는 `1.0 ± 2^-44`의 `=`, `i.`, `i:`, `e.`(상·하한 × 네 연산)였다. 원본 삼방향 값·pin·binary 해시는 CI artifact `reports/tolerance-audit-*.json`에 보존한다.
@@ -79,6 +82,7 @@
 
 **잔여 의무.** `9!:19` 동적 전역 설정·`!.t` Fit, boxed/sparse·복소수·Rank/Cell·오류 순서 및 J numeric 타입 전체는 검증/구현이 남았다. `FW-03`, `FW-04`, `JX-04`, `P.1 #5/#12`는 **[ ]** 유지. P.4의 *구 Rust near* 한정 tolerant hashing 후보·수학적 증명을 새 default J CCT 해시 정당화로 승격하지 않는다. 자동 tolerant hash, float prepared hash, GPU/LLVM 경로도 아직 미허가다.
 
+<a id="p10-rank-zero-frame-fill-cell-실행검증--fw-04-부분-증거-2026-10-06"></a>
 ###### P.10 Rank zero-frame fill-cell 실행·검증 — FW-04 부분 증거 (2026-10-06)
 
 **jsource 의미론과 문제 재현.** 고정 [`jsrc/cr.c`](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c)의 `jtrank1ex`·`jtrank2ex`는 frame의 셀 수가 0이면 type-correct fill cell 또는 반복되지 않는 첫 실제 cell을 이용해 operand를 평가하고, 그 결과의 type·shape로 빈 배열을 조립한다. 계산 오류 발생 시 `WITHDEBUGOFF`/non-exigent error fallback 등의 추가 계약도 있다. 이전 RustJ는 `(i.0 3) (i."1 1) (i.0 3)`을 `Unsupported`로 거부했고, [기준 Rank 진단 CI 37446732381](https://github.com/yunskim/RustJ/actions/runs/37446732381)에서 각 변형 14건 중 **13 일치 / 1 이 의미 불일치**를 확인했다.
@@ -91,6 +95,7 @@
 
 <a id="rank-cellapply-followups"></a>
 
+<a id="p11-rankcellapply-후속-이행-체크리스트--fw-04jx-04-세부-실행-계획-2026-10-06"></a>
 ###### P.11 Rank/CellApply 후속 이행 체크리스트 — FW-04·JX-04 세부 실행 계획 (2026-10-06)
 
 **목적·수용 경계.** §P.10에서 구현한 zero-frame Rank의 dense subset을 출발점으로, J의 일반 Rank/CellApply 의미론까지 검증·확장할 작업표다. 상위 §O.5 FW-04와 §Q JX-04의 **하위 실행 목록**이며 별도 최적화 허가 체계가 아니다. **현황: 범위 한정 5/12 완료, FW-04·JX-04는 [ ] 유지.** 고정된 [jsource@13994ffa](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc)의 cr.c (jtrank1ex/jtrank2ex)와 result.h를 기준으로 한다. 아래 완료 항목은 지원 subset에 한정한다.
@@ -115,6 +120,7 @@
 
 <a id="rank-graph-zero-frame"></a>
 
+<a id="p12-빈-frame빈-cell의-j-graph-ir-의미론--구조-증거와-실행-생략-허가-분리-2026-10-06"></a>
 ##### P.12 빈 Frame·빈 Cell의 J Graph IR 의미론 — 구조 증거와 실행 생략 허가 분리 (2026-10-06)
 
 **설계 결론.** 빈 배열은 별도의 `EmptyArray` 연산 노드가 아니라 *논리 Shape·타입·원래 Rank/CellApply 적용 관계*에 속한다. `0 3`과 `2 0`은 둘 다 원소 수가 0이지만, rank 1을 적용할 때 전자는 **frame=[0], cell=[3]**(실제 셀 호출 0회, J fill-cell 의미론 필요), 후자는 **frame=[2], cell=[0]**(빈 셀에 대한 실제 호출 2회)이다. 따라서 `element_count == 0`은 **연산 실행이나 효과·오류 평가가 0회**라는 증명이 아니다. 고정 jsource `jsrc/cr.c::jtrank1ex/jtrank2ex`와 §P.10의 fill 계약을 참조한다.
@@ -177,6 +183,7 @@
 
 <a id="jsource-optimization-migration"></a>
 
+<a id="q-jsource-전계열-최적화-이행-계획체크리스트--검색-이외-포함-2026-10-06-살아-있는-작업표"></a>
 ##### Q. jsource 전계열 최적화 이행 계획·체크리스트 — 검색 이외 포함 (2026-10-06, 살아 있는 작업표)
 
 **목적·정본.** §4.1.3.6 A–M은 jsource에서 확인한 **최적화 아이디어·원본 제약·RustJ 소유 계층의 조사 목록**이다. §O.5 **FW-01~FW-18**은 공통 증명·Guard·CPU 실행 게이트이고, §P.1은 **검색(i. family)의 세부 구현 게이트**다. 이 Q절은 그 **이외에도 존재하는 전체 source-derived family를 빠짐없이 작업 단위로 관리하려는 이행 추적표**이며, 세 표의 완료를 서로 대체하지 않는다. 별도 optimizer, C special entrypoint별 Graph node, 범용 registry를 선행 생성하지 않는다. 원본 검토 기준은 고정 jsource commit [13994ffa1ed5f06f79fad6e9822a7ed2d29b1528](https://github.com/jsoftware/jsource/tree/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc)이다.
@@ -212,6 +219,7 @@
 | JX-25 / D·FW-11~17 | **Physical target·자원·실측 cost 승인:** jsource SIMD/AVX, GEMM, hash, view, inplace, memory | src/lowering.rs, src/physical.rs, src/j_graph_resource.rs, src/fusion_planning.rs | baseline CPU와 독립 3방향 검증 후 target capability, hard allocation bytes, measured latency/memory를 분리. 동일 의미·guard/fallback·실측 win 없으면 SIMD/BLAS/GPU route 및 캐시 임계값 변경 보류 |
 | JX-26 / 최종·FW-18 | **반복 독립 검토·미조사 잔여:** primitive numeric/allocator/architecture-specific paths, 새로운 jsource commits | §4.1.3.6 A–M, 이 §Q, §O.5, §P.1, reports/ | **원본 C 진입·fallback / J 의미·반례 / Graph-A3 provenance / guard-effect·runtime / target-cost·bench**를 서로 독립 재검토. commit·OS/toolchain·실행 명령·pass/fail/ignored·oracle pin/범위·known gaps를 남기고 FW/P와 체크 동기화 |
 
+<a id="q1-jx-01fw-01-정적-sourcefrontend-감사-2026-10-06"></a>
 ###### Q.1 JX-01/FW-01 정적 source/frontend 감사 (2026-10-06)
 
 **상태:** JX-01 [ ], FW-01 [ ] 유지. 고정 jsource revision에서 현재 registry가 지목한 **C/H 원본 16/16 파일 존재**를 직접 확인했다. 대표 심볼·텍스트는 15개 파일에서 발견했다. `vcat.c`의 `boxed ownership transfer`는 실제 C 심볼이 아닌 설명이므로 일치로 세지 않았다. **파일/심볼 확인은 guard·fallback 전체, 실제 J 실행 또는 최적화 의미론의 증명이 아니다.**
@@ -250,6 +258,7 @@
 
 **다음 한 단계:** 새 테스트의 실제 default·portable 결과 및 pinned J C의 POS/derived syntax/error 차분을 확보한 뒤 **확인된 의미론 불일치 한 종류 + 회귀 하나**씩 수정한다. FW-01·JX-01 체크는 결과 명령·환경·commit·unsupported 범위가 기록되기 전까지 열어 둔다.
 
+<a id="q2-fw-01--jx-01-실행-회귀-및-원본-비교-게이트--두-번째-이행-기록-2026-10-06"></a>
 ###### Q.2 FW-01 / JX-01 실행 회귀 및 원본 비교 게이트 — 두 번째 이행 기록 (2026-10-06)
 
 **구현 판정: [ ] FW-01 · [ ] JX-01 · [ ] JX-10 유지.** 단항 Mean 후보를 실제로 놓치는 오류를 GitHub Actions [02854b6 진단 로그](https://github.com/yunskim/RustJ/actions/runs/37429620894)에서 재현했다. `(+/ % #) y`는 **전체 Fork 호출은 단항이지만, Graph region의 마지막 `g=%` Apply는 분기 결과 두 개를 받는 이항**이다. 이전 `src/j_graph_jsource.rs::discover`는 join의 `Valence::Monad`를 요구해 Mean 후보를 항상 버렸다. [05dae2d](https://github.com/yunskim/RustJ/commit/05dae2d9c250a466c1f0b89cfdc4b776e72d74c5)는 원래 `RegionKind::Fork` 및 `region.inputs.len()==1`로 **외부 호출의 valence**를 판정하고, join의 `Valence::Dyad`를 확인한다. Graph 실행·순서·원본 function entity는 변경하지 않는다. 고정 `jsrc/cf.c::jtfolk`는 `+/ % #` 패턴에 대해 `f1=jtmean`만 설정하므로 **단항 후보만** 발견하는 제한은 적절하다.
@@ -260,6 +269,7 @@
 
 **남은 독립 게이트:** Linux milestone [37432213939](https://github.com/yunskim/RustJ/actions/runs/37432213939)의 `check`는 `cargo fmt --check`에서 실패했다. 포맷 차이는 13개 Rust 소스·테스트 파일에 걸쳐 있으므로 **CI 전체 성공으로 표시하지 않는다**. j64/j64avx2 C reference job 결과와 검사 스위트 성공 여부는 별도 기록한다. [a91dd57](https://github.com/yunskim/RustJ/commit/a91dd5741f298e40782cea9a73801ff6dad0863e)는 `tools/conformance.py::cases`에 **단항 Mean의 보통 배열/길이 1/빈 배열/다차원 배열**을 추가해 pinned J C와 Rust 결과를 차분할 준비를 했다. 이 신규 C 차분 결과는 **아직 승인되지 않았다**. Native J 그래프 의미론 검증·JX-10 특수 실행 선택은 미완료다. 후속 실행에서 실패가 나면 `case + oracle output + Rust output + pin + backend`를 기록해 의미론 차이와 미지원/상위 원본 특수경로 차이를 분리한다.
 
+<a id="q3-fw-01jx-01-github-ci-녹색-검증과-기준선-기록-2026-10-06"></a>
 ###### Q.3 FW-01/JX-01 GitHub CI 녹색 검증과 기준선 기록 (2026-10-06)
 
 **코드/검증 커밋:** [89bbfd0](https://github.com/yunskim/RustJ/commit/89bbfd0e55163c90b5059e90d10b0ba0bd87ded5). GitHub Actions [Linux milestone 37433098574](https://github.com/yunskim/RustJ/actions/runs/37433098574)의 **5개 job이 모두 성공**했다. `check`는 Python 도구 테스트, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `cargo test --features portable`, `cargo build --release`, milestone 예제 실행을 모두 통과했다. [Basis compile probe 37433098567](https://github.com/yunskim/RustJ/actions/runs/37433098567)도 완료·성공했다. 이전 포맷 오류는 GitHub CI rustfmt 제안 104 hunk / 13 파일을 **의미론 변경 없이** 원자적으로 적용하여 제거했다.
@@ -277,8 +287,9 @@
 
 **체크리스트 상태는 [ ] FW-01 / [ ] JX-01 / [ ] JX-10을 그대로 유지한다.** 이번에 끝난 것은 해당 부분집합에 대한 Mean source-candidate 회귀 및 독립 C 차분 **하위 검증**이다. FW-01은 Key/Dot/Cut/Grade/Under/Memo 등 미구현 frontend constructor, rank/effect/error 및 다른 단일 단계의 C 차분 검토가 남아 있다. JX-01은 고정 원본 source family의 **각 guard·fallback 전수 범위**를 확정해야 하며, JX-10은 proof/Guard/순차-특수 3방향 검증과 성능 실측 전에는 최적화 실행을 승인할 수 없다.
 
-**다음 작업:** FW-01/JX-02의 지원되지 않는 **Key `/.` 파생 동사 구성**부터 고정 J C parser/POS·valence와 RustJ `VocabularyPrimitive` 구분을 입력별로 조사한다. 비지원 구문은 `AwaitingFrontendOrFacts`로 유지하고, 반례와 정상/부정 테스트를 확보한 뒤 한 연산군씩 구현한다.
+**다음 작업:** FW-01/JX-02의 지원되지 않는 **Key `/.` 파생 동사 구성**부터 고정 J C parser/POS·valence와 RustJ core support tag 구분을 입력별로 조사한다. 비지원 구문은 `AwaitingFrontendOrFacts`로 유지하고, 반례와 정상/부정 테스트를 확보한 뒤 한 연산군씩 구현한다.
 
+<a id="q4-fw-01jx-02의-첫-key--파생-동사-구성--실행과-최적화-허가는-분리-2026-10-06"></a>
 ###### Q.4 FW-01/JX-02의 첫 Key `/.` 파생 동사 구성 — 실행과 최적화 허가는 분리 (2026-10-06)
 
 **현황:** `FW-01 [ ]`, `JX-02 [ ]`, `JX-12 [ ]`, `JX-01 [ ]` 유지. `/.`를 **word/POS 인식에서 동사 피연산자 파생 동사의 비실행 구성까지** 이행한 부분 단계다. Key·Oblique의 범용 연산, 명사 gerund의 구성, GroupBy 최적화는 아직 구현·승인되지 않았다.
@@ -313,6 +324,7 @@
 **체크리스트 사용 규칙.** 각 JX 행은 **(1) C 원본 pin·조건 확인 → (2) J 의미론/unsupported 범위 확정 → (3) Graph 후보 및 source witness → (4) obligation별 proof/Guard·fallback → (5) 독립 reference·negative·C differential → (6) target/resource/실측 선택**의 여섯 열을 통과해야 완료한다. 실제 결과가 없으면 해당 행은 [ ]로 유지하며, 한 번에 **하나의 의미론 변경 + 해당 회귀/반례 하나**를 우선한다. 실패 또는 upstream drift가 발견되면 해당 연산군의 증명을 무효화하고 FW 관련 선행 게이트까지 되돌아간다. 각 완료 행에는 **JX-ID / code commit / 실행 명령·환경 / passed·failed·ignored / jsource commit·실제 oracle 범위 / fallback·negative 결과 / 측정값 / known gaps / 다음 게이트**를 기록한다. 당장은 **JX-01의 출처·범위 추적과 FW-01(M2)**부터 이어가며 특수 최적화를 새로 활성화하지 않는다.
 
 
+<a id="ndarray"></a>
 ### ndarray
 
 참고:
@@ -327,6 +339,7 @@ RustJ 적용:
 - checked affine descriptor
 - reshape compatibility proof
 
+<a id="apache-arrow"></a>
 ### Apache Arrow
 
 참고:
@@ -341,6 +354,7 @@ RustJ 적용:
 - shared backing 수명
 - 부분 view와 allocation owner 구분
 
+<a id="openxla"></a>
 ### OpenXLA
 
 참고:
@@ -355,6 +369,7 @@ RustJ 적용:
 - Logical/Physical Plan 분리
 - layout conflict materialization
 
+<a id="arrayfire--j-arrayfire-add-on--fusion-systems"></a>
 ### ArrayFire / J ArrayFire add-on / fusion systems
 
 확인 기준: 2026-10-01.
@@ -427,6 +442,7 @@ RustJ 적용:
 
 따라서 ArrayFire는 RustJ의 GPU backend 후보 하나라기보다, **lazy array execution, kernel fusion, external-library routing, physical layout mismatch, device-handle lifetime과 synchronization을 동시에 검증할 수 있는 비교 기준**으로 다룬다.
 
+<a id="jax--multi-device-systems"></a>
 ### JAX / multi-device systems
 
 참고:
@@ -437,6 +453,7 @@ RustJ 적용:
 
 - logical J noun과 physical placement 분리
 
+<a id="mlir-core--interfaces--regions"></a>
 ### MLIR core / interfaces / regions
 
 참고:
@@ -454,6 +471,7 @@ RustJ 적용:
 - 생성/변환 뒤 verifier를 필수 경계로 둔다.
 - fact domain마다 typed lattice를 사용한다.
 
+<a id="mlir-shape--dynamic-constraints"></a>
 ### MLIR Shape / dynamic constraints
 
 참고:
@@ -468,6 +486,7 @@ RustJ 적용:
 - dynamic specialization은 fast/fallback region으로 표현한다.
 - semantic error가 증명된 Invalid와 단순 Unknown을 구분한다.
 
+<a id="mlir-linalg--bufferization"></a>
 ### MLIR Linalg / Bufferization
 
 참고:
@@ -483,6 +502,7 @@ RustJ 적용:
 - `StorageRequirement`와 실제 `MaterializationDecision`을 분리한다.
 - `DestinationRelation`은 BufferId가 아니라 후속 bufferization hint/contract다.
 
+<a id="mlir-transform-dialect--tvm-tensorir-schedule"></a>
 ### MLIR Transform dialect / TVM TensorIR schedule
 
 참고:
@@ -498,6 +518,7 @@ RustJ 적용:
 - MLIR/TVM류 external optimizer를 재구현하지 않고 adapter를 통해 활용할 수 있게 한다.
 - external backend는 whole-program 선택이 아니라 legal subgraph/region partition으로 적용할 수 있게 한다.
 
+<a id="iree-flow--stream--hal"></a>
 ### IREE Flow / Stream / HAL
 
 참고:
@@ -513,6 +534,7 @@ RustJ 적용:
 - native Physical Plan의 async dependency는 explicit Timepoint/AsyncToken으로 표현한다.
 - resource lifetime과 buffer reuse는 physical timeline을 기준으로 판단한다.
 
+<a id="stablehlo--vhlo"></a>
 ### StableHLO / VHLO
 
 참고:
@@ -528,6 +550,7 @@ RustJ 적용:
 - external effect mapping은 token/adapter contract로 검증한다.
 - RustJ Logical IR도 외부 interchange를 시작할 때 schema version과 migration 정책을 둔다.
 
+<a id="triton"></a>
 ### Triton
 
 참고:
@@ -541,6 +564,7 @@ RustJ 적용:
 - tile/warp/stage/register cap은 Physical Schedule/TargetProfile 쪽에 둔다.
 - Logical IR에는 이를 선택할 수 있게 하는 axis/access/constraint fact만 유지한다.
 
+<a id="중요한-비채택-사항"></a>
 ### 중요한 비채택 사항
 
 - NumPy broadcasting을 J agreement로 대체하지 않는다.
@@ -552,9 +576,3 @@ RustJ 적용:
 
 
 ---
-
-<a id="read-advanced"></a>
-
----
-
-[← 이전 부분](./14-framework-research-p02.ko.md)

@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 5. Logical Plan, Physical Plan, Executor — 계속 (2/2)
-
+<a id="h-p--m3m4-구현-인수-패킷과-물리-검증-체크리스트-계약-2026-10-07-문서-전용"></a>
 ##### H-P — M3→M4 구현 인수 패킷과 물리 검증 체크리스트 계약 (2026-10-07; 문서 전용)
 
 **사용법:** 이 절은 H-01~09, H-K, H-A(A0~A5), RB-01~08의 **실행 시점 판정표**다. 구현·PR 심사 때 각 행에 입력 증거, 검증 결과, 부정 사례와 증거 링크를 채운다. 새 필수 IR, `TaskId` 런타임, 멀티프로세서 전용 planner를 요구하지 않는다. **미제공/unknown은 승인으로 간주하지 않는다.** M3가 의미론·선택된 route의 합법성 증거를 제공하며 M4는 이 증거를 재작성하지 않고 선택한 물리 실현을 검증한다. 전역 A3 coverage는 M3 소유, native region의 실현 coverage는 M4 소유다.
@@ -68,6 +65,7 @@ Call time: name/input versions + guards + actual buffer generations/leases
 
 **현재 상태/우선순위:** `main`은 M3 RouteBoundary와 M4 full native verification을 아직 갖추지 않았다. Draft [PR #4](https://github.com/yunskim/RustJ/pull/4)의 제한된 literal identity 경로·source witness·CI 성공이 있더라도 Check, 실제 Add, 전체 source coverage, completion/비동기, GPU 지원을 증명하지 않는다. 먼저 **HP-01~06·08·10의 순차 CPU 의미/검증 계약**을 실현하고 HP-V01~04/06/08을 확인한다. 그 다음 실제 CPU Kernel과 HP-07/09 자원·수명 검증을 추가한다. HP-09의 비동기 completion, transfer, multi-device/worker scheduling은 이종 실행 단계에서 확장한다. M4-v0는 full async scheduler를 필수 선행조건으로 하지 않는다.
 
+<a id="현재-코드와의-대응"></a>
 ##### 현재 코드와의 대응
 
 현재 `src/physical.rs`는:
@@ -80,6 +78,7 @@ shape / strides / offset / encoding validation
 
 을 제공하는 **G1 representation foundation**이다. 아직 `PhysicalPlan`, plan-time buffer slot, planner, physical executor가 아니다. `logical_executor.rs`도 A3 semantic/reference executor이지 Physical Executor가 아니다.
 
+<a id="구현-순서--한-번에-한-의미--한-verifiertest"></a>
 ##### 구현 순서 — 한 번에 한 의미 + 한 verifier/test
 
 1. plan-time `PlanBufferId`/`PhysicalViewId`와 empty plan verifier
@@ -93,6 +92,7 @@ shape / strides / offset / encoding validation
 
 이 순서는 G4를 구현할 때의 최소 vertical slice이며 full GPU resource model을 선행 조건으로 만들지 않는다.
 
+<a id="53-rustj-native-executor"></a>
 ### 5.3 RustJ-native Executor
 
 이 절은 Route A에만 적용한다. RustJ-native Executor는 이미 정해진 Physical Plan을 수행한다. 외부 compiler/runtime route는 각 시스템의 executor/runtime가 자체 lower-level scheduling을 수행할 수 있다.
@@ -108,10 +108,12 @@ Executor가 다음을 다시 판단해서는 안 된다.
 
 Physical Plan에서 비동기 실행을 허용할 경우 dependency는 implicit host order에 기대지 않고 `AsyncToken/Timepoint` 또는 동등한 explicit edge로 표현한다. resource의 사용 가능 시점과 lifetime은 이 timeline과 연결한다. IREE Stream의 timepoint/resource model과 MLIR Async의 explicit dependency token이 참고 모델이다.
 
+<a id="54-실행-경로는-하나가-아니다"></a>
 ### 5.4 실행 경로는 하나가 아니다
 
 `Logical Array IR`을 만든 이후 반드시 RustJ의 Physical Planner를 거쳐야 하는 것은 아니다.
 
+<a id="route-a--rustj-native"></a>
 #### Route A — RustJ native
 
 ```text
@@ -128,6 +130,7 @@ Logical Array IR
 - reference/bootstrap path
 - external compiler와 결과 비교 가능
 
+<a id="route-b--mlir"></a>
 #### Route B — MLIR
 
 ```text
@@ -143,6 +146,7 @@ MLIR Linalg는 generic indexing map/iterator semantics를 이용해 tiling, fusi
 
 RustJ가 MLIR의 최적화 passes를 재구현할 이유가 없다. 다만 J의 observable semantics를 위반할 수 있는 reassociation, error-order 변경 등의 lowering은 adapter가 막거나 필요한 attributes/guards를 제공해야 한다.
 
+<a id="route-c--stablehlo--openxla-compatible-subset"></a>
 #### Route C — StableHLO / OpenXLA-compatible subset
 
 NN/tensor 중심의 일부 LogicalOp은 StableHLO로 자연스럽게 표현될 수 있다.
@@ -157,6 +161,7 @@ StableHLO에는 token 기반 side-effect ordering, send/recv, side-effecting `cu
 
 필요하면 StableHLO `composite`나 `custom_call` 계열 escape hatch를 사용할 수 있지만, 그것이 semantic contract를 숨기는 수단이 되어서는 안 된다. adapter는 effect/token mapping을 명시적으로 검증한다.
 
+<a id="route-d--direct-external-librarykernel"></a>
 #### Route D — Direct external library/kernel
 
 ```text
@@ -167,6 +172,7 @@ LogicalOp / PhysicalRegion
 
 library call은 하나의 backend realization이며 primitive identity와 분리한다.
 
+<a id="55-외부-ir을-사용할-때-rustj가-끝까지-책임지는-것"></a>
 ### 5.5 외부 IR을 사용할 때 RustJ가 끝까지 책임지는 것
 
 외부 compiler에 넘긴다고 해도 다음 책임은 RustJ에 남는다.
@@ -184,6 +190,7 @@ library call은 하나의 backend realization이며 primitive identity와 분리
 
 반대로 register allocation, instruction selection, generic tiling/vectorization, machine-code generation처럼 이미 성숙한 외부 compiler가 더 잘하는 부분은 위임할 수 있다.
 
+<a id="551-external-adapter-boundary-contract"></a>
 #### 5.5.1 External adapter boundary contract
 
 external adapter는 RustJ semantic IR의 대체물이 아니라 **verified RouteRegion/Logical IR의 projection**이다. 첫 실제 MLIR/StableHLO/ArrayFire/library adapter를 구현하기 전에 모든 adapter가 공통으로 만족해야 할 boundary를 고정한다.
@@ -237,6 +244,7 @@ ExternalRegionPlan
   unsupported/compile-failure classification
 ~~~
 
+<a id="semanticcheck--error-mapping"></a>
 ##### SemanticCheck / error mapping
 
 각 A3 `SemanticCheck`는 다음 중 하나여야 한다.
@@ -247,6 +255,7 @@ ExternalRegionPlan
 
 backend assertion/trap을 무조건 J Domain/Rank/Length error로 바꾸지 않는다. external compiler crash/unsupported/kernel launch failure도 J semantic error가 아니다.
 
+<a id="effect--token-mapping"></a>
 ##### Effect / token mapping
 
 - pure region은 token 없이 projection할 수 있다.
@@ -254,6 +263,7 @@ backend assertion/trap을 무조건 J Domain/Rank/Length error로 바꾸지 않�
 - StableHLO token/custom_call 같은 escape hatch가 존재한다는 사실만으로 arbitrary J effect support를 선언하지 않는다.
 - host-side effect와 external async operation이 섞이면 completion token이 §2.5.1 RouteBoundary와 §3.9.4 commit frontier에 연결되어야 한다.
 
+<a id="representation-bridge--ownership"></a>
 ##### Representation bridge / ownership
 
 adapter는 J logical value를 backend layout과 동일시하지 않는다.
@@ -270,6 +280,7 @@ A3 live_out / next RouteRegion
 
 row-major/column-major, dense/sparse encoding, device memory, alignment, zero-copy 가능성은 adapter precondition/bridge/Physical Plan 책임이다. semantic dtype/shape/order를 layout에 맞춰 바꾸지 않는다.
 
+<a id="round-trip-verifier"></a>
 ##### Round-trip verifier
 
 adapter output은 최소 다음을 검증할 수 있어야 한다.
@@ -284,6 +295,7 @@ adapter output은 최소 다음을 검증할 수 있어야 한다.
 
 이 verifier는 external compiler 자체의 optimizer correctness를 재증명하는 것이 아니라, **RustJ가 넘긴 의미와 adapter가 선언한 projection 사이의 계약**을 검증한다.
 
+<a id="failure-classes"></a>
 ##### Failure classes
 
 ~~~text
@@ -302,6 +314,7 @@ JSemanticError
 
 앞의 세 항목을 임의로 `JSemanticError`로 재분류하지 않는다. 실행 전 failure이면 §3.9.4에 따라 verified alternate route를 선택할 수 있지만, observable effect/transfer commit 뒤에는 자동 replay하지 않는다.
 
+<a id="첫-adapter-구현-gate"></a>
 ##### 첫 adapter 구현 gate
 
 - 하나의 small pure-array region만 지원해도 되지만 capability matrix를 명시한다.
@@ -314,6 +327,7 @@ JSemanticError
 
 현재 **실제 production external adapter가 이 계약을 완료했다는 뜻은 아니다.** M6 이전에는 이 절이 implementation gate 역할만 한다.
 
+<a id="56-외부-ir-선택-원칙"></a>
 ### 5.6 외부 IR 선택 원칙
 
 하나의 외부 IR에 전체 RustJ를 맞추지 않는다.
@@ -328,10 +342,12 @@ external route의 존재 때문에 RustJ Logical IR을 외부 IR의 최소공배
 
 
 
+<a id="57-logical-ir은-verifierinterfaceversion-경계를-가진다"></a>
 ### 5.7 Logical IR은 verifier·interface·version 경계를 가진다
 
 Logical Array IR이 여러 route의 compiler boundary라면 단순 Rust struct 집합으로 끝내지 않는다.
 
+<a id="571-verifier"></a>
 #### 5.7.1 Verifier
 
 각 operation은 생성/변환 후 최소 다음을 검증할 수 있어야 한다.
@@ -348,6 +364,7 @@ op-specific semantic verifier
 
 invalid IR을 downstream optimizer가 추측해서 고치게 하지 않는다.
 
+<a id="572-capability-interfaces"></a>
 #### 5.7.2 Capability interfaces
 
 분석/변환은 concrete op 이름의 거대한 switch보다 capability interface를 우선한다.
@@ -366,12 +383,14 @@ ExternalLoweringCapability
 
 모든 op가 모든 interface를 구현할 필요는 없다. interface가 없으면 해당 optimization/route가 conservative하게 거부되거나 fallback 후보를 찾는다.
 
+<a id="573-canonicalization과-rewrite-provenance"></a>
 #### 5.7.3 Canonicalization과 rewrite provenance
 
 canonicalization은 semantic-preserving rewrite만 포함한다. J-specific structure를 없애는 rewrite와 target-specific optimization을 같은 canonicalization 단계로 섞지 않는다.
 
 각 nontrivial lowering/rewrite는 가능하면 source/semantic origin을 추적하여 differential debugging이 가능하게 한다.
 
+<a id="574-ir-serializationversioning"></a>
 #### 5.7.4 IR serialization/versioning
 
 현재 개발 단계에서는 RustJ Logical IR의 장기 binary compatibility를 약속하지 않는다. 그러나 외부 tool/process와 IR을 교환하기 시작하면 schema version을 명시한다.
@@ -387,13 +406,14 @@ portable artifact를 만들 경우 text/debug syntax와 portable serialization c
 
 MLIR bytecode의 dialect versioning과 StableHLO/VHLO의 versioned portable artifact 방식이 참고 모델이다. compatibility를 약속하기 전에도 **version field와 verifier를 처음부터 두는 것**이 migration 비용을 줄인다.
 
+<a id="575-cross-stage-negative-verifier-matrix"></a>
 #### 5.7.5 Cross-stage negative verifier matrix
 
 positive E2E test만으로는 compiler boundary를 보호할 수 없다. 각 stage는 “정상 plan이 통과한다”뿐 아니라 **그 stage가 책임지는 잘못된 상태를 반드시 거부한다**는 negative matrix를 가진다.
 
 | Stage / verifier | 반드시 거부해야 하는 forged/invalid state | 현재/계획 상태 |
 |---|---|---|
-| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.10`와 exact match |
+| J Graph `Plan::verify` | schema/primitive-registry mismatch, invalid ValueId/RegionId, stale region result/stage, malformed pipeline/fork/hook topology, source/fact/rule provenance drift | **현재 존재**. schema는 `J_GRAPH_SCHEMA_VERSION = 0.11`와 exact match |
 | rewrite candidate `verify` | stale source span/basis, unregistered rule/witness mismatch, replacement DAG forward reference, fact-rule mismatch, output semantic facts drift | **현재 존재** |
 | scan/fusion analysis verifier | forged source order, unsupported rule version, missing/incorrect witness, external-use/retention/fanout drift, candidate를 근거 없이 `selected`로 위조 | **현재 일부 존재**; proof discharge/selection verifier는 future |
 | A3 `Plan::verify` | schema/registry mismatch, invalid op/value/block/region references, use-before-def, source/j_origin drift, malformed constraint/check/effect/error/speculation contract, result/write/terminator inconsistency | **현재 존재**. schema는 `A3_SCHEMA_VERSION = 0.6`와 exact match |
@@ -420,6 +440,7 @@ no later planner/executor is invoked
 
 한 test에서 여러 invariant를 동시에 깨뜨리지 않는다. 어느 verifier가 어떤 invariant를 소유하는지 분명하게 유지한다.
 
+<a id="576-serialization--schema-migration-policy"></a>
 #### 5.7.6 Serialization / schema migration policy
 
 현재 RustJ의 J Graph/A3는 주로 in-process compiler artifact이며 장기 portable serialization compatibility를 약속하지 않는다. 현재 verifier는:
@@ -482,10 +503,3 @@ migration 결과도 반드시 current verifier를 통과해야 한다.
 pre-1.0 개발 단계에서는 schema를 자주 올릴 수 있다. 그 대신 version bump 없이 semantic field meaning을 바꾸는 것을 금지한다. portable artifact compatibility를 공식 약속하기 전에도 이 규율을 지킨다.
 
 ---
-
-<a id="logical-physical-array-model"></a>
-
-
----
-
-[← 이전 부분](./06-plans-executor-p01.ko.md)

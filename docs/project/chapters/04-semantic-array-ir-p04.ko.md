@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 3. J Semantic Array IR — 계속 (4/4)
-
+<a id="38-sentence-evaluation-order와-namespace-mutation"></a>
 ### 3.8 sentence evaluation order와 namespace mutation
 
 J의 parser는 conventional frontend처럼 “문장 전체 AST를 만든 뒤 모든 name을 한 번에 resolve”하는 것으로 의미를 모델링하면 안 된다. current jsource의 `p.c`는 queue를 stack하면서 name lookup, parse reduction, verb execution, assignment를 한 sentence 안에서 진행하며 J의 **우측→좌측 평가 의미**를 실현한다.
@@ -42,10 +39,12 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 
 <a id="dynamic-semantic-boundaries"></a>
 
+<a id="39-동적-의미와-컴파일-경계-계약"></a>
 ### 3.9 동적 의미와 컴파일 경계 계약
 
 이 절은 §3.4/§3.7/§3.8의 순서·이름 의미와 FOUNDATIONS §21/§33을 실행 경로 선택의 조건으로 모은 **설계 계약**이다. 구문별 영구 컴파일 금지 목록을 만들지 않는다. J-valid 여부, graph 구성/부분 분석 가능 여부, 특정 변환의 적법성, 특정 backend의 실행 capability는 서로 다른 판정이다. frontend가 실제 constructor/POS를 아직 확정하지 못하면 source·원인·시점의 경계를 보고하며 가짜 completed graph를 만들지 않는다.
 
+<a id="391-경계별-필요한-근거와-처리"></a>
 #### 3.9.1 경계별 필요한 근거와 처리
 
 | 경계 | 필요한 근거 | 검사·사용 시점 | 근거가 없거나 무효일 때 | 현재 구현 상태 |
@@ -60,6 +59,7 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 
 이 표의 runtime 처리는 **존재하고 검증된 RustJ capability에 한정**한다. 가능한 fallback이 항상 있다고 가정하지 않으며 C 엔진으로 넘기지 않는다. 지원 경로가 없으면 implementation coverage 경계로 보고하고 J-invalid 오류와 구분한다.
 
+<a id="392-허가하지-않는-변환과-guard-실패-계약"></a>
 #### 3.9.2 허가하지 않는 변환과 guard 실패 계약
 
 - 안정성 근거 없이 NAME을 inline하거나, 문장 시작 환경으로 모든 이름을 고정하지 않는다. `=.`/`=:`/locale 변경·dynamic execute가 lookup에 미치는 영향을 보존한다. unbound local에서 locale로 내려간 lookup도 이후 local binding 생성으로 무효가 될 수 있다.
@@ -70,6 +70,7 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 - **effect 이후 문장 전체 자동 replay를 금지한다.** 후속 runtime 전환은 이미 수행한 write/I/O, live noun snapshot, frame/locale 및 parser queue/stack·reduction 위치를 포함하는 정확한 continuation이 구현·검증되었을 때만 허용한다. 그 전에는 effect 이전 경로 선택만 지원하고 중간 전환 capability를 선언하지 않는다.
 - backend precondition miss는 그 route의 거부다. 의미를 검증하지 않은 다른 backend나 native path를 자동으로 성공 가능한 fallback처럼 사용하지 않는다.
 
+<a id="393-unknown-분류와-구현-경계"></a>
 #### 3.9.3 unknown 분류와 구현 경계
 
 | 미확정 정보 | 가능한 정적 작업 | 추가로 필요한 조건 |
@@ -81,6 +82,7 @@ compiler IR에서는 이를 반드시 source-order instruction list로 복제할
 
 현재 `GraphAnalyzability`의 Static / StaticWithUnknownFacts / RequiresSpecialization / DynamicSemanticFallback과 `AnalysisBoundary`는 초기 분류다. **Static은 pure/error-free/reorderable/executable을 뜻하지 않는다.** `validate_noun_inputs()` 성공도 함수·효과·전체 실행 안전성을 뜻하지 않는다. 위 분류를 full guard/continuation/dispatcher의 구현으로 오인하지 않는다.
 
+<a id="394-fallback--guard-miss--replay-decision-table"></a>
 #### 3.9.4 Fallback / guard miss / replay decision table
 
 RustJ에서 `fallback`이라는 말을 하나의 의미로 쓰지 않는다. 최소 다음 네 개념을 분리한다.
@@ -113,6 +115,7 @@ continuation / deopt
 | namespace write/I/O/error-observable effect가 commit된 뒤 실패 | 경우에 따라 별도 J error가 이미 관찰 가능 | 자동으로는 아니오 | **금지** | exact continuation이 구현·검증되기 전에는 중간 fallback capability를 선언하지 않음 |
 | async route가 일부 completion/token을 발행한 뒤 실패 | 자동 J error 아님 | token/resource 상태를 완전히 증명할 때만 | 기본 금지 | future async contract가 completion/effect frontier를 소유해야 함 |
 
+<a id="runtimesemanticfallback의-정확한-뜻"></a>
 ##### `RuntimeSemanticFallback`의 정확한 뜻
 
 현재 `lowering.rs::RouteDecision::RuntimeSemanticFallback`은:
@@ -121,6 +124,7 @@ continuation / deopt
 
 다. 이것은 “native kernel을 실행하다 실패하면 언제든 interpreter로 되돌아간다”는 runtime deoptimization 보장이 아니다. 실제 runtime semantic executor가 해당 form을 지원하지 않으면 최종 결과는 개념상 `UnsupportedImplementation`, 현재 concrete API로는 `Error::Unsupported(...)` / kind `"unsupported"`일 수 있다.
 
+<a id="fallback-commit-frontier"></a>
 ##### fallback commit frontier
 
 future dispatcher는 최소한 다음 frontier를 추적해야 한다.
@@ -138,6 +142,7 @@ committed
 
 `before_start`와 `guarded_but_uncommitted`에서는 verified alternate route 선택이 가능하다. `committed` 이후에는 exact continuation/transaction rollback 증명이 없는 한 region-start replay를 금지한다.
 
+<a id="검증-요구"></a>
 ##### 검증 요구
 
 - guard miss가 J semantic error code로 바뀌지 않는 test
@@ -148,6 +153,7 @@ committed
 
 이행 항목의 정본은 [§10 DB0–DB7 체크리스트](./11-roadmap-checklists-p01.ko.md#dynamic-boundary-checklist)에 둔다. 검사 대상과 구현 상태는 위 계약을 따른다.
 
+<a id="395-경계-판정-알고리즘과-검증-수용-조건--첫-cpu-route-2026-10-07"></a>
 #### 3.9.5 경계 판정 알고리즘과 검증 수용 조건 — 첫 CPU route (2026-10-07)
 
 **적용 범위:** §3.7.6의 전달 계약을 첫 CPU route의 실행 전 admission에 적용한다. 일반 J의 언어 제한이 아니며, 다음 판정의 `Need...`는 J 오류가 아니라 **이 compiler route의 정보/구현 요구**다. 현재 `StaticAnalyzer`의 Unsupported/AnalysisBoundary는 일부 seam만 구현하며 아래의 구조화된 admission 결과와 dispatcher는 아직 없다. 문서만으로 실행 허가를 발행하지 않는다.
@@ -196,9 +202,3 @@ committed
 이번 Windows 검증: `static_analysis` **17/17 default 및 17/17 portable**, Python audit 분류 **6/6**·oracle protocol **9/9**, fmt·clippy(`--all-targets --all-features -D warnings`)·diff 검사 통과. 전체 Rust/upstream J suite·Linux·GPU·GitHub CI는 실행하지 않았다. NAME 처리의 위험을 후속 최적화에 떠넘기지 않기 위해, **admission verifier가 구현되고 위 부정 테스트를 통과하기 전에는 NAME 관찰 metadata만으로 특수화 실행을 수용하지 않는다.**
 
 근거: [FOUNDATIONS §21/§33](../../../FOUNDATIONS.ko.md), pinned C [p.c parser](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c), [sc.c NAME constructor](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L364), [cx.c return fix](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L684), [af.c reconstruction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/af.c#L193). DB0–DB7의 분류·이행 순서는 RustJ 설계 판단이며 upstream의 완성된 guard 시스템을 복제했다는 뜻이 아니다.
-
-<a id="read-graph-execution"></a>
-
----
-
-[← 이전 부분](./04-semantic-array-ir-p03.ko.md)

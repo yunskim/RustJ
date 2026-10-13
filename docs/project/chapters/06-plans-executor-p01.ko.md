@@ -1,9 +1,11 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="read-physical"></a>
+<a id="5-logical-plan-physical-plan-executor"></a>
 ## 5. Logical Plan, Physical Plan, Executor
 
+<a id="51-logical-array-ir--logical-execution-plan"></a>
 ### 5.1 Logical Array IR / Logical Execution Plan
 
 이 계층은 Semantic Analyzer가 hook/fork/derived verb/rank 같은 고수준 의미 구조를 분석한 뒤 만든 **명시적 배열 dataflow**다.
@@ -84,6 +86,7 @@ Logical Plan에서 보존할 정보:
 
 아직 특정 device buffer 주소나 CUDA launch parameter는 없다.
 
+<a id="52-schedule--transform-plan과-physical-plan을-구분한다"></a>
 ### 5.2 Schedule / Transform Plan과 Physical Plan을 구분한다
 
 RustJ-native route에서는 Logical IR을 바로 buffer plan으로 덮어쓰지 않는다.
@@ -136,6 +139,7 @@ Schedule Plan은 여러 후보를 가질 수 있고 CostProfile/autotuning/backe
 - backend kernel/library 선택
 - async lifetime/resource information
 
+<a id="521-m4-최소-physicalplan-v0-contract"></a>
 #### 5.2.1 M4 최소 PhysicalPlan v0 contract
 
 M4의 첫 CPU vertical slice를 구현하기 전에 **compiler plan의 resource identity와 runtime handle을 분리한 최소 schema**를 문서로 고정한다.
@@ -169,6 +173,7 @@ PhysicalViewId
   access mode
 ~~~
 
+<a id="v0-physicalplan"></a>
 ##### v0 PhysicalPlan
 
 첫 M4 범위는 **verified single-block pure-array CPU region + 필요한 SemanticCheck**로 제한할 수 있다. assignment/name mutation 같은 stateful effect는 첫 slice에서 RuntimeSemantic region에 남겨도 되며, 이것은 J language restriction이 아니다.
@@ -207,6 +212,7 @@ future / non-M4:
 - **Return** — 최종 physical view/ownership을 logical result로 넘긴다. temporary를 output으로 잘못 재사용하지 않게 ownership을 확정한다.
 - **Transfer/Sync** — GPU/mixed-route에서만 필요할 수 있으며 M4 CPU v0의 필수 op가 아니다.
 
+<a id="planned-buffer와-lifetime"></a>
 ##### planned buffer와 lifetime
 
 각 planned buffer는 최소 다음 정보가 필요하다.
@@ -234,6 +240,7 @@ buffer reuse는 별도 semantic transform이 아니라 physical decision이다. 
 
 reuse witness가 필요하다.
 
+<a id="physicalplan-verifier"></a>
 ##### PhysicalPlan verifier
 
 executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는 다음을 검사한다.
@@ -249,6 +256,7 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 - Return은 유효한 output ownership/view를 가리키고 temporary lifetime 이후 dangling view를 만들지 않는다.
 - M4 pure-region plan에는 숨은 namespace/write effect가 없다.
 
+<a id="error--cleanup-contract"></a>
 ##### error / cleanup contract
 
 - `Check` 실패는 원래 J semantic error로 보고한다.
@@ -257,6 +265,7 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 - first M4 pure slice에서는 namespace assignment commit을 Physical Executor가 소유하지 않는다. stateful write를 native route에 넣을 때 별도 effect/commit contract를 추가한다.
 - observable effect가 commit된 뒤 transparent replay하는 fallback은 금지한다.
 
+<a id="m4m5-구현-선행조건과-검증-프로토콜-2026-10-07-설계만-확정"></a>
 ##### M4→M5 구현 선행조건과 검증 프로토콜 (2026-10-07, **설계만 확정**)
 
 **범위:** 실제 PhysicalPlan/Executor/View/Kernel/Transfer를 지금 구현하지 않는다. 본 절은 기존 §5.2.1의 계약, §17 M4 구현 항목, HE-01~HE-09, IO-20에 적용할 **수용 조건과 검증 증거**다. 별도 Parallel IR, Data Movement IR, 중복 체크리스트는 만들지 않는다. 기존 Draft PR #4의 제한적인 identity 구현은 검증된 전체 M4 경로로 취급하지 않으며 완료 수용과 구별한다.
@@ -288,6 +297,7 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **연계 체크리스트:** [sw-MLPL 실행·검증 참고 SW-03/04/06](./03-architecture-p02.ko.md#sw-mlpl-reference-checklist)는 위 M4 수용 게이트의 보조 구현 패턴이며, 이 문서 추가만으로 체크박스를 닫지 않는다.
 
+<a id="기존-아키텍처-대조-감사-m4-준비도와-검증-공백-2026-10-07-설계-검증-전용"></a>
 ##### 기존 아키텍처 대조 감사: M4 준비도와 검증 공백 (2026-10-07, 설계 검증 전용)
 
 **결론:** J Graph → verified A3 → target-dependent lowering 후보 → Physical Representation이라는 기존 계층은 **그대로 확장 가능**하다. CPU 전용 Parallel Planner/IR, 새로운 Data Movement IR, GPU 실구현 선행은 필요하지 않다. 단, **A3 구조 검증**, **후보별 적법성 평가**, **원본 A3에서 Physical Plan까지 의미 보존의 증명**은 서로 다르다. 앞 단계의 성공이 뒤 단계의 완전한 실행 허가는 아니다. 아래는 현재 main의 실제 코드와 기존 테스트를 대조한 **정적 감사**이며 신규 테스트를 실행한 것이 아니다.
@@ -316,6 +326,7 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **결정 및 우선순위:** (1) M3의 원본 A3→Route Check/effect/witness 증거 의무 확정 → (2) M4의 CPU/Host/zero-transfer PhysicalPlan verifier·실제 native Add 경로 → (3) M5 배치·자원·비용 후보 → (4) M6+ 별도 재개된 GPU/비동기 실행. 설계 자체의 구조적 모순은 **발견되지 않았음**; 그러나 위 증거가 없을 때의 fail-closed 실행 경로는 반드시 필요하다. 기존 M2→M3→M4 우선순위, HE-01~09의 미완료 상태, 별도 CUDA 보류는 유지한다.
 
+<a id="m3m4-route-to-physical-인계-계약-2026-10-07-설계만-완료--구현-없음"></a>
 ##### M3→M4 Route-to-Physical 인계 계약 (2026-10-07, **설계만 완료 / 구현 없음**)
 
 **목적:** 위 §2.5.1의 `M3-RB/RB-01~08`과 이 §5.2.1의 `PhysicalPlan` verifier를 하나의 **증거 체인**으로 연결한다. M3가 J 의미의 적법성을 판단하고, M4가 **이미 허가받은 의미를 특정 buffer/view/kernel 순서로 실현해도 안전한지** 검증한다. M4가 누락된 Check/guard, Rank·오류 순서, name/version 증거를 새로 추측하여 M3 판정을 뒤집어서는 안 된다. M3의 합격이 M4의 실제 실행 성공을 보장하지도 않는다.
@@ -359,6 +370,7 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 - **Cross-route 책임:** 첫 native CPU slice 밖의 runtime/external 부분을 하나의 PhysicalPlan으로 강제로 합칠 필요는 없다. 다만 각 boundary handoff의 value/version/check/error/effect 계약은 통합 검증 기록으로 추적한다.
 
 
+<a id="h-k--a3-opkind별-m3m4-인계-규칙-2026-10-07-설계만"></a>
 ##### H-K — A3 OpKind별 M3→M4 인계 규칙 (2026-10-07; 설계만)
 
 **구체적 공백:** 현행 `lowering.rs::route_operation`은 `Literal`, `ReadNoun`, `VerbReference`를 모두 `NoKernel`로, `partition_plan`은 그 연속 구간을 `RouteRegionClass::ValueOnly`로 합친다. 이 분류는 **실행 후보 grouping**이지 세 OpKind가 동일한 버퍼·호출·이름 의미를 가진다는 뜻이 아니다. M4 승인 여부는 region class뿐 아니라 원본 A3 **OpKind마다** 다르게 확인해야 한다.
@@ -414,6 +426,7 @@ executor는 invalid plan을 추측해서 고치지 않는다. 최소 verifier는
 
 **정리:** 별도 새 compiler layer는 필요하지 않다. ***M3는 의미론적 적법성의 증거를 소유하고 M4는 그 증거를 변경하지 않고 물리적으로 실현했는지 검증한다.*** 이 명세만으로 M3 검증기/M4 Physical Executor가 만들어졌거나 테스트가 PASS한 것은 아니다. §10의 M3-RB·M4 및 HE-01~09는 **설계 완료와 구현/검증 미완료를 계속 분리**한다.
 
+<a id="h-a--m3m4-첫-cpu-경로-실행-승인-판정표-2026-10-07-명세만"></a>
 ##### H-A — M3→M4 첫 CPU 경로 실행 승인 판정표 (2026-10-07; 명세만)
 
 **이 절의 역할:** 기존 H-01~09, H-K, HM-V0~V4의 반복이 아니라, 실제 `lowering.rs`의 `RouteDecision`/`RouteRegionClass`와 미래 M4 compiler-native CPU 경로 사이에 **실행 가능한 것과 단지 합법적 후보인 것**의 경계를 확정한다. 현재 `main`에는 `src/physical_plan.rs`가 없으며, `src/physical.rs`는 read-only 표현 기반이다. Draft PR #4의 제한적인 literal identity 코드를 완료된 native Add 실행기로 계산하지 않는다. 구현·테스트 추가 없음.
@@ -472,7 +485,3 @@ J: a=:1+2
 **구현 우선순위와 수용 상태:** (1) 기존 M3-RB validator와 독립 source A3 기준의 HA-V1/3/4/5 논리 검증 → (2) M4 선택 recipe의 *실제* 구현 여부·CPU buffer/Check/Return verifier(HA-V2/6) → (3) 독립 reference/jsource의 HA-V7 및 native E2E 수용 → (4) M5/M6의 device/memory/transfer 비용·비동기 검증. **이번에 완료한 것은 이 판정표와 테스트 설계뿐이며**, 현행 코드의 M3/M4/HE-01 실행 승인 체크박스는 그대로 열어 둔다.
 
 
-
----
-
-[다음 부분 →](./06-plans-executor-p02.ko.md)

@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 2. 최상위 아키텍처 — 계속 (2/2)
-
+<a id="242-j-semantics-보존과-compiler-fact-축적-원칙"></a>
 ### 2.4.2 J semantics 보존과 compiler fact 축적 원칙
 
 RustJ의 parser와 J Semantic IR은 **J language semantics를 보존하는 canonical layer**다. 이후 compiler 단계에서 필요한 정보를 얻기 위해 parser-produced entity를 target/optimization 친화적인 형태로 변형하지 않는다.
@@ -94,6 +91,7 @@ Optimizer / Route / Schedule / Physical Plan
 - 각 `FunctionEntity`를 따라 재귀적으로 내려가면 그 entity의 intrinsic J semantic contract/summary를 다시 외부 lookup 없이 참조할 수 있어야 한다.
 - 반대로 target-dependent fact만으로 J semantic identity를 추정하지 않는다.
 
+<a id="25-route-partition은-whole-program-exclusive-choice가-아니다"></a>
 ### 2.5 Route partition은 whole-program exclusive choice가 아니다
 
 Route partition은 parser 직후나 J Semantic IR에서 하지 않는다. **Semantic Analyzer가 의미를 확정하고 Logical IR verifier를 통과한 뒤**, 최소 target-independent canonicalization을 거친 representation에 적용한다.
@@ -158,6 +156,7 @@ partition legality는 단순 op coverage가 아니라 shape/numeric constraint, 
 
 TVM BYOC처럼 external codegen 대상 subgraph를 partition하고 나머지 graph를 기본 pipeline에 남기는 구조를 참고한다. MLIR의 mixed-dialect module도 여러 abstraction/lowering state가 동시에 존재할 수 있다는 점에서 같은 방향을 지원한다.
 
+<a id="251-routeregion-boundary-contract"></a>
 #### 2.5.1 RouteRegion boundary contract
 
 mixed route의 핵심은 “어떤 op를 어느 backend로 보낼 것인가”보다 **region 경계에서 J semantics를 어떻게 끊김 없이 보존하는가**다. RoutePartition은 physical buffer plan이 아니므로 boundary는 먼저 logical/effect contract로 표현한다.
@@ -179,6 +178,7 @@ RouteBoundary
 
 `logical representation requirements`는 `Dense`, sparse/boxed semantics, dtype/shape/rank 같은 **J-visible 또는 route-precondition 수준**의 요구를 뜻한다. 구체 `BufferId`, device pointer, stride/alignment, host↔device copy는 RoutePartition이 아니라 bridge lowering / Physical Plan이 결정한다.
 
+<a id="boundary-legality"></a>
 ##### boundary legality
 
 region 경계는 다음 조건을 모두 만족할 때만 허용한다.
@@ -191,6 +191,7 @@ region 경계는 다음 조건을 모두 만족할 때만 허용한다.
 6. region 전체가 선택된 route의 semantic capability를 만족한다. op별 support의 단순 교집합만으로 region legality를 선언하지 않는다.
 7. external/runtime route 실패를 이유로 이미 effect를 수행한 producer region을 자동 replay하지 않는다.
 
+<a id="live-out은-value만이-아니다"></a>
 ##### live-out은 value만이 아니다
 
 다음 두 경우를 구분한다.
@@ -205,6 +206,7 @@ effect live-out
 
 fork/selector에서 선택되지 않은 branch의 값이 dead여도 effect/error가 live-out일 수 있다. RoutePartition은 pure dataflow liveness만 보고 branch나 check를 제거하면 안 된다.
 
+<a id="bridge-lowering"></a>
 ##### bridge lowering
 
 RoutePartition 이후 별도 bridge lowering이 실제 representation 이동을 만든다.
@@ -225,6 +227,7 @@ consumer route representation
 
 bridge 비용은 route selection의 cost input이 될 수 있지만, 이미 선택한 route를 정당화하기 위해 semantic constraint를 바꾸면 안 된다.
 
+<a id="현재-코드와-목표의-차이"></a>
 ##### 현재 코드와 목표의 차이
 
 현재 `lowering.rs::partition_plan`은 operation별 `RouteDecision`을 `ValueOnly / SemanticCheck / PureArray / RuntimeSemantic` class로 나눈 뒤 **인접한 같은 class를 contiguous range로 묶는 v0 분석 도구**다.
@@ -238,6 +241,7 @@ operations: Range<usize>
 
 만 가진다. 아직 chosen external route, boundary live-in/out, bridge, effect edge, region-wide legality proof를 소유하지 않는다. 따라서 현재 `partition_plan` 결과를 최종 mixed-route execution plan으로 해석하지 않는다.
 
+<a id="구현검증-순서"></a>
 ##### 구현/검증 순서
 
 mixed-route 구현에 착수할 때는 다음 순서로 확장한다.
@@ -251,6 +255,7 @@ mixed-route 구현에 착수할 때는 다음 순서로 확장한다.
 7. same Logical IR에 target별 다른 RoutePartition을 만들어 semantic result/error가 같은지 differential 검증
 
 
+<a id="m3-rb--a3routeboundary-의미-보존-증명-및-검증-계약-2026-10-07-문서-설계만"></a>
 ##### M3-RB — A3→RouteBoundary 의미 보존 증명 및 검증 계약 (2026-10-07; 문서 설계만)
 
 **범위:** 기존 §2.5.1 RouteBoundary 개념에 검증 가능한 승인 조건을 부여한다. 현행 `lowering.rs::partition_plan`은 `RouteRegion { class, operations: Range<usize> }`라는 **연속 구간 후보 분류기**이지 실행 승인기나 혼합장치 스케줄러가 아니다. 새 필수 Route IR, CPU Parallel IR, Data Movement IR은 만들지 않고, 추후 기존 route contract에 연결되는 검증 증거(sidecar 또는 동등한 형태)를 사용한다.
@@ -314,6 +319,7 @@ Verdict:
 
 
 <a id="sw-mlpl-reference-checklist"></a>
+<a id="외부-구현-사례-sw-mlpl--rustj-적용검증-체크리스트-2026-10-08-설계-조사만"></a>
 ##### 외부 구현 사례: sw-MLPL → RustJ 적용·검증 체크리스트 (2026-10-08, 설계 조사만)
 
 **검토 대상 및 성격:** [sw-MLPL](https://github.com/sw-ml-study/sw-mlpl/tree/d53c35f810aa3a3ccd0f28e98da9a8f34992c61f)의 2026-10-03 `main` snapshot (`d53c35f810aa`)에서 구현·테스트·설계 문서를 대조했다. 이 절은 **기존 M3 RouteBoundary / M4 Physical CPU / M5+ heterogeneous planning의 구현 참고와 수용 항목**이며 새로운 필수 IR, 실행 경로, RustJ 언어 문법, 별도 진행 문서를 추가하지 않는다. RustJ 기존 RB-01~08, RB-V0~V4, M4→M5 검증, §17/HE 체크리스트가 우선한다. **[x] 외부 설계·소스 검토 / [ ] RustJ 도입·검증은 아직 미실시**이다. 이 문서 갱신을 기능 구현/테스트 통과로 세지 않는다.
@@ -360,9 +366,3 @@ MLIR은 여러 abstraction의 dialect를 한 module 안에서 공존시키고 di
 
 
 ---
-
-<a id="read-semantic"></a>
-
----
-
-[← 이전 부분](./03-architecture-p01.ko.md)

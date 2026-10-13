@@ -1,7 +1,10 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="current-implementation-status"></a>
+
+<a id="read-status"></a>
+<a id="12-현재-검증구현-상태-요약"></a>
 ## 12. 현재 검증·구현 상태 요약
 
 이 절의 항목은 architecture·migration 상태를 개괄하는 목록이며 **2026-10-05 시점까지 축적한 기준선**이 포함되어 있다. 최신 실행 증거는 도입부의 **2026-10-08 Windows 기록**과 바로 뒤 **상세 구현·검증 기록**, §10 체크리스트를 함께 확인한다. 이력상의 테스트 수치와 단계별 gate를 현재 HEAD의 검증 완료 주장으로 읽지 않는다.
@@ -33,10 +36,12 @@
 ---
 
 
+<a id="상세-구현검증-기록-2026-10-07"></a>
 ### 상세 구현·검증 기록 (2026-10-07)
 
 여기부터는 설계 개요가 아닌 시점별 구현·실험 증거다. 최신 지원 범위와 합격 기준은 위 §12 요약 및 §10·§11 정책을 우선한다.
 
+<a id="definition-호출과-frontend-e2e-확인-2026-10-07"></a>
 #### Definition 호출과 frontend E2E 확인 (2026-10-07)
 
 이 절은 과거의 "17 ignored" 기록보다 최신인 definition 실행 상태다. 처음 17개 수용 테스트를 모두 강제로 실행했을 때 **0 passed / 17 failed**였다. `DefinitionCode`와 modifier용 프레임이 존재했지만 일반 mode-3/4 verb가 호출 실행기로 연결되지 않았으므로 일반 explicit/direct verb 지원으로 계산하면 안 되는 상태였다.
@@ -81,6 +86,7 @@ native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports
 
 **최종 회귀 검증:** Windows default/portable 각각 **596 passed / 3 ignored / 0 failed**. fmt와 clippy `--all-targets -D warnings`를 통과했다. 미완료 3개를 강제 실행하면 for/nested/A3 경계에서 실패하며 성공으로 계산하지 않는다. 보고서 3개의 source/binary hash는 최종 default build와 대조했다.
 
+<a id="definition-반복중첩a3-함수-값-후속-검증-2026-10-07"></a>
 ##### Definition 반복·중첩·A3 함수 값 후속 검증 (2026-10-07)
 
 위 세 실행 단위를 진행해 기존 `definition_acceptance` 21개 모두의 ignore를 해제했다. 반복문 회귀 5개와 중첩/함수 참조 회귀 4개를 추가했다. Source → Program/FunctionEntity → J Graph → A3의 함수 값 전달과 본문 CFG 실행은 구분한다. 현재 호출은 공유 runtime parser를 사용하며 최대 중첩 깊이 8이다. select/case/fcase, catcht/throw, goto/label, 일반 locale/locative, compiled CFG 및 CUDA 실행은 후속이다. 이전 절의 596/3 기록은 당시 결과다.
@@ -90,10 +96,12 @@ native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports
 최종 native Windows 검증: default/portable 각각 **608 passed / 0 ignored / 0 failed**, Python **67 passed**, fmt/clippy 통과. C 두 DLL × direct/semantic-reference 비교: for **23 fixtures / 92 matched**, nested **12 / 48**, 기존 definition **31 / 124**, NAME scope **10 / 40**, 합계 **304 observations / 304 matched**. 네 C 보고서의 source/binary SHA-256를 최종 default build와 대조했다. frontend-e2e-windows.json은 이전 시연의 역사적 capture이며 이번에 재생성하지 않았다.
 
 
+<a id="frontend-e2e-재감사-표현력후속-전달오류-2026-10-07"></a>
 #### Frontend E2E 재감사: 표현력·후속 전달·오류 (2026-10-07)
 
 사용자가 확정한 **현재 지원 범위의 frontend E2E 완료**는 유지한다. 이는 full J 표현력이나 모든 Program의 J Graph/A3 admission, definition 본문 CFG/compiled execution 완료를 의미하지 않는다. verb 본문의 계산/구조화 영역은 후속 J Graph/Logical 단계에서 구체화하고 필요한 경로에서 CFG로 낮춘다. frontend에 완성 CFG를 요구하지 않는다. 이번 감사는 runtime 변경이 아니라 실제 경계와 필요한 계약의 재확인이다.
 
+<a id="실제-범위와-재현"></a>
 ##### 실제 범위와 재현
 
 `examples/frontend_contract_probe.rs`는 P=prepare_semantic_diagnostic, G=J Graph, L=CompilationAnalysis/A3의 독립 비실행 검사를 수행한 뒤 R=eval_captured를 수행한다. 분석의 성공을 실행 성공으로 세지 않는다. `tools/frontend_contract_audit.py --assets-root ../rustj-project-docs --probe target/debug/examples/frontend_contract_probe.exe --report reports/frontend-contract-audit-windows.json`으로 Windows 두 J DLL과 비교한다. 원자료에는 각 단계 admission, error context/render, 실제 outer capture, setup 및 오류 후 state를 포함한다.
@@ -111,6 +119,7 @@ native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports
 | explicit/direct/nested 정의 값 | P/G/L 수용. L은 Definition 함수 참조이며 본문 계산 IR/CFG는 아님 | definition code 보존 → P8/A1/A2/A3 |
 | select 등의 제어문 | preparse metadata 수용과 실제 호출 가능성은 별개. 이번 select 사례는 **정의 생성만** 검사 | 후속 definition semantics/lowering |
 
+<a id="후속-단계에-전달되는-것과-계약의-한계"></a>
 ##### 후속 단계에 전달되는 것과 계약의 한계
 
 | 정보 | 현재 산출물/근거 | 후속 소비 조건 |
@@ -125,6 +134,7 @@ native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports
 
 **판정:** 지원 사례의 source와 semantic identity를 보존하므로 후속 분석을 시작할 수 있다. 그러나 **모든 표현에 필요한 정보가 이미 분석 완료된 IR로 존재한다거나, 후속 단계가 재분석 없이 바로 최적화할 수 있다는 주장은 불가**다. raw source 보존과 ready-to-optimize handoff를 구분한다. Source map은 기존 body_error가 escaped quote 등을 원문으로 매핑하지만, 공개된 source-unit/frame chain 계약은 아래 후속 절에서 보완했다. 전체 J 표현력과 모든 단계별 admission의 완료를 뜻하지 않는다.
 
+<a id="오류-처리-재검토--a06p8a3-연결"></a>
 ##### 오류 처리 재검토 — A0.6/P8/A3 연결
 
 - J error class/diagnostic context/render의 분리, inner context 우선 merge, 실패 대입의 기존 binding 보존은 현재 구현되어 있다. 그러나 정의 경계는 source 좌표가 다르므로 `runtime.rs`의 invoke_definition_verb가 body span/blame를 지우고 parser가 caller 위치를 붙인다. explicit modifier 경계도 caller span으로 대체한다. 이는 잘못된 caller 좌표 사용을 막는 임시 처리이며 **본문 실패 위치 보존 완료가 아니다**.
@@ -135,6 +145,7 @@ native Windows 재현: `cargo run --example frontend_e2e`. 원자료는 `reports
 - **다음 계약:** J semantic failure / route·analysis admission miss / compiler-verifier defect / backend implementation failure를 구분한다. 현재 Error::Unsupported는 여러 의미에 사용되므로 J catchable error와 같은 것으로 해석하지 않는다. backend failure의 무조건 재실행도 금지한다.
 - **진단 계약:** immutable SourceUnit/definition origin, decoded-body↔original source map, primary failure site + callsite frame chain, semantic operation origin을 전달한다. 함수 인자 전체를 복사하지 않고 작은 type/shape 요약만 유지한다. 정적 오류·런타임 의미 오류·구현 실패의 시점과 처리 권한을 구분하고, 컴파일 단계에서 잠재적인 J runtime error를 임의로 앞당기지 않는다.
 
+<a id="외부-프레임워크에서-적용할-부분"></a>
 ##### 외부 프레임워크에서 적용할 부분
 
 아래는 구현 완료 주장이 아니라 기존 P8/A0.6/A3 계약의 구체화다.
@@ -150,6 +161,7 @@ Co-dfns/APEX/TAIL-Futhark 기존 연구는 FOUNDATIONS §§60–68의 이력으�
 이번 감사 도구 검증: Windows default/portable 각각 **608 passed / 0 failed / 0 ignored**, Python **67 passed**, fmt/clippy 통과. runtime 변경은 없다. 새 62개 관측의 미지원 차이는 기존 304 matched 보고서의 수용 사례와 별도로 유지한다.
 
 
+<a id="frontend-감사-보완-실행-계획-2026-10-07"></a>
 #### Frontend 감사 보완 실행 계획 (2026-10-07)
 
 기존 F1/P4/P8/A0.6/A1–A3 체크리스트를 원장으로 사용한다. 현재 지원 subset E2E 완료는 유지하며 frontend에서 CFG를 만들지 않는다. 아래 순서는 기존 항목의 실행 순서이며 각 단계의 구현·독립 검증 후에만 완료로 표시한다.
@@ -193,6 +205,7 @@ Frontend 감사 갱신: **31 cases / 62 observations = 42 matched / 20 runtime_g
 
 `parse_frontend`는 literal 문자열 다중 target을 구조화하지만 `prepare_semantic`의 binding과 Graph/Logical은 다중·빈 target을 ordered-write IR 미지원으로 거절한다. 실제 값이 필요한 계산된 target은 static parser에서 실행하지 않고 runtime 경계로 남긴다. 단일 literal 문자열 target은 기존 단일 write 분석 경로로 전달한다. 기존 일반 NAME 대입에는 name-list heap allocation이나 재검증을 추가하지 않는다. 다중 RHS는 한 번 공유 상태로 전환하고 item만 선택한다. 현재 item 선택은 복사이며 zero-copy/GPU buffer view 구현을 뜻하지 않는다. open의 padding·sparse 및 `;` 등 별도 primitive 미지원은 그대로 유지한다.
 
+<a id="f1p4-name_-실행-체크리스트"></a>
 ##### F1/P4 `name_:` 실행 체크리스트
 
 후속 실행 계획 (2026-10-08): conjunction을 전부 거절하던 경계를 재검토한다. 두 DLL에서 primitive conjunction의 직접 적용은 valence error지만 explicit conjunction의 직접 적용과 primitive의 별도 이름 이관 후 적용은 정상임을 확인했다. 먼저 explicit/non-nameless conjunction 실행을 허용한다. nameless conjunction은 복사와 직접 적용의 차이를 후속 parser action 계약으로 구분하기 전까지 보수적으로 거절한다. 함수형 abandon의 비실행 parser 산출물도 `FunctionHead::TakeName { name, single_word }`로 구체화하여 POS·원문·abandon 정책을 보존하되 binding/lowering은 아직 실행하지 않는다.
@@ -245,6 +258,7 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 
 다음 독립 구현 단위는 noun/function TakeName의 ordered NAME effect IR이다. lookup 시점의 scope/binding identity, by-value 결과, 실제 삭제와 single-word 특례, 후속 조회·대입·실패 순서 및 nameless 적용 admission을 명시적으로 표현한 뒤 Graph/Logical admission을 확대한다.
 
+<a id="ordered-name-effect-ir-첫-실행-단위"></a>
 ##### Ordered NAME effect IR 첫 실행 단위
 
 - [x] `Program`과 명시적인 parser step/item/node 연결에서 조회·TakeName·primitive apply·최종 단일 NAME write를 순서 있는 의미 계획으로 낮춘다. AST 순회나 span 정렬로 실행 순서를 추측하지 않는다.
@@ -275,6 +289,7 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 
 이 단계에서 예정했던 pure array의 J Graph/Logical 연결은 아래 후속 계약으로 구현했다. 다음 실행 단위는 내부 성공 위치를 보존하는 다중 Apply batching이다. local frame·중간 write·modifier construction 확대는 별도 gate이며, array optimizer가 NAME 효과를 삭제·이동·중복할 수 없도록 검증해야 한다.
 
+<a id="name-효과와-배열-ir-연결-실행-체크리스트"></a>
 ### NAME 효과와 배열 IR 연결 실행 체크리스트
 
 - [x] J Graph/Logical에 이름 조회와 구분한 명시적 배열 Input을 추가한다. 값은 효과 token을 통과한 snapshot으로 공급하며 가짜 이름·version·literal로 변환하지 않는다.
@@ -284,6 +299,7 @@ Frontend 감사는 verb/adverb 이관·explicit conjunction 세 사례를 추가
 - [x] 후속으로 연속 pure Apply의 다중 결과 region 및 내부 성공 위치를 표현하여 batching을 검토한다. token 경계 밖의 fusion/hoisting은 허용하지 않는다.
 
 
+<a id="name-배열-region의-구현-계약--2026-10-08"></a>
 ### NAME 배열 region의 구현 계약 — 2026-10-08
 
 다중 Apply batching 실행 체크리스트:
@@ -305,6 +321,7 @@ Graph schema **0.10**, A3 schema **0.6**에 명시적 `Input { index }`를 추�
 
 기존 최종 바이너리 감사는 **548 matched / 16 unsupported_gap**, 별도 frontend 감사는 **50 matched / 18 runtime_gap**으로 유지됐다. 이 gap을 해결했다고 주장하지 않는다. 8개 보고서의 소스·바이너리·DLL hash **520건**이 최종 파일과 일치했다. C 소스 pin과 실제 DLL release는 앞 단계와 같으며 same-source rebuild/full J conformance·C 오류 위치/문구 동등성을 뜻하지 않는다. 테스트는 이 컴퓨터의 Windows에서만 실행했고 GitHub CI·Linux·GPU 검증은 하지 않았다.
 
+<a id="다중-apply-batch-전달실행-계약--2026-10-08"></a>
 ### 다중 Apply batch 전달·실행 계약 — 2026-10-08
 
 `ArrayPlan::batches()`는 private immutable `ArrayBatch` 목록을 반환한다. 기존 per-Apply `regions()`는 원래 경계를 검토할 수 있도록 남긴다. 실행에는 batch의 통합 J Graph/Logical plan과 SSA 작업 공간을 사용한다. `Read/Take/Commit`과 미지원 step을 넘어 묶지 않으며, 처음·마지막 Apply 사이의 immutable Literal/사용되지 않는 Function 값 전달만 내부에 포함한다. source span에서 순서를 추측하지 않고 ordered effect step을 따른다.
@@ -327,6 +344,7 @@ batch 단계 최종 검증: Windows default/portable 각각 **663 passed / 0 fai
 
 `reports/name-effects-windows.json`: **26 fixtures × DLL 2 × semantic/Logical route 2 = 104/104 matched**. 새 batch 정상·NAME 경계·첫/후속 length·삭제 후 length/domain·alias 사례 7개는 **28/28** 일치다. 기존 감사 **548 matched / 16 unsupported_gap**, frontend **50 matched / 18 runtime_gap**을 유지했고 보고서의 소스/바이너리/DLL hash **528건**이 일치했다. source pin과 DLL release는 앞 단계와 같다. full J·C 진단 문구/위치·성능·Linux·GPU·GitHub CI 검증은 아니다. 기본 eval 및 부모 NAME plan의 admission 범위는 확대하지 않았다.
 
+<a id="frontend-a06--정의-실행-전반환-오류-경계-보완"></a>
 ### Frontend A0.6 — 정의 실행 전·반환 오류 경계 보완
 
 frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/fusion 확장은 이 게이트의 완료 조건이 아니다. 현재 지원 subset E2E 완료 판정은 유지하되, 감사의 runtime gap을 모두 tokenizer/enqueuer/parser 결함으로 해석하지 않는다. NAME 표현력·수치 literal·modifier 실행 미지원과 frontend 정보 전달 누락을 구분한다.
@@ -347,6 +365,7 @@ frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/
 
 이로써 A0.6의 실행 전·반환 frame 누락 항목을 닫는다. A0.6 전체 완료나 full frontend conformance를 주장하지 않으며, source-unit/file identity와 nested source → 최상위 원문의 provenance는 아래 후속 절에서 처리한다. 그 다음은 오류 분류/단계별 admission 계약이다.
 
+<a id="frontend-a06--파일-원문-식별과-중첩-정의-provenance"></a>
 ### Frontend A0.6 — 파일 원문 식별과 중첩 정의 provenance
 
 목적은 tokenizer → enqueuer → parser의 조각 좌표를 원래 입력 revision에 연결하는 것이다. 입력은 immutable `SourceUnit { id, name, text }`와 checked `SourceOrigin`이며, 출력은 `FrontendContext.source_origin`(schema 3), `DefinitionSource.origin`, `DefinitionCode.origin`, `DiagnosticSourceFrame.origin`이다. `SourceUnitId`는 process-local 진단용 식별자이고 같은 경로/내용을 다시 읽어도 별도 revision이다. FrontendUnitId·scope·binding version·SSA ValueId가 아니며 함수의 구조적 동등성에 포함하지 않는다.
@@ -367,6 +386,7 @@ frontend E2E 보완을 현재 우선 작업으로 복원한다. 배열 batching/
 
 <a id="read-references"></a>
 
+<a id="frontend-a06p8--오류-소유권과-검증된-handoff"></a>
 ### Frontend A0.6/P8 — 오류 소유권과 검증된 handoff
 
 두 보완 단위를 연결한다. `FailureCategory`는 `JLanguage`, `UnsupportedCapability`, `VerifierDefect`, `BackendFailure`를 구분한다. 기존 J 오류의 `kind()`는 유지하며 내부 IR 오류는 `Error::Verification`/`verifier failure`, admitted 구현 실패는 `Error::Backend`/`backend failure`로 전달한다. `Error::is_j_catchable`은 실제 실행에서 발생한 J 오류에만 적용하고 정의의 catch 경로는 이 공통 정책을 사용한다. Unsupported·verifier·backend 실패는 catch로 성공값이 되지 않고, 앞서 발생한 효과를 되돌리거나 다른 경로로 자동 replay하지 않는다. backend 종류는 계약/음성 회귀로 검증하며 CUDA나 새 backend 실행 구현을 뜻하지 않는다.
@@ -388,6 +408,7 @@ Read-only 경계는 `admission::{Stage, Admission<T>, Rejection}`과 `Engine::ad
 
 제한/후속: 이 계약은 현재 frontend와 연결된 verifier 경계의 구현이다. 모든 legacy Unsupported callsite와 미래 backend를 전역적으로 전환했다는 뜻은 아니다. 일반 locative/locale·boxed/AR target·complex/extended/rational payload·N1 밖의 숫자 변환·미지원 modifier는 독립 호환성 범위이며 아직 미완료다. non-final/runtime-dependent parsing은 현재 semantic runtime 경로의 경계로 유지하고 정적 prefix를 실행 가능한 continuation으로 주장하지 않는다. 본문 Graph/Logical/CFG 및 일반 modifier effect lowering도 후속 단계다. 다음 frontend 호환성 단위는 numeric recognition과 typed literal payload 변환을 분리해 exact/complex family를 단계적으로 전달하는 것이다.
 
+<a id="frontend-숫자-변환-n1--decimal-integer-overflow"></a>
 ### Frontend 숫자 변환 N1 — decimal integer overflow
 
 범위는 접미사 없는 십진 정수 word다. C `wn.c::jtnumi/jtconnum`은 signed 64-bit 경계를 허용하고, 한 atom이라도 범위를 넘으면 word 전체를 다시 Float으로 읽으며 INT/Bool 축소를 금지한다. 이때 같은 word의 다른 정수도 Float 반올림을 따른다. `x` exact 정수와 `r` rational은 이 규칙의 대상이 아니며 아직 Unsupported다. 새 IR이나 host/device storage 선택을 frontend에 넣지 않는다.
@@ -406,6 +427,7 @@ Read-only 경계는 `admission::{Stage, Admission<T>, Rejection}`과 `Engine::ad
 다음 수치 호환성 게이트는 decimal spelling에 따른 Bool/Int/Float 최소 dtype 선택과 real-family ratio conversion, 이후 exact/complex payload와 Value 저장 계약이다. 새 literal family를 단순 Float으로 바꾸거나 NAME parsing을 실행해 보충하지 않는다. general locative/locale·boxed/AR target·modifier 경계와 본문 Graph/Logical/CFG 작업도 미완료로 유지한다.
 
 
+<a id="frontend-숫자-변환-n2a--integer-spelling과-bool-축소"></a>
 ### Frontend 숫자 변환 N2a — integer spelling과 Bool 축소
 
 C `wn.c::jtconnum`의 `bcvtmask`는 연속된 두 비공백 문자가 있으면 Bool 축소를 금지한다. 단일 digit fast path와 두 글자 음수 fast path의 `_0`은 예외다. 따라서 `1`은 Bool, `01`은 Int, `_0`은 Bool, `0 _0`은 Int 배열이다. 이번 단위는 접미사 없는 정수 표기만 대상으로 하며 scientific real→Int 축소와 real ratio 변환은 별도 미완료다.
@@ -420,6 +442,7 @@ C `wn.c::jtconnum`의 `bcvtmask`는 연속된 두 비공백 문자가 있으면 
 N2a 완료 시 남았던 scientific real의 Int 축소와 whole-word dtype 결합은 아래 N2b에서 별도 구현·검증한다. 당시 `1e0`은 C의 Int와 달리 RustJ에서 Float이었다. real ratio conversion, exact/complex payload 및 일반 NAME/locale 경계는 N2b 이후에도 미완료로 유지한다.
 
 
+<a id="frontend-숫자-변환-n2b--scientific-real의-정확한-int-축소"></a>
 ### Frontend 숫자 변환 N2b — scientific real의 정확한 Int 축소
 
 입력은 현재 real constructor가 읽는 숫자 word이며 출력은 같은 Scalar/Value literal이다. C `wn.c::jtnumcase/jtconnum`과 `k.c::jtbcvt/jtIfromD`, `j.h::ISFTOIOKFZ`를 따른다. `CVTNOFUZZ`이므로 정확히 정수인 Float만 signed 64-bit 범위 `[-2^63, 2^63)`에서 축소한다. word 전체에 소문자 e가 있고 dot이 없을 때 Float 경로에서 축소 가능하다. 대문자 E만 있으면 INT reader 실패 후 overflow suppression mask가 설정되어 Float 유지; 소문자 e가 함께 있으면 word 전체가 real 경로다. 원문 정수가 real word에 섞이면 먼저 모두 Float으로 읽은 뒤 축소하므로 `9007199254740993 1e0`의 첫 값은 9007199254740992다. Bool 축소, exact/ratio payload, NAME 실행이나 physical 저장 결정은 하지 않는다.
@@ -435,6 +458,7 @@ N2a 완료 시 남았던 scientific real의 Int 축소와 whole-word dtype 결�
 
 N2b 당시 후속이던 real-family decimal ratio는 아래 N2c에서 구현·검증한다. 여전히 미완료인 exact/complex payload·일반 locale/locative·boxed/AR target·modifier 경계 및 본문 Graph/Logical/CFG는 독립 후속 과제다. N2b는 숫자 literal 의미 보완이며 성능 향상이나 전체 frontend 완성을 주장하지 않는다.
 
+<a id="n2c--decimal-real-family-ratio-변환-2026-10-08"></a>
 ### N2c — decimal real-family ratio 변환 (2026-10-08)
 
 계약: whole-word numeric mode/grammar 검증 이후에만 decimal ratio의 두 피연산자를 f64로 읽는다. `1r2.0`은 Float, `2r1 1e0`은 기존 exact Int narrowing 규칙을 따른다. exact rational `1r2`와 hexadecimal ratio payload는 계속 명시적 Unsupported 경계다. 이름 lookup, 지연 계산, 물리 메모리 계획을 추가하지 않는다.
@@ -451,6 +475,7 @@ N2b 당시 후속이던 real-family decimal ratio는 아래 N2c에서 구현·�
 N2c 다음 작업인 exact payload/Value 저장 계약 중 유한 extended integer는 아래 N3a에서 다룬다. exact rational/complex는 후속이다. decimal ratio는 f64 의미이며 exact rational 구현을 대신하지 않는다. hexadecimal ratio, 일반 locale/locative, boxed/AR target, modifier 경계, 정의 본문 Graph/Logical/CFG는 미완료다. 검토한 C source pin과 DLL release가 다른 기존 제한은 유지하며, 전체 J·C 진단 문구/위치·native compiled execution·Linux·GPU·GitHub CI 검증을 주장하지 않는다.
 
 
+<a id="n3a--유한-extended-integer-payload와-저장-계약-2026-10-08"></a>
 ### N3a — 유한 extended integer payload와 저장 계약 (2026-10-08)
 
 첫 exact payload 단위는 유한 decimal `x` family다. whole-word mode/grammar가 Extended임을 증명한 경우에만 모든 atom을 BigInt로 읽는다. `1x 9007199254740993`의 precision과 dtype 64를 유지하고 rational/complex 모드에 속한 word는 이 경로로 가져오지 않는다.
@@ -476,6 +501,7 @@ C 비교 도구는 private GMP 포인터를 읽지 않고 public J formatting으
 N3a 당시 다음 exact payload 단계였던 rational의 유한/비유한 의미와 저장 계약은 아래 N3b에서 구현했다. complex와 extended의 나머지 연산은 독립 체크리스트로 확장하며, CUDA는 계속 계획에만 둔다.
 
 
+<a id="n3b--rational-literal비유한-값공유-저장-2026-10-08"></a>
 ### N3b — rational literal·비유한 값·공유 저장 (2026-10-08)
 
 계약: whole-word mode/grammar가 Rational임을 확인한 뒤 exact 분자/분모를 정규화한다. 유한 값은 기약분수와 양수 분모, 0은 0/1, 무한대는 ±1/0이다. C `wn.c::jtnumr`/`vq.c::qstd` 및 Windows DLL에서 `0r0`→0, `1r0`→무한대, `1r_`→0, `_r_0`→음의 무한대를 확인했다. Rational word 전체의 dtype 128은 정수값이라도 보존하며 real/complex 모드의 ratio를 가져오지 않는다.
@@ -499,6 +525,7 @@ C 검증: 225개 fixture × `j.dll`/`javx2.dll` = **450/450 matched**. pinned `j
 
 기존 strict numeric 감사는 overflow **36/36**, integer dtype **36/36**, scientific **668/668**, real ratio **296/296**, extended **126/126 matched**를 유지한다. frontend 감사 **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**. 각 DLL 숫자 문법 **2,485 cases / 0 failed**, noun 수용 **313**, valid payload boundary **721**이며 precision/recognition 등은 계속 별도다. **16 reports / 1,001 source·binary·DLL hashes**를 검증했다. GitHub CI는 생략했다. full J나 C diagnostic text/location 동등성을 주장하지 않는다.
 
+<a id="n3c--exact-rational-산술비교-2026-10-08"></a>
 ### N3c — exact rational 산술·비교 (2026-10-08)
 
 계약: N3b의 canonical rational을 입력으로 `+`·`-`·`*`·`%`·`=`·`<`·`>`와 monadic `-`·`|`·`*`·`%`를 CPU runtime에 연결한다. Bool/Int/ExtendedInt 혼합은 exact로 승격하고 Float/Complex 혼합은 별도 미지원 경계를 유지한다. 유한 연산은 num-rational의 exact 연산을 사용하고 무한대는 C `vq.c`의 명시적 규칙을 먼저 적용한다. 반대 무한대 덧셈·동일 무한대 뺄셈·무한대 나눗셈은 J `NaN error`이며 기존 진단/try 처리와 실패 대입 원자성을 유지한다. 0×무한대와 0÷0은 rational zero이다. parser 지연 의미·물리 adapter·GPU 배치를 변경하지 않는다.
@@ -519,6 +546,7 @@ C 특이 규칙: 독립 초기화한 두 DLL은 `1r0%_1r2`→양의 무한대, `
 
 유리수 strict 감사는 기존 construction을 포함한 **649 fixtures × DLL 2 = 1,298/1,298 matched**이다. N3b의 C trap 6개 source 제외는 유지하며 report에 기록했고 통과로 세지 않았다. 이전 숫자 strict 감사(overflow 36, integer dtype 36, scientific 668, real ratio 296, extended 126)는 모두 matched 유지. frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 숫자 문법은 각 DLL **2,485 cases / 0 failed**를 유지했다. **16 reports / 1,001 hashes**를 재검증했다. native compiled execution·전체 J·C 진단 위치/문구·Linux/GPU/CI 동등성은 주장하지 않는다.
 
+<a id="n3d--extendedint-exact-나눗셈역수와-다음-3단계-2026-10-08"></a>
 ### N3d — ExtendedInt exact 나눗셈·역수와 다음 3단계 (2026-10-08)
 
 현재 exact numeric 후속 묶음은 3개 acceptance 단위다. ① N3d ExtendedInt 나눗셈·역수의 조건부 Rational 승격(이번 작업), ② N3e 유리수 right-fold reduction/empty identity/type·error 순서, ③ N3f 유리수 rank 결과 조립/혼합·fill·empty frame. ①을 완료하면 이 묶음은 2개 남는다. 이는 full J나 전체 RustJ의 잔여 단계 수가 아니다. 전체 범위에는 아직 숫자/primitive·locale/modifier·정의 본문 분석, M3 경계 검증, M4 native CPU, 최적화/성능과 미래 GPU 등이 있으며 이를 단순 체크박스 수로 합산하지 않는다.
@@ -537,6 +565,7 @@ N3d 실행 결과: Windows default/portable 각각 **736 passed / 0 failed / 0 i
 
 확장된 rational/exact-division strict 감사는 **822 fixtures × DLL 2 = 1,644/1,644 matched**(N3c 대비 신규 173 fixtures/346 observations)이다. 기존 C trap 6개 source 제외는 report에 별도 유지하며 통과로 세지 않는다. 기존 overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126**은 모두 matched 유지, frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 숫자 문법 각 DLL **2,485 cases / 0 failed** 유지. **16 reports / 1,001 hashes**를 재검증했다. N3d 당시 이 exact numeric 후속 묶음은 **N3e·N3f 2개 미완료**였으며, 아래 N3e 완료 후 N3f만 남는다. GitHub CI는 생략했으며 full J·C 진단 문구/위치·native compiled execution·Linux/GPU 검증을 주장하지 않는다.
 
+<a id="n3e--rational-primitive-right-fold-reduction-2026-10-08"></a>
 ### N3e — rational primitive right-fold reduction (2026-10-08)
 
 계약: Rational 입력의 monadic `+/`·`-/`·`*/`·`%/`를 leading item 축을 따라 오른쪽부터 접는다. scalar/단일 item은 입력 dtype과 atom을 보존하고, 일반 비어 있지 않은 결과는 dtype 128이다. C `ar.c::jtreduce`/`ai.c::jtiden`은 zero item과 positive item/zero atom을 구별한다: zero item은 Bool 0/1 항등값으로 tail shape를 채우며, 두 item 이상이고 tail에 0이 있으면 `+/-`는 빈 Int, `*`는 빈 Bool, `%`는 빈 Float이다. 단일 empty item은 Rational을 유지한다. Static Semantic/Logical dtype facts도 이 shape 계약을 따르되 unknown shape는 Unknown으로 둔다.
@@ -555,6 +584,7 @@ N3e 실행 결과: Windows default/portable 각각 **741 passed / 0 failed / 0 i
 
 확장된 strict rational 감사는 **1,395 fixtures × DLL 2 = 2,790/2,790 matched**(N3d 대비 신규 573 fixtures/1,146 observations). 기존 C trap source 6개 제외는 report에 별도 유지하며 통과로 세지 않는다. overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** 모두 matched 유지. frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 숫자 문법 각 DLL **2,485 cases / 0 failed** 유지. **16 reports / 1,001 hashes** 재검증. GitHub CI는 생략했다. 현재 3개 exact numeric 후속 묶음은 N3d·N3e 완료, **N3f rank 결과 조립 1개 미완료**이며 전체 RustJ 잔여 단계 수로 해석하지 않는다.
 
+<a id="n3f--exact-rank-결과-조립-2026-10-08"></a>
 ### N3f — exact rank 결과 조립 (2026-10-08)
 
 범위는 **균일한 결과 셀**의 Rational/ExtendedInt 조립과 Bool→Int→ExtendedInt→Rational 정확 승격이다. scalar rank, primitive reduce rank, 양수 frame의 explicit/direct definition 결과를 기존 CellBuilder와 동일한 순서로 조립한다. 먼저 나온 셀과 빈 셀의 타입도 승격에 포함한다. `(%"0)1x 2x 0x`는 Rational `[1/1,1/2,1/0]`을 낸다. Float 혼합은 반올림하지 않고 capability 오류로 남긴다.
@@ -575,3 +605,4 @@ strict rational 감사는 **1,472 fixtures × DLL 2 = 2,944/2,944 matched**(N3e 
 기존 overflow **36**, integer dtype **36**, scientific **668**, real ratio **296**, extended **126** matched 유지. Frontend **64 matched / 12 runtime_gap**, NAME/정의 **568 matched / 16 unsupported_gap**, NAME 효과/배열 **104/104 matched**, 각 DLL 숫자 문법 **2,485 cases / 0 failed** 유지. **16 reports / 1,001 hashes** 재검증. GitHub CI는 생략했다. 이로써 N3d–N3f의 **명시한 범위의 exact numeric 3개 단위**를 마친다. 일반 rank·full J·C 진단 문구/위치·native compiled execution·Linux/GPU 완료를 뜻하지 않는다.
 
 남은 독립 범위: 비균일 결과 셀의 padding, effectful/user-defined empty-frame 실행, boxed/sparse fill, Float/Complex 혼합, 일반 derived reduce·extended-only reduce 및 native physical adapter. 이번 구현을 일반 rank·전체 frontend E2E·full J 완료로 해석하지 않는다. CUDA는 계획만 유지한다.
+

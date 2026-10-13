@@ -94,3 +94,7 @@ These destinations are proposals until every original section and checklist has 
 `inventory → choose smallest slice → map source/destination → move Korean and English content → validate preservation/links → PR review → re-read main → update issue #64 → next slice`.
 
 Do not redesign the compiler while splitting documents. Implementation and NN extension acceptance remain governed by the corresponding original implementation/verification gates until explicitly relocated.
+
+## 2026-10-13 PR integration validation
+
+Regenerate the 40 Korean modules from the current integrated canonical source. `tools/check_project_docs.py` checks content preservation, explicit and generated-heading relocation anchors, and repository inbound links; Linux CI reruns it. `reports/project-modularization.json` records the source commit and section hashes. English modularization and bilingual semantic acceptance remain incomplete. Runtime semantics and implementation acceptance are unchanged.

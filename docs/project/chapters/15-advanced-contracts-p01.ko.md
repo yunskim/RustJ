@@ -1,11 +1,13 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="read-advanced"></a>
+<a id="심화-기술-계약--primitive-rank-하드웨어-계획-flowstorage"></a>
 ## 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage
 
 아래는 기존 §4.5~§4.24의 상세 계약을 모아둔 참조 자료다. **핵심 단계 흐름을 이해하는 데 필수 선행 독서는 아니다.** 기존 항목 번호와 앵커는 세부 체크리스트의 교차 참조를 보호하기 위해 보존한다.
 
+<a id="45-primitive-contract"></a>
 ### 4.5 Primitive contract
 
 semantic analysis에서 모든 primitive는 공통 `PrimitiveContract` interface를 통해 해석한다. built-in J primitive와 name 기반 extension primitive의 **등록 경로는 달라도 분석 interface는 같다.**
@@ -37,6 +39,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 
 <a id="extension-primitive-inventory"></a>
 
+<a id="46-확장-primitive-목록--기능-필요성-채택-상태"></a>
 ### 4.6 확장 primitive 목록 — 기능, 필요성, 채택 상태
 
 **단일 Extension 통합 목록(2026-10-10):** 아래 표 하나에 JAXA/Japchae의 역사적 prototype·연구 항목과 NN-01–NN-34 도입 체크리스트를 합치고 품사·계약·고정 출처·선택적 분해 경로를 보존했다. 체크박스는 **NN 연산군의 유일한 진행 상태**이다. 행의 모든 적용 대상에 NN-G0–G7 검증 증거가 있거나 명시적 보류·제외 결정이 기록될 때만 완료한다. EXT-R*/EXT-H*는 별도 소관의 연구·이력 항목으로 NN 체크박스가 없다. §A2는 공통 Registry/IR 기반 구현 상태를 소유한다. 과거 prototype은 실행 지원 증거가 아니다.
@@ -101,6 +104,7 @@ fusion cost, accumulator realization, register/shared-memory 양, concrete layou
 | — | EXT-H1 · 직접 채택하지 않음 | `grad` | Adverb (역사) | 당시 gradient 누적/optimizer 분리 목적을 기록한다. 고정 offset과 inverse-slot 기반 학습 mode는 채택하지 않고 explicit write/accumulate resource 계약으로 재설계한다. | 기존 A2 / effect 계약 참조 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [T](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md) |
 | — | EXT-H2 · 직접 채택하지 않음 | `consume` | Adverb (역사) | 중간 gradient 저장 축소라는 목적은 후보로 유지한다. 즉시 weight update를 기본 의미로 만들지 않고 이전 weight version의 모든 reader 및 effect legality를 먼저 검증한다. | 기존 A2 / effect 계약 참조 | [P](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [T](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/README.md) |
 
+<a id="461-연구-사례와-core-j의-경계"></a>
 #### 4.6.1 연구 사례와 core J의 경계
 
 다음은 후기 연구의 확장성 검토 사례이며 위 prototype registry의 완성 항목이 아니다.
@@ -109,6 +113,7 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 
 `+`, `/`, `\`, `"`, `@:`, `[`, `]`, `@.`, `|:`, `:.`, `^:`는 core J 어휘이므로 확장 primitive로 중복 등록하지 않는다. core와 extension-derived op 모두 같은 semantic/capability/lowering 원칙을 따른다.
 
+<a id="462-최신-연구와-rustj의-적용-경계"></a>
 #### 4.6.2 최신 연구와 RustJ의 적용 경계
 
 1. **`emit`·`cp`는 미결이다.** 후기 범위 문서 §8은 surface primitive, core effect, annotation/planner 표현을 다시 검토한다. 이전 문서의 “기본 어휘”만으로 채택 완료라 쓰지 않는다.
@@ -117,6 +122,70 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 4. **dtype와 품사만으로 physical 실행을 확정하지 않는다.** 역사 cast 문서의 “adverb이면 fusion 강제”, “narrowing이면 in-place”, “widening이면 새 버퍼”는 현행 불변식이 아니다. numeric correctness·alias·use/liveness·target/cost 판단 후 실제 realization을 선택한다.
 5. **상태는 explicit resource다.** prototype의 hidden weight/moment, fixed offset, 고정 barrier/stream/register 숫자를 primitive identity로 복사하지 않는다. `ValueId`, `StateResource`, `BufferId`를 구분한다.
 
+<a id="nn-explicit-adjoint-candidates"></a>
+<a id="462a-명시적-adjointvjp-후보-계약--nn-01nn-34-2026-10-11"></a>
+#### 4.6.2a 명시적 Adjoint/VJP 후보 계약 — NN-01~NN-34 (2026-10-11)
+
+**결정:** RustJ는 범용 자동미분/역방향 그래프 생성기를 필수 구성요소로 두지 않는다. Extended primitive의 Forward와 **입력별 명시적 Adjoint/VJP**는 각각 독립적인 배열 변환이며 동일한 J Rank/Cell/Frame, Graph IR, Logical IR, 합법성·비용 분석을 사용한다. 이 표는 위의 **단일 NN-01~NN-34 완료 체크리스트에 종속되는 계약 후보 표**이지 별도의 채택/완료 목록이 아니다. 표의 이름은 아직 등록된 J NAME이나 실행 가능 커널이라는 뜻이 아니다.
+
+**수학적 경계:** 선형 A에는 A*가 정의된다. 비선형 f에는 primal x와 cotangent v를 받는 `VJP_f(x,v)=Df(x)^*v`가 필요하다. 비미분 입력(정수 index, mask, RNG draw, state mutation)에는 임의의 0-gradient/straight-through estimator(STE)를 자동으로 부여하지 않는다. 입력별 cotangent shape/dtype 및 복소 inner product를 검증한다. **Forward·Adjoint의 intrinsic rank가 같다고 가정하지 않으며**, 공유 parameter-gradient는 batch/frame 축 Reduce를 필요로 할 수 있다. J의 prefix agreement, 빈 Frame virtual fill-cell, heterogeneous result assembly, observable error/effect order는 각각 증명해야 한다.
+
+**참고 기준:** [N] NNlib의 호출 가능한 `∇softmax` 등, [P] PyTorch `torch.nn.grad.conv2d_input/weight`, [C] cuDNN `ConvolutionBwdData/Filter`, [O] oneDNN Backward, [R] ChainRulesCore의 primal+pullback 규칙, [J] 과거 JAXA의 독립 `grad_x/grad_w` 및 관계 등록, [D] RustJ의 설계 도출(외부 라이브러리에 동일 이름/API가 있다는 주장이 아님). **외부 API는 참고 근거이지 J Rank·숫자·에러 의미론과의 동등성 증명이 아니다.**
+
+| 계열 | Forward | 분류 | 입력 Adjoint 후보 | 파라미터 Adjoint 후보 | 필요한 primal/residual | Rank/Logical IR 방향 | 미결 계약/주의 | 근거 |
+|---|---|---|---|---|---|---|---|---|
+| NN-01 | `relu / sigmoid / tanh` | 명시적 VJP 후보 | `relu_vjp / sigmoid_vjp / tanh_vjp` | — | 입력 또는 출력 y, cotangent | Frame별 elementwise Map | ReLU x=0 subgradient, sigmoid/tanh 정밀도 | [D] |
+| NN-02 | `linear` | 명시적 VJP 후보 | `linear_grad_input` | `linear_grad_weight, linear_grad_bias` | X, W, dY, input/weight shape | batched dW/db는 공유 축 Reduce | bias broadcast/축 정합 및 누산 정밀도 | [D] |
+| NN-03 | `flatten` | 명시적 VJP 후보 | `flatten_vjp (= inverse reshape)` | — | 원본 shape/axis, dY | Frame/Cell 재배열; 복사 강제 금지 | 빈 배열·boxed/heterogeneous J 결과 조립 | [D] |
+| NN-04 | `conv2d` | 명시적 VJP 후보 | `conv2d_grad_input` | `conv2d_grad_weight, conv2d_grad_bias` | W, X, dY, stride/padding/dilation/groups, input/output sizes | dX Window/Scatter; dW batched Reduce/Contract | 경계·그룹·padding, 산술 및 레이아웃 증명 | [P], [C], [O] |
+| NN-05 | `avg_pool2d / max_pool2d` | 조건부 VJP 후보 | `avg_pool2d_vjp / max_pool2d_vjp` | — | window geometry; max의 선택 인덱스/동률 정책 | window별 Scatter + overlap Reduce | NaN/ties, ceil_mode, count_include_pad, 빈 창 | [O], [D] |
+| NN-06 | `softmax / log_softmax` | 명시적 VJP 후보 | `softmax_vjp / log_softmax_vjp` | — | 출력 y, dY, reduction axis | Cell별 Reduce + Map | 안정적 수식, 빈 reduction, Inf/NaN 및 dtype | [N] |
+| NN-07 | `cross_entropy` | 조건부 VJP 후보 | `cross_entropy_vjp_logits` | `선택적 class weight VJP 미정` | logits/log-prob 또는 확률, labels, reduction divisor | class-axis Reduce + batch-axis Reduce | 정수 target은 no VJP; ignore_index/label_smoothing 검증 | [D] |
+| NN-08 | `conv1d / conv3d` | 명시적 VJP 후보 | `conv1d_grad_input / conv3d_grad_input` | `conv1d_grad_weight / conv3d_grad_weight, bias` | X, W, dY, spatial hyperparameters | spatial Window + batch Reduce | 차원별 layout, groups, dilations, boundary | [C], [O] |
+| NN-09 | `layer_norm / rms_norm / batch_norm` | 조건부 VJP 후보 | `*_norm_grad_input` | `*_norm_grad_weight / *_norm_grad_bias` | input, mean/rstd 또는 rms, affine parameters, training flag | normalization axes Reduce, batch statistics 공유 | running-stat StateResource/version; forward residual precision | [O], [D] |
+| NN-10 | `gelu / silu` | 명시적 VJP 후보 | `gelu_vjp / silu_vjp` | — | input x 또는 유효 residual, exact/approx mode | elementwise Map | 근사 GELU 모드별 서로 다른 derivative | [D] |
+| NN-11 | `embedding` | 조건부 VJP 후보 | `indices: no VJP` | `embedding_grad_weight (scatter-add)` | indices, dY, padding_idx, weight shape | Gather 역방향 Scatter/SegmentReduce | indices 정수; 반복 index, max_norm state, sparse mode | [D] |
+| NN-12 | `scaled_dot_product_attention` | 조건부 VJP 후보 | `attention_grad_q / _grad_k / _grad_v` | — | Q,K,V, mask, scale, softmax stats, dropout mask/key | Contract + Softmax VJP + Contract; head/frame Map | masked rows, GQA, dropout RNG, precision, flash backend 별도 | [D] |
+| NN-13 | `rotary_embedding` | 조건부 VJP 후보 | `rotary_embedding_vjp (inverse rotation)` | `선택적 frequency VJP는 별도 정책` | position, sin/cos, rotated axes, dY | paired-element Map/StaticReindex | position index no VJP; frequency trainability 미정 | [D] |
+| NN-14 | `matmul / J contraction` | 명시적 VJP 후보 | `matmul_grad_input` | `matmul_grad_other` | X, W, dY, transpose flags, batch-prefix frame | transpose/Contract + broadcast axes Reduce | 복소 conjugate adjoint, J prefix-rank 정합 | [O], [D] |
+| NN-15 | `dropout` | 조건부 VJP 후보 | `dropout_vjp_input` | — | forward와 동일한 mask 또는 key/version, p, training | masked Map | 새 RNG draw 금지, RNG 재현성/effect barrier | [D] |
+| NN-16 | `vjp (explicit invocation)` | 계산 VJP 해당 없음 | `등록된 input-specific VJP를 명시 호출` | — | primal, output cotangent, residual handle | 대상 primitive의 Rank/Cell 계약 상속 | forward graph 자동 미분/생성 금지; 미등록 VJP 오류 | [R], [J] |
+| NN-17 | `SGD / Adam / AdamW` | 계산 VJP 해당 없음 | `일반적인 VJP 계약 없음` | — | weights, gradients, moments, step StateResource | elementwise state transition, 명시적 순서 | optimizer state update는 adjoint가 아님 | [D] |
+| NN-18 | `register_adjoint (declaration)` | 계산 VJP 해당 없음 | `계산 없음: forward→input-index VJP 관계 선언` | — | dtype/shape/rank, primal/residual, input-slot identity | 등록 메타데이터만; Graph 실행노드 생성 안 함 | J :. / ^:_1 inverse 재정의 금지 | [R], [J] |
+| NN-19 | `to (dtype conversion)` | 조건부 VJP 후보 | `floating_cast_vjp (정의 시)` | — | source/dest dtype, rounding/overflow policy | elementwise Map | 정수/양자화 cast는 일반 VJP 없음; STE 기본 채택 금지 | [D] |
+| NN-20 | `conv_transpose2d / adaptive pooling` | 조건부 VJP 후보 | `transpose_conv_grad_input / adaptive_pool_vjp` | `transpose_conv_grad_weight, bias` | X,W,dY, output_size; adaptive window/indices | Window/Scatter + Reduce | adaptive max tie/NaN; output_padding/shape consistency | [C], [O], [D] |
+| NN-21 | `quantize_per_tensor / dequantize` | VJP 없음 | `일반 양자화의 정확한 VJP 없음` | — | scale, zero_point, rounding, saturation, dtype | 직접 Adjoint 경로 없음 | STE는 별도 surrogate policy; VJP로 위장 금지 | [D] |
+| NN-22 | `kv_cache_update` | VJP 없음 | `state mutation 자체 VJP 없음` | — | cache version, index/offset, alias, explicit state | StateResource read/write dependency | pure gather 경로의 VJP와 상태 갱신을 구분 | [D] |
+| NN-23 | `grouped_mm` | 조건부 VJP 후보 | `grouped_mm_grad_input` | `grouped_mm_grad_weight` | expert assignment, offsets, X, W, dY | expert별 batched Contract + Reduce | routing index no VJP; capacity/drop/pad/reassembly | [D] |
+| NN-24 | `logsumexp` | 명시적 VJP 후보 | `logsumexp_vjp` | — | input/output, reduction axes, stable max stats | Reduce + broadcast Map | empty/Inf/NaN, keepdims, accumulation dtype | [N], [D] |
+| NN-25 | `topk` | 조건부 VJP 후보 | `topk_values_vjp (scatter to chosen indices)` | — | forward-selected indices, input shape, dValues | Scatter; repeated collisions require proof | index VJP 없음; ties/stability/NaN policy | [D] |
+| NN-26 | `group_norm / instance_norm` | 명시적 VJP 후보 | `group_norm_vjp / instance_norm_vjp` | `affine scale/bias VJP` | per-group stats, input/scale, eps, dY | group-axis Reduce + Map, batch frame | group divisibility, no running stats 혼동 | [O], [D] |
+| NN-27 | `segment_reduce / embedding_bag` | 조건부 VJP 후보 | `segment_reduce_vjp / embedding_bag_vjp` | `embedding_bag_grad_weight` | segments/offsets, indices, reduction type, argmax if max | SegmentView/Scatter + Reduce | empty segments, duplicate indices, max ties, sparse accumulation | [D] |
+| NN-28 | `scatter_reduce / index_add` | 조건부 VJP 후보 | `scatter_reduce_grad_base / index_add_grad_input` | `scatter_reduce_grad_src / index_add_grad_src` | indices, reduce mode, include_self, winning ties | Gather + collision-aware ScatterCombine | overwrite collisions, min/max tie/order, deterministic accumulation | [D] |
+| NN-29 | `interpolate / grid_sample` | 조건부 VJP 후보 | `interpolate_vjp_input / grid_sample_vjp_input` | `grid_sample_vjp_grid (mode dependent)` | grid/coords, input, mode, padding, align_corners | WeightedScatter/Window + Reduce | nearest grid derivative undefined; bounds, NaN, precision | [D] |
+| NN-30 | `rand / randn / bernoulli / multinomial` | VJP 없음 | `RNG sampling 자체에 일반 VJP 없음` | — | explicit key/state, distribution parameters | ExplicitRng route, not differentiation | reparameterization/score estimator는 별도 API | [D] |
+| NN-31 | `RNN / GRU / LSTM` | 조건부 VJP 후보 | `recurrent_vjp_input / _vjp_initial_state` | `recurrent_vjp_weight / _vjp_bias` | gate activations, hidden/cell states, lengths, direction | reverse-time Scan + per-step Contract/Map | zero-length, dropout, gate order/state version, truncation | [D] |
+| NN-32 | `nms` | VJP 없음 | `discrete box selection: 일반 VJP 없음` | — | selected indices, ties, thresholds | selection graph only | continuous surrogate는 별도 op, NN-32 VJP 주장 금지 | [D] |
+| NN-33 | `roi_align` | 조건부 VJP 후보 | `roi_align_vjp_features` | `ROI-coordinate VJP는 별도 정책/검증` | ROI coords, sampling grid, feature/input shapes | GridSample adjoint + accumulation | boxes/coordinates gradient 지원 범위 미확정 | [D] |
+| NN-34 | `ctc_loss` | 조건부 VJP 후보 | `ctc_loss_vjp_log_probs` | — | log_probs, targets, input/target lengths, alpha/beta DP | log-domain Scan/StateMachine + Reduce | blank/zero_infinity, impossible alignment, padded frames | [D] |
+
+[N]: https://fluxml.ai/NNlib.jl/dev/reference/
+[P]: https://github.com/pytorch/pytorch/blob/main/torch/nn/grad.py
+[C]: https://docs.nvidia.com/deeplearning/cudnn/latest/developer/graph-api.html
+[O]: https://uxlfoundation.github.io/oneDNN/v3.12/dev_guide_convolution.html
+[R]: https://juliadiff.org/ChainRulesCore.jl/stable/
+[J]: https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md
+
+**구현·수용 순서 (기존 단일 NN 체크리스트의 하위 게이트):**
+- [ ] **NN-AG1:** 미분 가능한 입력 slot·cotangent/result shape/dtype·intrinsic/derived rank·axis/broadcast reduce·동적 shape guard를 Forward와 독립적으로 지정한다.
+- [ ] **NN-AG2:** residual/activation의 값·버전·lifetime·storage/recompute 후보를 효과·오류 순서와 분리해 증명한다. `cp`/`emit`의 표면 문법 채택 여부는 기존 A2에서 결정한다.
+- [ ] **NN-AG3:** 연산별 명시적 VJP를 독립 Graph 연산과 Logical decomposition 후보로 설계하며, 등록 선언은 실행 Graph node가 아니다. NN-16은 등록된 입력별 VJP의 **명시적 호출**만, NN-18은 `register_adjoint`라는 **관계 등록 후보**만 다룬다. `register_autograd`와 자동 backward 생성은 채택하지 않는다. J `:. `/`^:_1`의 inverse 계약은 불변이다.
+- [ ] **NN-AG4:** dot-product adjoint 테스트(선형), finite-difference directional/VJP 검사(매끄러운 비선형), shape/rank·empty/frame·dtype/numeric·오류/effect 부정 사례를 수행한다. 테스트 도구가 역방향 프로그램을 자동 생성하는 것은 아니다.
+- [ ] **NN-AG5:** NNlib/oneDNN/cuDNN/PyTorch 참조와 동등성 증거를 확보하고, Native/External lowering을 정식 선택하기 전 J 의미 차이·backend 지원 범위·workspace를 기록한다.
+
+**진행 상태:** 34/34 계열 후보 계약을 문서와 `src/nn_extensions.rs::ADJOINT_CANDIDATES`에 연결함. **구현된 VJP 0개로 간주**하며, 의미론 적법성·실행·성능·CI 통과를 주장하지 않는다.
+
+<a id="463-기존-조사구현-증거-기록-2026-10-02-스냅샷"></a>
 #### 4.6.3 기존 조사·구현 증거 기록 (2026-10-02 스냅샷)
 
 이 절의 코드 대조 기준은 **2026-10-02 조사 당시 checkout `89b87b8`**이다. 현재 `main`의 구현 상태를 뜻하지 않으며 최신 상태는 §12/A1.5를 따른다. `src/primitive.rs`의 `ExtensionPrimitive`/`PrimitiveResolver::resolve_extension_binding`과 `src/runtime.rs`의 parser name-binding seam은 존재한다. 그러나 이 seam 또는 테스트용 extension handle은 위 NN/effect family의 semantic contract와 실행 kernel을 구현한 증거가 아니다. `tests/semantic.rs::unknown_contracts_are_barriers`는 `conv`와 `with`의 unknown contract가 보수적으로 처리됨을 확인하는 기존 테스트다. 이번에는 코드를 읽었으며 실행 테스트를 재수행하지 않았다.
@@ -134,6 +203,7 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 
 
 
+<a id="463a-nn배열-extension-first-수용-게이트실행-체크리스트-2026-10-10-설계계획만"></a>
 #### 4.6.3a NN/배열 Extension-first 수용 게이트·실행 체크리스트 (2026-10-10; 설계/계획만)
 
 **결정:** 먼저 ordinary J 이름의 extension을 추가하고 **J Graph IR에서는 의미가 정의된 단일 계산 primitive**로 보존한다. 그다음 **Execution Semantic Lowering / Logical Execution IR**에서 검증된 조합으로 *선택적으로* 분해하거나, 원자 op를 유지한 채 native CPU, 검증된 외부 library, MLIR/StableHLO subset, GPU kernel로 내린다. "확장 → 나중에 native"는 **source API/semantic identity의 불변**을 뜻하며, Graph IR primitive를 반드시 core J 문법 primitive로 승격한다는 뜻은 아니다. 분해와 fusion, 특정 backend 사용은 별도 합법성/수치/비용 검증 결과다. [JAXA 원자/참조 정의 연구(A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md), [prototype 목록(P)](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/docs/JAXA/primitives.py), [현행 A2 계약](./11-roadmap-checklists-p05.ko.md#a2--extension-primitive-registry와-analysis-contract).
@@ -177,6 +247,7 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 **참조/경계:** [§4.6 단일 확장 목록](#nn-extension-checklist), [A2 extension/analysis checklist](./11-roadmap-checklists-p05.ko.md#a2--extension-primitive-registry와-analysis-contract), [Graph vs Execution Basis](./11-roadmap-checklists-p04.ko.md#a15--j-graph-ir--jaxa-array-operation-graph-ir), [JAXA 후기 설계 문서(A)](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md). 과거 문서의 "conv는 hidden weight 소유 blackbox"는 RustJ의 **explicit StateResource** 규약보다 우선하지 않는다. 이 절은 신규 구현과 검증을 주장하지 않는다.
 
 
+<a id="47-과거-jaxajapchae-저장소-통합-기준"></a>
 ### 4.7 과거 JAXA/Japchae 저장소 통합 기준
 
 2026-09-30에 다음 네 저장소의 최신 내용을 다시 대조했다. **2026-10-02 재확인한 원격 HEAD와 확장 primitive별 최신 대조는 [§4.6](#extension-primitive-inventory)를 따른다.** 이 표의 substantive baseline은 당시 조사 이력이다.
@@ -197,6 +268,7 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 - dtype/precision, accumulator precision, layout, hardware resource는 rank 문법에 억지로 넣지 않고 각각 semantic contract와 planning 계층에 둔다.
 - 4월 prototype의 고정 `memory_layout`, `tiling_axis`, register 숫자는 최종 semantic identity가 아니다. 6~7월의 identity/realization 분리는 중요한 중간 단계였고, 현행 RustJ에서는 이를 더 분리하여 `PrimitiveSpec semantic record + capability interfaces + lowering registry + TargetProfile`로 사용한다.
 
+<a id="471-역사-저장소와-현행-rustj의-충돌-해소표"></a>
 #### 4.7.1 역사 저장소와 현행 RustJ의 충돌 해소표
 
 과거 문서의 문장을 그대로 현재 설계로 읽지 않는다. 다음 항목은 명시적으로 재해석한다.
@@ -230,6 +302,7 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 이 표는 역사 저장소의 아이디어를 폐기한다는 뜻이 아니다. **어느 층에 속하는지를 현재 compiler architecture에 맞게 재배치**하는 기준이다.
 
 
+<a id="48-확장-primitive는-ordinary-name-binding으로-추가하고-parser-time-lookup을-따른다"></a>
 ### 4.8 확장 primitive는 ordinary name binding으로 추가하고 parser-time lookup을 따른다
 
 NN/array extension은 J의 새로운 keyword나 punctuation을 추가하지 않고 **ordinary name**으로 추가한다.
@@ -309,6 +382,7 @@ NameRef(expected = Verb)
 
 처럼 **late binding과 expected part-of-speech contract를 동시에 보존**한다.
 
+<a id="481-실행-전-입력-정보--with-xy-후보와-metadata-검사"></a>
 #### 4.8.1 실행 전 입력 정보 — ``with (X`Y)`` 후보와 metadata 검사
 
 **사용자 의도:** 실행 전 분석·최적화에 필요한 입력 정보를 어떻게 확보할지 검토한다. `with`/gerund 채택은 필수가 아니며 아직 표면 schema를 확정하지 않는다. 기존 noun metadata 추론, 외부 API/catalog, 파일·데이터셋 header/schema 또는 optional annotation에서 facts를 받아 같은 분석 경계로 전달할 수 있다. header 조회도 실제 I/O이므로 effect를 숨기지 않는다. graph topology는 shape 없이도 일부 분석 가능하고, dtype·rank·extent·차원 관계를 알수록 더 정확한 legality/resource 분석이 가능하다. 값에 의존하는 조건은 metadata로 증명하지 않는다. frontend 작업 우선순위와 optimizer 실행 보류는 유지한다.
@@ -346,6 +420,7 @@ run =: graph with (X`Y)
 
 <a id="preexecution-input-information"></a>
 
+<a id="482-실행-전-입력-정보-명세-2026-10-04"></a>
 #### 4.8.2 실행 전 입력 정보 명세 (2026-10-04)
 
 **필요성은 optimization별로 다르다.** full J 실행에 아래 모든 선언을 요구하지 않는다. topology 분석에는 known callable/graph만으로 충분한 부분이 있고, shape/type-dependent lowering에는 해당 facts 또는 runtime 조건이 필요하다. 각 입력에 대해 최소한 **어느 graph 입력인가 + noun이라는 품사 + known/unknown 구분 + facts의 근거/유효 scope**를 연결한다. 그 위에 dtype/rank/shape를 확보한 만큼 분석한다. schema는 `with` 문법과 독립적이며 noun metadata·외부 API/catalog·file header·선택 annotation에서 같은 facts를 얻을 수 있다.
@@ -404,6 +479,7 @@ physical inputs: adapter-provided placement/layout/lifetime, separate from this 
 
 이번 변경은 설계 문서 정리다. WI1 이후 새 runtime/optimizer 구현 또는 새 test gate 완료를 주장하지 않는다.
 
+<a id="설계-영향과-출처--채택할-아이디어와-rustj-판단의-구분"></a>
 ##### 설계 영향과 출처 — 채택할 아이디어와 RustJ 판단의 구분
 
 아래 표는 **설계에 영향을 준 개념의 출처**다. 각 프레임워크가 RustJ의 조건을 그대로 구현한다는 뜻이 아니며, 이 조건은 아직 구현되지 않은 외부 입력/실행 adapter의 명세다. J NAME snapshot/late binding, scalar/empty, sparse/boxed 및 observable error 의미는 RustJ/jsource 경계에서 유지한다.
@@ -419,6 +495,7 @@ physical inputs: adapter-provided placement/layout/lifetime, separate from this 
 | MLIR One-Shot Bufferize | use-def/alias·read-after-write 충돌 및 writable 여부에 따른 in-place/out-of-place 결정 | IN9–IN10 | live J snapshot/외부 alias를 덮어쓰지 않는다는 증거가 있어야 reuse. 불명확하면 별도 output/copy 또는 지원 route 경계. [Bufferization](https://mlir.llvm.org/docs/Bufferization/) |
 | 역사 JAXA 연구 | source 계약과 entry graph를 gerund/with로 연결하는 표면 아이디어 | IN0–IN3, IN6 | optional 전달 후보만 계승; physical policy를 섞지 않고 등록된 capability와 ordinary binding을 사용. [JAXA 제안](https://github.com/yunskim/jaxa-analyzer/blob/7275d5ba7b7c39d5e3d304cb49e565b8e16ddf33/docs/JAXA_%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98_J%EC%97%B0%EC%82%B0_Python%EC%9E%90%EC%9B%90.md#L873) |
 
+<a id="입력-metadata-조건-m0m8"></a>
 ##### 입력 metadata 조건 (M0–M8)
 
 이 조건은 **metadata를 정당한 최적화 전제로 사용할 때** 적용한다. dtype/rank/shape만으로 buffer 안전성·함수 의미·내용 불변성까지 증명하지 않는다. 물리 접근 검사는 compiler semantic facts와 별도의 adapter 의무다.
@@ -435,6 +512,7 @@ physical inputs: adapter-provided placement/layout/lifetime, separate from this 
 | M7 부분 facts·내용 조건 | 확보된 정보만 refinement. finite/sorted/range 같은 contents 조건은 별도 proof/검사; 표본 통계는 legality 근거가 아님 | 값 없는 schema 분석을 유지. boxed/sparse의 알려지지 않은 child/구조 facts는 unknown; 현재 WI1은 atoms/representation 조건 미검사 |
 | M8 cache/guard 실패 | 최적화가 실제 사용하는 metadata·function/semantic 정책만 cache precondition으로 추적; batch/weight 값·pointer 변경만으로 불필요한 재컴파일하지 않음 | 명시 계약 오류와 specialization miss 구별. effect 후 자동 replay 금지; 재분석/지원 경로 선택은 실제 capability가 있을 때만. dispatcher 미구현 |
 
+<a id="소유권과-입력-저장소-조건-o0o8"></a>
 ##### 소유권과 입력 저장소 조건 (O0–O8)
 
 | 조건 | 명세 | 허용되는 동작과 한계 |
@@ -454,6 +532,7 @@ M/O 조건은 RustJ의 **채택할 계약과 후속 구현 요구**다. 현재 `
 - [x] **WI0b** 항목별 framework 영향·출처 및 M0–M8/O0–O8 조건을 정본/영어 mirror에 기록한다.
 - [ ] **WI4b** adapter/guard 연결 시 stale metadata·외부 mutation·overlap·readonly backing·잘못된 capacity·donation 후 사용·실패 release·view lifetime 사례를 검증한다. async/device completion은 해당 backend를 구현할 때만 추가한다.
 
+<a id="정적-분석-우선-실제-배열-없이-계약에서-분석한다"></a>
 ##### 정적 분석 우선: 실제 배열 없이 계약에서 분석한다
 
 **사용자 요구:** 실행 전 최적화의 기반은 정적 분석이다. M/O 조건을 모두 actual buffer의 runtime 검사로만 얻는 구조로 만들지 않는다. 분석 입력은 실제 noun이 아니라 noun의 schema/facts와 parser가 보존한 계산 구조일 수 있다. 외부 API·header가 metadata를 제공하더라도 그 조회 자체의 I/O와 **이후 데이터 없는 정적 graph 분석**은 구별한다. source verb를 호출하거나 dummy/training array를 생성하여 shape를 알아내는 것을 기본 전제로 삼지 않는다. `with`는 이 분석에 필요한 정보를 전달할 수 있는 optional surface일 뿐이다.
@@ -489,7 +568,3 @@ shape가 concrete하면 일부 logical extent를 정확히 계산하고, symboli
 - [ ] **WI3b** metadata-only 분석에서 shape/resource/use-def 결과와 미해결 조건을 보고한다. regression은 배열 미할당·kernel 미실행 및 unknown 보존, compile-time 제약 충돌/부분 facts refinement를 검증한다.
 - [ ] **WI4c** 정적으로 증명한 조건과 residual guard/adapter 보장을 실행 경계에 연결하되 runtime-only 분석 구조로 바꾸지 않는다. 소유권/lifetime proof 범위와 미확정 external alias를 명시한다.
 
-
----
-
-[다음 부분 →](./15-advanced-contracts-p02.ko.md)

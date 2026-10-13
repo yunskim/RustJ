@@ -1,9 +1,9 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
+<a id="15-문서-정책"></a>
 ## 15. 문서 정책
 
+<a id="151-권위-문서"></a>
 ### 15.1 권위 문서
 
 앞으로 사람이 유지하는 프로젝트 기준 문서는 **이 `PROJECT.ko.md`가 정본이며 `PROJECT.md`는 같은 설계의 영어 mirror**다. Syntax 힌트 검토와 프레임워크 비교도 §4.1.2–3에 통합했으며 별도 설계 보고서를 유지하지 않는다. 새 설계·구조 결정은 한국어 정본을 먼저 갱신하고 영어 mirror를 같은 변경에서 갱신한다.
@@ -27,6 +27,7 @@
 - validation policy
 - 주요 검증 결과
 
+<a id="152-readme"></a>
 ### 15.2 README
 
 `README.md`는 다음만 담당한다.
@@ -38,6 +39,7 @@
 
 README에 별도의 상세 설계 사본을 만들지 않는다.
 
+<a id="153-reports"></a>
 ### 15.3 reports/
 
 `reports/`는 앞으로 **기계 생성 또는 실측 원자료** 중심으로 사용한다.
@@ -51,6 +53,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 새로운 사람이 편집하는 설계/체크리스트/진행 Markdown 보고서는 만들지 않는다.
 
+<a id="154-이번-통합에서-흡수한-기존-문서군"></a>
 ### 15.4 이번 통합에서 흡수한 기존 문서군
 
 다음 범주의 기존 Markdown은 이 문서로 통합하고 별도 파일을 유지하지 않는다.
@@ -95,6 +98,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 - PHYSICAL-ARRAY-G1
 
 세부 역사 원문은 Git history에서 계속 조회할 수 있고, 측정 원자료는 `reports/`에 남긴다.
+<a id="155-외부-역사-저장소"></a>
 ### 15.5 외부 역사 저장소
 
 다음 저장소의 설계 내용은 2026-09-30 기준으로 이 문서에 흡수했다.
@@ -108,6 +112,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 기존 저장소는 prototype 코드, 연구 이력, 참고 구현을 확인할 때만 사용한다.
 
+<a id="1551-current-jsource-semantic-cross-check-2026-09-30"></a>
 ### 15.5.1 current jsource semantic cross-check (2026-09-30)
 
 기준 revision: `jsoftware/jsource@13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (2026-09-30 current master at this review).
@@ -145,6 +150,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 이 검토에서 발견된 차이는 **포기한 jsource implementation detail이 아니라 observable semantics에 영향을 주는 항목만** 반영했다.
 
+<a id="156-설계-일관성-불변식"></a>
 ### 15.6 설계 일관성 불변식
 
 앞으로 문서를 수정할 때 다음 불변식을 독립적으로 점검한다.
@@ -222,6 +228,7 @@ README에 별도의 상세 설계 사본을 만들지 않는다.
 
 이 목록과 충돌하는 문장이 생기면 더 오래된 문장을 유지하지 말고 권위 설계를 이 불변식에 맞춰 갱신한다.
 
+<a id="157-문서-완전성-감사--stage-contract가-닫혀-있는가-2026-10-06"></a>
 ### 15.7 문서 완전성 감사 — stage contract가 닫혀 있는가? (2026-10-06)
 
 RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면서 **각 stage 자체의 설명보다 stage 사이의 연결 계약이 흩어지는 문제**가 생겼다. 따라서 “문서가 길다/자세하다”와 “독자가 compiler를 처음부터 끝까지 재구성할 수 있다”를 같은 것으로 보지 않는다.
@@ -257,6 +264,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 | external route / GPU | **boundary contract 고정 / 구현 보류** | §5.5.1에 adapter input/capability/output, SemanticCheck/error/effect/token mapping, bridge/ownership, round-trip verifier, failure class를 정의 | production adapter는 미구현. M6까지 implementation gate로만 유지하며 CUDA는 의도적으로 보류 |
 | validation / versioning | **문서 계약 보강됨 / 후속 verifier 구현 필요** | frontend differential gate, J Graph 0.10/A3 0.6 exact schema+registry verifier, §5.7.5 negative matrix, §5.7.6 explicit migration/downgrade policy | Candidate/Route/Physical/External negative verifiers는 각 stage 구현과 함께 추가; portable serialization 자체는 아직 미제공 |
 
+<a id="1571-1차-감사에서-닫은-문서-계약"></a>
 #### 15.7.1 1차 감사에서 닫은 문서 계약
 
 현재 구현 우선순위 M2를 바꾸지 않은 채, 2026-10-06 1차 감사에서 다음 다섯 빈칸을 **문서 계약 수준에서** 닫았다. 이는 구현 완료 체크가 아니다.
@@ -269,6 +277,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 
 특히 canonical trace에는 **현재 구현 stop line**을 넣어 route prototype 이후의 Schedule/PhysicalPlan/CPU result 구간을 `planned M4`로 표시했다. 목표 architecture 그림을 구현 완료 증거로 사용하지 않는다.
 
+<a id="1572-2차-감사에서-닫은-문서-계약"></a>
 #### 15.7.2 2차 감사에서 닫은 문서 계약
 
 - [x] **Frontend canonical sentence trace** — §3.3.2.2 `+/ y`
@@ -279,6 +288,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 
 이 단계에서도 구현하지 않은 타입/API를 구현 완료처럼 쓰지 않았다. 특히 Branch/CondBranch, CandidateEvidence/SelectionPlan, RouteBoundary concrete type, PhysicalPlan, ExternalRegionPlan은 **target concepts**이며 현재 코드에 모두 존재하는 API가 아니다.
 
+<a id="1573-현재-남은-빈칸--implementation-driven-detail"></a>
 #### 15.7.3 현재 남은 빈칸 — implementation-driven detail
 
 1·2차 감사 후 남은 큰 항목은 architecture owner가 없는 빈칸이라기보다 **구현에 들어가야 구체 타입과 proof algorithm을 정할 수 있는 세부사항**이다.
@@ -293,6 +303,7 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 
 이 항목은 지금 임의 타입을 미리 고정하지 않는다. 해당 구현 단계가 시작될 때 **현재 stage contract → 최소 타입 → verifier/negative test 하나 → 다음 의미** 순서로 구체화한다.
 
+<a id="1574-문서-유지-규칙"></a>
 #### 15.7.4 문서 유지 규칙
 
 - 새 major stage/type을 추가할 때 위 10개 질문 중 해당 항목을 함께 갱신한다.
@@ -304,3 +315,4 @@ RustJ 문서는 개별 주제의 깊이는 충분하지만, 설계가 커지면�
 - 문서 감사에서 발견한 항목을 별도 Markdown 보고서로 분리하지 않는다. 이 절과 §10/§16의 기존 체크리스트에 흡수한다.
 
 ---
+

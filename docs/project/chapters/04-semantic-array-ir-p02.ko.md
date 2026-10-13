@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 3. J Semantic Array IR — 계속 (2/4)
-
+<a id="334-function-dag의-shape는-j-parser-reduction-rule이-결정한다"></a>
 #### 3.3.4 Function DAG의 shape는 J parser reduction rule이 결정한다
 
 RustJ가 derived function의 DAG shape를 별도 IR 취향으로 새로 정의하지 않는다. **current jsource의 parser reduction table(`p.c::cases[]`)을 semantic DAG construction의 기준으로 삼는다.**
@@ -87,6 +84,7 @@ Fork
 
 긴 train도 별도 `LongTrain` node를 만들지 않는다. jsource parser가 row 5/6 reduction을 반복해 hook/fork derived function을 만드는 것처럼 shared Hook/Fork node graph로 축약한다.
 
+<a id="335-jsource-vfgh는-parse-dag의-oracle이-아니라-realization-cross-check다"></a>
 #### 3.3.5 jsource `V.fgh`는 parse DAG의 oracle이 아니라 realization cross-check다
 
 jsource의 `V` block은 VERB/ADV/CONJ이 공유하는 execution/function representation이고 `fgh[3]`, valence entry points, rank, id, flags/local metadata를 가진다. 이는 RustJ가 **공통 shared function object**를 쓰고 subtree를 deep-copy하지 않아야 한다는 좋은 reference다.
@@ -180,6 +178,7 @@ ParseConstructionCoverage (현재)
 
 큰 derived expression은 immutable shared handle/`EntityId` DAG로 표현하여 assignment, alias, analysis plan 사이에서 subtree를 복사하지 않는다.
 
+<a id="336-modifier-reduction-결과는-다음-parser-reduction에서-하나의-function-entity다"></a>
 #### 3.3.6 modifier reduction 결과는 다음 parser reduction에서 하나의 function entity다
 
 current jsource의 parser는 이 경계를 명확하게 가진다. `p.c`의 parser lines 3-4는 ADV/CONJ를 실제로 적용해 결과 `yy` function object를 만든 뒤 그 결과의 parsing type을 stack에 다시 기록한다. 따라서 이후 hook/fork/train reduction은 원래 modifier token과 operand token을 다시 보지 않고 **이미 만들어진 결과 entity 하나**를 operand로 받는다.
@@ -289,6 +288,7 @@ Logical operation / lowering candidate
 로 둔다.
 
 
+<a id="34-너무-이른-정규화를-금지한다"></a>
 ### 3.4 너무 이른 정규화를 금지한다
 
 다음 변환은 **semantic analysis 전에 무조건 수행하지 않는다.**
@@ -323,6 +323,7 @@ ConjunctionApplication(operator=", left_entity, right_entity)
 
 을 분석에 사용할 수 있기 때문이다.
 
+<a id="341-train-dataflow와-observable-execution-order를-분리한다"></a>
 #### 3.4.1 train dataflow와 observable execution order를 분리한다
 
 current jsource의 fork/hook 실행(`j.h`의 `FORK1/FORK2`)은 일반 fork에서 **오른쪽 tine `h`를 먼저 실행하고, 그 다음 왼쪽 tine `f`, 마지막에 middle verb `g`**를 실행한다. hook/composition 계열도 해당 derived-verb 의미에 따른 실행 순서를 가진다.
@@ -361,6 +362,7 @@ ObservableOrder
 
 즉 source-level J 실행 순서를 physical serial schedule로 영구 고정하지는 않지만, **dataflow graph만 보고 순서 제약을 자동 폐기하지 않는다.**
 
+<a id="342-derived-verb의-latent-semantics를-forward-dataflow로-소거하지-않는다"></a>
 #### 3.4.2 derived verb의 latent semantics를 forward dataflow로 소거하지 않는다
 
 일부 J conjunction/modifier는 현재 forward call의 값 계산만 보면 없어 보여도 **향후 derived behavior**에 의미가 있다.
@@ -387,6 +389,7 @@ DerivedVerb
 
 Logical lowering이 derived structure를 소거할 수 있는 것은 **그 latent semantics가 이후 프로그램에서 관찰되지 않거나 동등하게 다른 contract로 이전되었다는 proof**가 있을 때뿐이다.
 
+<a id="35-물리-정보는-넣지-않는다"></a>
 ### 3.5 물리 정보는 넣지 않는다
 
 고수준 semantic IR에 다음 physical decision은 넣지 않는다.
@@ -404,12 +407,14 @@ StreamEvent
 
 이들은 downstream scheduling/bufferization/backend의 책임이다. RustJ-native route에서는 Physical Planner가 담당하고, external route에서는 해당 compiler의 lower-level IR/pass가 담당할 수 있다.
 
+<a id="36-현재-구현과-목표-경계의-차이"></a>
 ### 3.6 현재 구현과 목표 경계의 차이
 
-현재 모듈 책임은 [§10 M0 ownership 표](./10-implementation-scope.ko.md#architecture-migration-checklist), 구현 상태는 [§12](./12-validation.ko.md#current-implementation-status)에 모아 둔다. compiler의 연결된 분석 경로는 `FunctionEntity → j_graph_ir::Plan → analysis::lower_graph → logical_ir::Plan`이다. `analysis.rs`는 FunctionEntity를 직접 canonicalize하는 분석기가 아니라 J Graph의 execution-semantic lowering을 담당한다.
+현재 모듈 책임은 [§10 M0 ownership 표](./11-roadmap-checklists-p01.ko.md#architecture-migration-checklist), 구현 상태는 [§12](./13-current-status.ko.md#current-implementation-status)에 모아 둔다. compiler의 연결된 분석 경로는 `FunctionEntity → j_graph_ir::Plan → analysis::lower_graph → logical_ir::Plan`이다. `analysis.rs`는 FunctionEntity를 직접 canonicalize하는 분석기가 아니라 J Graph의 execution-semantic lowering을 담당한다.
 
 현재 `semantic.rs`는 `/` ADV와 `"` CONJ의 identity/POS 및 지원 subset의 parser construction graph를 보존한다. 전체 jsource-compatible Enqueue/9-row cutover는 M2에서 추적한다. `Callable.reduce/rank`와 runtime `ResolvedVerb`의 flattening은 남은 migration 표현이며 canonical function identity가 아니다.
 
+<a id="37-name-resolution과-explicit-definition의-호출-의미"></a>
 ### 3.7 name resolution과 explicit definition의 호출 의미
 
 과거 `jaxa-analyzer`의 jsource 조사에서 확인한 name/local-frame 의미를 현행 IR에서도 보존한다.
@@ -486,7 +491,3 @@ direct/explicit definition의 structured control flow는 장기 Logical IR의 Re
 
 따라서 SSA `ValueId`는 J namespace 자체의 대체물이 아니다. static binding이 증명된 경우에는 SSA value로 낮출 수 있지만, runtime name lookup/assignment semantics가 필요한 곳은 명시적인 name/resource/effect operation 또는 runtime lowering으로 보존한다.
 
-
----
-
-[← 이전 부분](./04-semantic-array-ir-p01.ko.md) | [다음 부분 →](./04-semantic-array-ir-p03.ko.md)

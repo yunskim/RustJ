@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 10. 구현 계획과 체크리스트 — 계속 (3/5)
-
+<a id="최적화에-사용할-frontend-정보-보존-2026-10-03"></a>
 ##### 최적화에 사용할 frontend 정보 보존 (2026-10-03)
 
 목표는 SQL 구현 방식을 복제하는 것이 아니라 **실행 전 분석·최적화에 사용할 J tokenizer/enqueuer/parser**이다. 현재 우선순위는 이 세 단계의 정보 보존과 jsource와의 논리적 호환성이다. 이번 변경은 최적화 변환·실행 순서 변경·kernel 선택을 수행하지 않는다.
@@ -22,6 +19,7 @@
 
 논리적 extent/live range/resource 보고는 기존 분석기를 재사용하며 최적화는 하지 않는다. logical atom 합계는 peak allocation이 아니다. 전체 J, upstream suite, CUDA 실행을 지원·검증했다는 의미는 아니다. 이번 Windows 검증: Rust default/portable 각각 228 passed, 17 ignored; fmt/clippy 통과; Python harness 18 passed; j64/AVX2 각각 direct·semantic-reference 2,063문장 중 2,061 passed, runtime coverage boundary 2개, failed 0; stage 7,014 checks와 words 6,618 cases에서 failed 0. 신규 정적 frontend regression은 7개다. metadata-only 10^12-element 예제도 실행했다. C DLL release metadata는 `ded7793fe5795d79eda8e7138dce94aa056edf78`, source 검토 pin은 `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`이며 source pin으로 빌드한 DLL이라는 주장은 하지 않는다. 신규 정적 frontend regression과 기존 Windows default/portable·C j64/AVX2 frontend 비교를 함께 검증한다.
 
+<a id="runtime-noun-reduction--별도-capture-v0-2026-10-03"></a>
 ##### Runtime noun reduction + 별도 capture v0 (2026-10-03)
 
 - [x] P2/P4 지원 범위에서 `RuntimeParserHost`가 같은 9-row parser의 stack-entry 조회와 rows 0–2 invocation을 제공한다. 각 application은 즉시 실제 `Value`로 reduce되어 같은 stack에 재삽입된다. final noun은 계산을 다시 실행하지 않는다. 분석 context는 host가 없으므로 kernel을 실행하지 않는다.
@@ -49,6 +47,7 @@
 
 Windows 검증: default/portable 각각 **250 passed / 17 ignored**, fmt/clippy 통과, Python 20 passed. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로의 **2,139문장 중 2,137 passed + 명시적 runtime 경계 2개, failed 0**; stage 7,014 checks와 words 6,618 cases 통과. `examples/capture_probe.rs`는 모든 문장의 capture association/attempt-outcome 순서를 검증하며 성공 문장은 명시적으로 보고한 graph 경계 13건(ordered-effect 9건, modifier-value 4건)을 제외하고 J Graph adapter/verifier도 통과시킨다. C oracle은 C word formation으로 outer copula와 inner copula/literal/comment를 구분하며 harness 회귀 테스트 2개로 보호한다. parser-capture JSON 보고서도 저장한다. 기존 oracle/source pin 구분과 GitHub CI 생략 방침을 유지한다.
 
+<a id="정적-modifier-구성과-분석-의존성-2026-10-03"></a>
 ##### 정적 modifier 구성과 분석 의존성 (2026-10-03)
 
 - [x] P3: modifier의 입력 품사만 알려져 있을 때 application 결과를 Verb로 추측하는 경로를 제거했다. `declare_function(name, Adverb/Conjunction)`은 품사 정보만 선언한다. 이 이름을 구성에 사용하면 현재 이름·source span을 가진 `Unsupported` 경계를 반환한다. 단독 modifier의 품사 관찰과 실제 application은 구분한다.
@@ -60,6 +59,7 @@ Windows 검증: default/portable 각각 **250 passed / 17 ignored**, fmt/clippy 
 
 Windows 검증: default/portable 각각 **256 passed / 17 ignored**, fmt/clippy 통과, Python harness **20 passed**. j64/AVX2 각각 direct·semantic-reference·parser-capture 세 경로에서 **2,139문장 중 2,137 passed, runtime 경계 2개, failed 0**; stage **7,056 checks**(새 정적 구성·오류·대입 없음·의존성 검사 42건 포함)와 words **6,618 cases** 통과. 정적 값 의존 경계 1건과 기존 capture graph 경계 13건은 성공 수와 별도로 기록한다. 정적 분석 regression 6개를 추가했다. 기존 C DLL release/source review pin 구분, 미완료 definition 테스트 및 GitHub CI 생략 방침을 유지한다.
 
+<a id="modifier-train의-구조품사-보존-2026-10-03"></a>
 ##### Modifier train의 구조·품사 보존 (2026-10-03)
 
 - [x] P2/P3: `p.c` row 6처럼 stack의 세 번째 operand가 CAVN이면 trident, 그렇지 않으면 bident를 선택한다. `cf.c::bidents[]/tridents[]`의 nonzero action disposition은 실행 없이 실제 Adverb/Conjunction을 구성한다. SyntaxError와 즉시 semantic application disposition은 구별하며, 미구현 즉시 application을 성공 구조로 바꾸지 않는다.
@@ -72,6 +72,7 @@ Windows 검증: default/portable 각각 **261 passed / 17 ignored**, fmt/clippy 
 
 구현 기준: [p.c row 6](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L1057), [cf.c disposition tables and jthook](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L288). 기존 Windows DLL release pin과 source review pin은 서로 다르며 이 source로 DLL을 빌드했다는 주장은 하지 않는다.
 
+<a id="오른쪽-operand를-묶은-modifier-bident-application-2026-10-03"></a>
 ##### 오른쪽 operand를 묶은 modifier bident application (2026-10-03)
 
 - [x] P3: C `cf.c::tcNV`에 따라 verb 입력 `u (C n/v)`를 `u C n/v`의 실제 constructor에 전달한다. 현재 core `"`/`@:` conjunction과 noun/verb 오른쪽 operand를 지원한다. `+ ("1)`은 completed Rank entity이며 Rank 검증은 train 정의가 아니라 application 시점에 수행한다. 일반 train을 일괄 Verb로 추측하지 않는다.
@@ -84,6 +85,7 @@ Windows 검증: default/portable 각각 **266 passed / 17 ignored**, fmt/clippy 
 
 기준 소스: [cf.c tcNV 및 다른 modifier train actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
 
+<a id="왼쪽-binding과-연속-adverb-application-2026-10-03"></a>
 ##### 왼쪽 binding과 연속 adverb application (2026-10-03)
 
 - [x] P3: `cf.c::tNVc`에 따라 `u (v C)`를 `v C u`의 실제 constructor에 전달한다. `1 (-")`처럼 noun 입력이 rank specification인 경우도 처리한다. row 3은 N/V 입력과 실제 결과 품사를 가진 `Item`을 받아 같은 parser stack에 재삽입한다. static computed noun은 계속 명시적 경계이며 noun을 fake constant로 바꾸지 않는다.
@@ -96,6 +98,7 @@ Windows 검증: default/portable 각각 **270 passed / 17 ignored**, fmt/clippy 
 
 기준 소스: [cf.c taAV/tNVc/tac/taaa](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c modifier application 및 재삽입](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
 
+<a id="adverbial-hook-및-derived-conjunction-적용-2026-10-03"></a>
 ##### Adverbial hook 및 derived conjunction 적용 (2026-10-03)
 
 - [x] P3: `cf.c::tac`에 따라 `(A C)`는 먼저 `t=u A`를 구성하고 `t C u`에 원래 입력을 전달한다. `+ (/@:)`의 Insert와 Atop이 같은 입력 함수 객체를 참조하는지 검증한다. 앞 절에서 기록한 `tac` 미지원 경계는 이 단계에서 해소했다.
@@ -108,6 +111,7 @@ Windows 검증: default/portable 각각 **275 passed / 17 ignored**, fmt/clippy 
 
 기준 소스: [cf.c tac/tca/tcc/taav 및 modifier train dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200), [p.c conjunction application](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L969).
 
+<a id="modifier-trident-action-확장-2026-10-03"></a>
 ##### Modifier trident action 확장 (2026-10-03)
 
 - [x] P3/P5: `cf.c`의 `tNVvc`, `tcVCc`, `tcaa`, `tNVca`, `tNVcc`, `taVCNV`, `taca`, `tacc`, `tcVCNV`, `tcca`를 연결하고 기존 `taaa`/`taav`도 동일한 trident dispatch에 통합했다. 각 action의 중간 결과·원래 입력·고정 operand와 적용 순서를 보존한다. 결과는 실제 품사로 bident/trident construction에 전달하며 immutable 함수 DAG를 유지한다.
@@ -119,6 +123,7 @@ Windows default/portable 각각 **278 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [cf.c modifier trident actions](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
 
+<a id="noun-left-rank-구성과-operand-역할-보존-2026-10-03"></a>
 ##### Noun-left rank 구성과 operand 역할 보존 (2026-10-03)
 
 - [x] P3/P5: `cr.c::jtqq`에 따라 ordinary noun-left rank를 구성한다. 오른쪽 rank의 rank→length→numeric audit를 먼저 수행하고 왼쪽 noun 또는 verb, 오른쪽 noun 또는 verb의 원래 순서·값·span을 immutable Rank entity에 보존한다. noun 저장소는 공유한다. derived modifier binding/trident를 통한 적용도 같은 경로를 사용한다.
@@ -130,6 +135,7 @@ Windows default/portable 각각 **283 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [cr.c jtqq](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
 
+<a id="primitive-gerund-구성과-audit-순서-2026-10-03"></a>
 ##### Primitive gerund 구성과 audit 순서 (2026-10-03)
 
 - [x] P3/P6: `ap.c::jtbslash`→`cg.c::jtfxeachv(1)`에 따라 noun에 `\`를 적용할 때 rank→length→boxed type 순서로 검사한다. 비어 있는 rank-2 입력은 RankError, 빈 rank-1 입력은 LengthError, nonempty nonboxed 입력은 DomainError로 처리한다. 이전 blanket Unsupported를 이 검사 범위에서 해소했다.
@@ -142,6 +148,7 @@ Windows default/portable 각각 **286 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [ap.c jtbslash](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ap.c#L940), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
 
+<a id="복합-gerund-atomic-representation-해석-2026-10-03"></a>
 ##### 복합 gerund atomic representation 해석 (2026-10-03)
 
 - [x] P3/P5: `r.c::jtfx`의 boxed AR을 재귀 해석한다. primitive 단일 head, noun `0`, hook `2`, fork `3`, modifier `4`, primitive adverb/conjunction 적용 및 boxed head로 구성된 derived modifier 적용을 지원한다. decoder는 기존 parser의 bident/trident disposition과 constructor action을 사용해 실제 결과 품사를 반환한다. 새 J 문법이나 modifier 전용 semantic AST를 만들지 않는다.
@@ -154,6 +161,7 @@ Windows default/portable 각각 **290 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [r.c fxchar/fx](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [cg.c fxeachv](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cf.c hook 및 modifier dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L200).
 
+<a id="gerund-이름의-생성-시점-품사-확인-2026-10-03"></a>
 ##### Gerund 이름의 생성 시점 품사 확인 (2026-10-03)
 
 - [x] P3/P4: `r.c::jtfxchar`→`a.c::jtswap`→`sc.c::jtnameref`에 따라 character AR의 ordinary name을 기존 이름 환경에서 생성 시점에 조회한다. 문장 전체의 binding을 미리 snapshot하지 않는다. undefined 이름은 Verb NameRef로, 정의된 함수는 현재 실제 품사의 NameRef로 구성한다. verb의 현재 primitive 값을 고정하거나 alias의 참조를 펼치지 않는다. 기존 extension 이름도 동일한 binding 경로를 사용한다.
@@ -166,6 +174,7 @@ Windows default/portable 각각 **293 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [r.c fxchar](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [a.c swap](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/a.c#L21), [sc.c nameref](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [sn.c vnm](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
 
+<a id="gerund-내부-noun-snapshot과-조회-capture-2026-10-03"></a>
 ##### Gerund 내부 noun snapshot과 조회 capture (2026-10-03)
 
 - [x] P3/P4: character AR의 named noun을 생성 시점의 실제 `Value`로 가져와 shared Literal로 decode한다. noun-left fork 및 rank operand의 값이 뒤 이름 재정의에 따라 변하지 않도록 한다. abstract noun은 값을 추측하지 않으며 값이 필요한 constructor에서 기존 Unsupported를 유지한다.
@@ -179,6 +188,7 @@ Windows default/portable 각각 **297 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [r.c fxchar/fx 및 noun/fork decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77), [sc.c nameref의 noun 값 반환](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L395), [cg.c fxeachv의 decoded gerund 보존](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c gerund audit 및 constant fallback](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
 
+<a id="bidenttrident-ar-내부-noun-실행과-capture-2026-10-03"></a>
 ##### Bident/trident AR 내부 noun 실행과 capture (2026-10-03)
 
 - [x] P3/P4: `cf.c::jthook`의 즉시 적용 production에 따라 `V N` bident는 monad를, `N V N` trident는 dyad를 runtime semantic host에서 실행한다. decoder와 modifier construction의 공통 disposition을 유지하며 실제 noun `Item`을 반환한다. 이를 바깥 noun-left fork 등의 operand로 전달하고 shared Literal 및 기존 decoded gerund 구조에 결과 값을 보존한다. 최종 gerund Verb 검사 전에 함수 실행 오류가 먼저 발생하도록 한다.
@@ -192,6 +202,7 @@ Windows default/portable 각각 **301 passed / 17 ignored**, fmt/clippy 통과, 
 
 기준 소스: [cf.c hook의 V N/N V N 즉시 적용](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L311), [r.c AR hook/fork decode 순서](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L93), [cg.c 최종 gerund Verb 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cg.c#L101), [cr.c quiet gerund audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cr.c#L731).
 
+<a id="nameless-modifier-snapshot과-train-내부-지연-조회-2026-10-03"></a>
 ##### Nameless modifier snapshot과 train 내부 지연 조회 (2026-10-03)
 
 - [x] P3/P4: ordinary modifier 이름은 모두 NameRef가 되는 것이 아니다. C의 `VALTYPENAMELESS` lookup에 맞춰 primitive modifier 및 primitive ACV/noun으로만 구성된 modifier train은 queue에서 stack으로 들어갈 때 현재 immutable 함수 값을 공유한다. `adv=:/`를 담은 train은 이후 `adv=:1`에도 기존 값을 유지한다. 일반적인 재귀적 이름 없음·순수성 판정으로 확대하지 않는다.
@@ -205,6 +216,7 @@ Windows default/portable 각각 **305 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [p.c nameless stack lookup](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c#L693), [s.c binding 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/s.c#L739), [jtype.h primitive/nameless flags](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/jtype.h#L1334), [cf.c train 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L367), [sc.c 저장 품사 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sc.c#L138), [r.c character AR](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
 
+<a id="bidenttrident-constructor-inventory-전체-조합-검증-2026-10-03"></a>
 ##### Bident/trident constructor inventory 전체 조합 검증 (2026-10-03)
 
 - [x] P3/P6: 실제 parser row 및 AR decoder가 사용하는 `bident_disposition`/`trident_disposition`을 frontend probe의 `--constructors`에서 관찰한다. 별도 Rust golden dispatch를 만들지 않는다. C `cf.c`의 `bidents[16]`·`tridents[64]`를 읽어 syntax error, 즉시 semantic apply, hook/fork, derived modifier 및 결과 품사 분류를 **80개 조합 모두** 대조한다. 표 밖에서 먼저 처리하는 `V V` hook과 `MARK` fork도 구분한다.
@@ -217,6 +229,7 @@ Windows default/portable 각각 **306 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [cf.c bident/trident 표와 hook dispatch](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L310), [cf.c 즉시 적용 및 modifier 구성](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cf.c#L349), [r.c AR decode](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/r.c#L77).
 
+<a id="definition-입력-수집과-실행-없는-source-구조-2026-10-03-def-1-일부"></a>
 ##### Definition 입력 수집과 실행 없는 source 구조 (2026-10-03, DEF-1 일부)
 
 - [x] `definition_input.rs`의 `DefinitionInput`/`InputFrame`과 parser의 `frame_definition_input` 경로를 추가했다. ordinary sentence, 추가 입력 필요, 완료된 definition을 구분하고 definition operator·본문의 원본 byte span과 중첩 direct definition 범위를 보존한다. tokenizer의 기존 word formation을 재사용하며 본문 이름을 lookup하거나 noun으로 reduce하지 않는다. 이 구조는 enqueue 이전의 source framing이며 아직 `Program`의 DefinitionCode/FunctionEntity가 아니다.
@@ -231,6 +244,7 @@ Windows default/portable 각각 **314 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [cx.c colon0 입력 종료](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L796), [cx.c quoted body line 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L841), [cx.c DD token/nesting 처리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1345), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [io.c definition 입력](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/io.c#L383).
 
+<a id="definitioncode-생성valencecapture-provenance-2026-10-04-partial-def-12"></a>
 ##### DefinitionCode 생성·valence·capture provenance (2026-10-04, partial DEF-1/2)
 
 - [x] `definition_code.rs`에 immutable `DefinitionCode`를 추가했다. 원본 source/form/span, decoded body, physical line 및 body-relative word span·품사·enqueue flags를 저장한다. local copula와 future name을 보존하며 본문 이름을 생성 시점에 조회하거나 본문을 실행하지 않는다. Code와 호출별 local value frame은 별개이고 후자는 아직 미구현이다.
@@ -246,6 +260,7 @@ Windows default/portable 각각 **321 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [cx.c colon·valence 분리](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264), [cx.c xop·mode 추론](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1282), [cx.c direct definition 전개](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [wc.c control-word preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385).
 
+<a id="control-word-분할과-body-진단-위치-2026-10-04-partial-def-2"></a>
 ##### Control-word 분할과 body 진단 위치 (2026-10-04, partial DEF-2)
 
 - [x] `definition_control.rs`의 `ControlWord`/`DefinitionPart`/`partition_line`을 추가했다. `wc.c::conword/getsen`을 따라 tokenizer가 만든 실제 word를 고정 control word 20개와 named `for_`·`goto_`·`label_`로 분류한다. control 사이의 실행 문장과 원본 byte span, control 직전 공백을 보존하며 leading/trailing 공백과 NB. comment는 제외한다. quoted text의 control 철자를 제어 구문으로 해석하지 않는다. `if.x`는 실제 word formation 결과가 `if.` + `x`이므로 If로 분할한다.
@@ -260,6 +275,7 @@ Windows default/portable 각각 **326 passed / 17 ignored**, fmt/clippy/build �
 
 기준 소스: [wc.c conword 분류](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L331), [wc.c getsen 문장 분할](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L366), [wc.c preparse audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [sn.c vnm 이름 검사](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/sn.c#L9).
 
+<a id="definition-control-구조와-valence별-audit-2026-10-04-partial-def-2"></a>
 ##### Definition control 구조와 valence별 audit (2026-10-04, partial DEF-2)
 
 - [x] `definition_flow.rs`에 control entry·jump metadata를 추가했다. `preparse/conall/conend`를 따라 if/elseif/else, while/whilst/for, break/continue, assert/return/throw, try/catch/catchd/catcht, select/case/fcase의 **정의 생성 단계**를 처리한다. 호출별 local frame과 본문 실행은 아직 구현하지 않았다.
@@ -273,6 +289,7 @@ Windows default/portable 각각 **340 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [wc.c conend / packed interval](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L72), [wc.c try/select](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L111), [wc.c conall](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L177), [wc.c preparse](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L385), [cx.c valence ordering](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1264).
 
+<a id="이전-b-block-결과-자격-metadata-2026-10-04-partial-def-2"></a>
 ##### 이전 B-block 결과 자격 metadata (2026-10-04, partial DEF-2)
 
 - [x] `PreviousResult::{Unresolved, CanReturn, CannotReturn}`를 추가하고 C `conall`의 역방향 고정점과 provisional bit 처리를 따라 기록한다. 대상은 **이전 B-block 결과**이며 현재 test 값, purity, CFG reachability 또는 최적화 허용 여부를 뜻하지 않는다. successor 결과가 일치하지 않거나 cycle이 확정되지 않으면 Unresolved를 유지한다.
@@ -284,6 +301,7 @@ Windows default/portable 각각 **344 passed / 17 ignored**, fmt/clippy/build �
 
 [wc.c CBBLOCKEND and canend](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L238).
 
+<a id="gotolabel-연결과-구조-진입-audit-2026-10-04-partial-def-2"></a>
 ##### Goto/label 연결과 구조 진입 audit (2026-10-04, partial DEF-2)
 
 - [x] `congotoblk/congoto/congotochk`를 따라 **conall 이전**에 원래 control kind로 구조 interval을 만들고 target label의 다음 entry를 goto target으로 연결한다. label suffix는 원본 문자열로 보존하며 name lookup을 하지 않는다. 빈 suffix와 숫자로 시작하는 suffix도 일반 J name으로 재분류하지 않는다.
@@ -297,6 +315,7 @@ Windows default/portable 각각 **348 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [wc.c goto audit](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/wc.c#L14), [j.h half-open intervals and DO loop index](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/j.h#L1065), [upstream goto position tests](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/test/ggoto.ijs).
 
+<a id="한-문장의-여러-direct-definition-보존-2026-10-04-partial-def-12"></a>
 ##### 한 문장의 여러 direct definition 보존 (2026-10-04, partial DEF-1/2)
 
 - [x] `InputFrame::Definitions`로 disjoint root DD를 source 순서대로 보존한다. 각각의 delimiter/body span과 nested 범위 소유권을 분리한다. 뒤쪽 root가 미완성이면 전체가 NeedMore이며 앞쪽 root도 commit되지 않는다. nested 범위 수집은 semantic nested Code 지원을 뜻하지 않는다.
@@ -309,6 +328,7 @@ Windows default/portable 각각 **352 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [cx.c repeated DD expansion](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cx.c#L1456), [p.c parser reduction](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/p.c).
 
+<a id="tagged-noun-dd의-raw-입력noun-보존-2026-10-04-partial-def-12"></a>
 ##### Tagged noun DD의 raw 입력·noun 보존 (2026-10-04, partial DEF-1/2)
 
 - [x] `DefinitionForm::NounDirect`로 `{{)n ... }}`를 처리한다. 이는 함수 Code가 아니라 **문자 noun**이다. raw body의 quote·NB.·control spelling·`{{`를 word나 실행 문장으로 해석하지 않는다. 첫 물리 줄에서는 어디에 있는 `}}`도 종료하고, 다음 줄부터는 column zero의 `}}`만 종료한다. tag가 첫 줄 끝이면 초기 LF를 생략하고, 첫 줄에 body가 있으면 다음 줄 앞 LF를 보존한다.
@@ -325,6 +345,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 <a id="static-frontend-review"></a>
 
+<a id="정적-분석-수용-기준과-기존-frontend-구조-재검토-2026-10-03"></a>
 ##### 정적 분석 수용 기준과 기존 frontend 구조 재검토 (2026-10-03)
 
 **사용자 수용 기준:** 실행 없이 연산 graph와 메모리 요구를 분석할 수 있으면 우선 충분하다. 정적 분석은 기본 경로로 유지한다. 실제 실행 + 별도 capture는 값 의존 구간의 의미 보존과 동적 관찰을 위한 경로이며, 지원되는 정적 분석을 제공하기 위한 전면 선행 조건이 아니다. 완전한 J runtime compatibility, capture, compiled reuse의 완료 상태는 별도로 추적한다.
@@ -360,6 +381,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 위 static 분석 gate는 runtime capture 전부의 완료를 기다리지 않는다. 아래 capture 체크리스트는 별도 실행 경로의 완료 기준으로 유지한다.
 
+<a id="구현-순서와-완료-체크리스트"></a>
 ##### 구현 순서와 완료 체크리스트
 
 기존 F2/P2–P6에 속한 아래 항목을 순서대로 진행한다. 조사/계획 완료와 runtime 구현 완료를 혼동하지 않는다.
@@ -375,6 +397,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 - [x] **P6 — 지원 corpus differential/capture gate:** Windows default/portable와 j64/AVX2 oracle에서 여러 후속 gate를 반복 실행했고 reports에 coverage boundary와 revision/hash를 남겼다. 이는 full runtime `ptcol` internal trace나 full-J/upstream/locale/definition acceptance 완료를 뜻하지 않는다.
 - [ ] **후속 P5/P8 — static/reuse:** purity·error order·binding/value guards를 확보한 구간에서만 abstract actions, region compilation, safe reuse를 추가한다. capture 실행 경로의 completion gate는 runtime reduction + capture parity + verified J Graph다. 최소 static 분석 gate와 구분하며 production CUDA/JIT를 요구하지 않는다.
 
+<a id="테스트-matrix와-수용-조건"></a>
 ##### 테스트 matrix와 수용 조건
 
 | 검증 축 | 사례/방법 | 통과 조건 |
@@ -391,6 +414,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 **역사 상태 주의:** 이 문단을 처음 작성한 2026-10-03 시점에는 계획/참고자료 정리만 완료되어 있었다. 이후 runtime row actions, capture API, successful-capture→J Graph adapter와 지원 corpus differential은 구현·검증되었다. 현재 미완료는 full runtime `ptcol` 내부 trace 동등성, 일반 locale/definition/control/effect coverage, capture 기반 safe static reuse/guard, 그리고 전체 memory-retention/performance gate다. 아래 212 tests/7,014 stage 수치는 당시 gate의 역사 기록이지 최신 검증이 아니다.
 
+<a id="f0--jsource-word-formation-이식"></a>
 #### F0 — jsource word formation 이식
 
 - [x] `w.c::state`의 character-class × state transition table을 Rust enum/table로 **직접 이식**한다. `src/tokenizer.rs::TRANSITIONS`가 SS..SDDD 16개 state와 CX/CDD/CDDZ/CU/CS/CA/CN/CB/C9/CD/CC/CQ transition을 명시적으로 보존한다.
@@ -403,6 +427,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 **F0 완료 조건:** supported source domain에서 word boundaries/comment cutoff/error가 pinned jsource `jtwordil`과 일치한다.
 
+<a id="f1--jsource-enqueue--primitiveresolver-이식"></a>
 #### F1 — jsource enqueue + PrimitiveResolver 이식
 
 - [x] `syntax::lex_spanned`가 수행하던 word interpretation을 `enqueuer::enqueue`로 이동하고 `syntax`는 legacy Token adapter로 축소했다.
@@ -428,6 +453,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 **F1 완료 조건:** parser가 raw spelling을 다시 해석하지 않고 `EnqueuedWord` queue만으로 core/extension primitive, name lookup, assignment semantics를 결정할 수 있으며 hardware implementation 선택은 아직 일어나지 않는다.
 
+<a id="f2--jsource-parse-queue-skeleton"></a>
 #### F2 — jsource parse queue skeleton
 
 - [x] semantic parser 입력을 legacy `Token`에서 `EnqueuedWord` queue로 바꾸고 span/word-index/flags를 parser 진입까지 보존한다.
@@ -441,6 +467,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 **F2 완료 조건:** parser는 jsource-compatible enqueue queue를 유일한 입력으로 받아 9-row engine으로 넘길 수 있다.
 
+<a id="p0--기준선과-differential-oracle-고정"></a>
 #### P0 — 기준선과 differential oracle 고정
 
 - [x] jsource 9-row parsing rule(row 0–8)의 eligibility와 precedence를 `cases[]`와 runtime dispatch 양쪽에서 확인한다.
@@ -460,6 +487,7 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 **P0 완료 조건:** **완료.** observable contract를 사용하는 oracle API가 존재하고, source review는 jsource revision `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`을 고정한다. 로컬 oracle DLL은 별도 revision/hash로 식별하며 source pin으로 빌드되었다고 가정하지 않는다. GitHub CI는 생략한다.
 
+<a id="p1--parser-stack-model과-semantic-value-model-분리"></a>
 #### P1 — parser stack model과 semantic value model 분리
 
 - [x] parser class/control(`EnqueueClass`/`ParseClass`)과 semantic payload/entity(`EnqueuedPayload`/`ParseValue`/`FunctionEntity`)를 별도 타입으로 분리했다.
@@ -473,7 +501,3 @@ Sources: [cx.c noun DD raw collection](https://github.com/jsoftware/jsource/blob
 
 **P1 완료 조건:** parser control state와 J semantic entity가 분리되어 있으며 ordinary names, assignment names, nouns, verbs/modifiers를 jsource class rules대로 stack에 올릴 수 있다.
 
-
----
-
-[← 이전 부분](./11-roadmap-checklists-p02.ko.md) | [다음 부분 →](./11-roadmap-checklists-p04.ko.md)

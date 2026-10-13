@@ -1,16 +1,17 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
+<a id="13-프레임워크-조사에서-채택한-원칙"></a>
 ## 13. 프레임워크 조사에서 채택한 원칙
 
 외부 프레임워크의 언어 의미를 가져오는 것이 아니라 검증된 구현 아이디어를 참고한다.
 
 
+<a id="참고-구현과-jaxa-설계-배경--필요할-때-읽는-심화-자료"></a>
 ### 참고 구현과 JAXA 설계 배경 — 필요할 때 읽는 심화 자료
 
 이하의 선행 구현·JAXA 역사와 source 비교는 설계 근거다. **처음 읽는 사람은 §1~§8의 본문을 먼저 읽어도 된다.** 과거 소제목의 번호는 기존 참조·앵커 보존을 위해 유지한다.
 
+<a id="참고-구현reference-implementations"></a>
 ### 참고 구현(reference implementations)
 
 RustJ는 외부 구현을 하나의 동일한 권위로 취급하지 않고 **역할별 reference implementation**으로 구분한다.
@@ -54,6 +55,7 @@ ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택
 
 현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, J Graph와 canonical Logical IR 분석, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
+<a id="11-jaxa에서-이어받은-설계-원칙--배열-연산의-sql"></a>
 ### 1.1 JAXA에서 이어받은 설계 원칙 — “배열 연산의 SQL”
 
 JAXA 문서에서는 **“NN의 SQL”**, **“배열 연산의 SQL”**이라는 비유를 사용했다. RustJ에서는 이 아이디어를 신경망 전용 표현보다 더 일반적인 **high-level array language / array query language** 관점으로 승계한다.
@@ -107,6 +109,7 @@ J가 이 역할에 유리한 이유는 source 자체에 optimizer가 활용할 �
 - reshape/transpose/take/drop 등은 logical shape/reindex 의미와 physical materialization을 분리할 여지를 준다.
 - whole-array notation은 scalar loop에서 고수준 의미를 역추론하는 비용을 줄인다.
 
+<a id="jaxa-graph-ir의-역사적-출발점--j-표기에서-optimization-topology를-읽는다"></a>
 #### JAXA Graph IR의 역사적 출발점 — J 표기에서 optimization topology를 읽는다
 
 JAXA의 출발점은 추상적인 “graph compiler를 만들자”가 아니었다. 먼저 다음과 같은 구체적인 관찰이 있었다.
@@ -162,6 +165,7 @@ Fork가 보인다고 두 branch를 무조건 병렬 실행하지 않고, `@:`가
 
 이 아이디어의 각 구성 요소 자체를 RustJ의 최초 발명으로 주장하지 않는다. Hook/Fork의 dataflow 의미, function-level program transformation, graph-based fusion과 high-level array IR에는 각각 선행 연구와 구현이 있다. RustJ/JAXA의 설계상 중요한 결합은 **J의 tacit combinator algebra를 독립적인 semantic graph layer로 보존하고, 그 구조 자체에서 optimization candidate를 생성한 뒤 full-J semantic legality와 physical profitability를 분리해서 판단하는 것**이다.
 
+<a id="관련-선행-연구와-rustj의-위치"></a>
 ##### 관련 선행 연구와 RustJ의 위치
 
 이 출발 관찰 자체에는 직접적인 선행 연구가 있다. 따라서 RustJ의 연구적 위치를 평가할 때 **“J 구문이 최적화 힌트를 제공한다” 자체를 novelty로 주장하지 않는다.** 특히 Bernecky의 APL93 논문은 사용자가 JAXA에서 `@:`, Fork, Hook을 보며 출발한 문제의식과 매우 가깝다. Fork의 양쪽 가지 병렬성, composition의 pipeline 성격, expression-level merging을 통한 중간 배열·저장 비용 축소를 이미 명시적으로 논의한다.
@@ -227,10 +231,12 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 이 프레이밍은 제품 범위나 구현 완료를 과장하기 위한 것이 아니다. current RustJ의 직접 목표는 여전히 **full J semantics를 보존하는 J compiler/runtime**이며, “배열 연산의 SQL”은 그 compiler layering과 optimization freedom을 설명하는 설계 비유다.
 
 
+<a id="j-graph용-소스-대조최적화-계열-조사"></a>
 ### J Graph용 소스 대조·최적화 계열 조사
 
 다음은 기존 §4.1.3의 근거 자료를 본문 흐름에서 분리한 것이다. 하위 제목·링크는 유지한다.
 
+<a id="413-배열-컴파일-프레임워크와의-소스-기반-대조"></a>
 #### 4.1.3 배열 컴파일 프레임워크와의 소스 기반 대조
 
 검토일: 2026-10-02. 범위: J syntax가 만드는 graph 구조에서 얻을 수 있는 힌트를 다른 배열 컴파일 프레임워크의 공식 문서·실제 소스와 비교한다.
@@ -238,6 +244,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 각 항목은 외부에서 확인한 사실, J에 적용하는 설계상의 추론, 추가 조건, 출처를 함께 기록한다. 코드는 열어 읽었지만 빌드·실행하지 않았다. 외부 GitHub `main` 링크는 이동하는 참조이며 고정 revision snapshot이 아니다. 구현 채택 시 revision을 고정하고 재검토해야 한다. RustJ의 통합 시점 코드 대조는 `89b87b8`을 기준으로 했다. CUDA 구현은 계속 보류한다.
 
+<a id="4131-분류와-조사-결과의-대응"></a>
 ##### 4.1.3.1 분류와 조사 결과의 대응
 
 | 일반 컴파일러 정보 | J graph에서 얻는 힌트 | 참고 프레임워크와 직접 출처 |
@@ -249,8 +256,10 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 | 반복·상수·선택 | power의 carry, bond의 invariant, agenda의 nested graph | [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX conditionals](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py) |
 | 효과·적법성 | 후보 graph와 효과 의존성 분리 | [TVM Relax API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html), [JAX loops](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py) |
 
+<a id="4132-발견한-힌트와-j-적용-방법"></a>
 ##### 4.1.3.2 발견한 힌트와 J 적용 방법
 
+<a id="f1--fork의-재결합-지점은-영역-전체-최적화-후보를-준다"></a>
 ###### F1 — Fork의 재결합 지점은 영역 전체 최적화 후보를 준다
 
 **확인한 사실:** TVM `FuseOps`는 갈라진 경로가 다시 모이는 diamond를 다루기 위해 post-dominator 분석과 경로 검사를 사용한다. 단일 producer-consumer edge만 보는 것보다 영역 전체를 분석한다.
@@ -261,6 +270,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [TVM fuse_ops.cc — fusion algorithm 주석과 GraphCreator](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), J 형태의 근거: [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), [J At](https://www.jsoftware.com/help/dictionary/d622.htm).
 
+<a id="f2--같은-producer의-consumer-수는-공유재계산fusion-선택-힌트다"></a>
 ###### F2 — 같은 producer의 consumer 수는 공유·재계산·fusion 선택 힌트다
 
 **확인한 사실:** MLIR fusion 소스는 producer 결과가 다른 consumer에서도 사용되면 보존할 결과를 계산한다. 특정 reshape fusion 제어의 기본값은 producer의 단일 사용을 검사한다. 이는 모든 fusion에 단일 consumer를 요구한다는 뜻은 아니다.
@@ -273,6 +283,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [MLIR ElementwiseOpFusion.cpp — getPreservedProducerResults, defaultControlFn](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm).
 
+<a id="f3--fork에서는-parallel과-fusion을-경쟁-후보로-둔다"></a>
 ###### F3 — Fork에서는 parallel과 fusion을 경쟁 후보로 둔다
 
 **확인한 사실:** XLA priority fusion 구현은 producer의 users와 fusion 가능성을 살피고, fused/unfused 실행시간 추정 차이를 우선순위에 사용한다. 일부 경로는 multi-output fusion도 검토한다.
@@ -285,6 +296,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [XLA priority_fusion.cc — CalculateProducerPriority, EstimateRunTimes](https://github.com/openxla/xla/blob/main/xla/backends/gpu/transforms/priority_fusion.cc), [XLA architecture의 Fusion/Buffer Assignment](https://openxla.org/xla/gpu_architecture).
 
+<a id="f4--rank-정보는-iteration-domain과-입력-mapping으로-보존한다"></a>
 ###### F4 — Rank 정보는 iteration domain과 입력 mapping으로 보존한다
 
 **확인한 사실:** MLIR Linalg는 iteration 종류와 indexing maps를 계산 payload와 함께 구조적으로 표현한다. fusion 구현은 tensor 의미, iterator 조건, mapping과 loop bound 보존을 검사한다.
@@ -297,6 +309,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [MLIR Linalg 공식 설명](https://mlir.llvm.org/docs/Dialects/Linalg/), [MLIR LinalgStructuredOps.td](https://github.com/llvm/llvm-project/blob/main/mlir/include/mlir/Dialect/Linalg/IR/LinalgStructuredOps.td), [MLIR areElementwiseOpsFusable](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [J Rank](https://www.jsoftware.com/help/dictionary/d600v.htm).
 
+<a id="f5--합성-경계에-입력-mapping을-결합하면-복사-제거-후보가-된다"></a>
 ###### F5 — 합성 경계에 입력 mapping을 결합하면 복사 제거 후보가 된다
 
 **확인한 사실:** MLIR의 elementwise fusion은 consumer iteration과 producer indexing map을 결합해 fused 입력 mapping을 만든다. XLA는 논리 shape와 physical layout을 구분하며 layout 충돌을 copy로 처리한다.
@@ -309,6 +322,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [MLIR fusion 소스 — consumerToProducerLoopsMap](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [XLA Layout Assignment](https://openxla.org/xla/gpu_architecture), [J At](https://www.jsoftware.com/help/dictionary/d622.htm).
 
+<a id="f6--window의-겹침은-지역-재사용필요-영역-힌트를-준다"></a>
 ###### F6 — Window의 겹침은 지역 재사용·필요 영역 힌트를 준다
 
 **확인한 사실:** Halide lesson 8은 inlining, compute_root, compute_at을 비교하며 중간 저장·중복 계산·지역성의 상충을 설명한다. 예제는 필요한 producer 영역만 계산하고 기존 행을 재사용하며 저장을 circular buffer로 축소하는 경우를 보여 준다. parallel loop가 끼면 그런 재사용이 제한되는 경우도 설명한다.
@@ -321,6 +335,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [Halide lesson 8 공식 설명](https://halide-lang.org/docs/tutorial/lesson_08_scheduling_2.html), [같은 lesson의 C++ 소스](https://github.com/halide/Halide/blob/main/tutorial/lesson_08_scheduling_2.cpp), [J Prefix/Infix](https://www.jsoftware.com/help/dictionary/d430.htm), [J Cut](https://www.jsoftware.com/help/dictionary/d331.htm).
 
+<a id="f7--power에서는-carry와-invariant를-분리한다"></a>
 ###### F7 — Power에서는 carry와 invariant를 분리한다
 
 **확인한 사실:** JAX loop 구현은 body graph의 constants와 carry를 구분한다. while 처리에는 그대로 전달되는 carry를 조건부로 body constant로 옮기는 분석이 있으며, scan은 carry의 shape/dtype 조건을 검사한다.
@@ -333,6 +348,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [JAX loops.py — _check_carry_type, while_loop의 forwarding/constant 처리](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [JAX jaxpr의 loop 설명](https://docs.jax.dev/en/latest/601/jaxpr.html), [J Power](https://www.jsoftware.com/help/dictionary/d202n.htm), [J Bond](https://www.jsoftware.com/help/dictionary/d630n.htm).
 
+<a id="f8--agenda와-중첩-train은-flat-dag-대신-영역으로-보존한다"></a>
 ###### F8 — Agenda와 중첩 train은 flat DAG 대신 영역으로 보존한다
 
 **확인한 사실:** Jaxpr는 branch와 loop body를 sub-jaxpr로 표현한다. conditional 소스는 branch 효과를 합성하며, Relax의 If는 별도 branch SeqExpr를 가진다.
@@ -345,6 +361,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [JAX jaxpr](https://docs.jax.dev/en/latest/601/jaxpr.html), [JAX conditionals.py — _join_cond_effects](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/conditionals.py), [TVM expr.h — IfNode/SeqExprNode](https://github.com/apache/tvm/blob/main/include/tvm/relax/expr.h), [J Agenda](https://www.jsoftware.com/help/dictionary/d621.htm).
 
+<a id="f9--값의-live-out과-효과의-live-out을-분리한다"></a>
 ###### F9 — 값의 live-out과 효과의 live-out을 분리한다
 
 **확인한 사실:** Relax API는 일반 binding block과 pure dataflow block을 구분한다. MLIR fusion은 다른 consumer에 필요한 producer 결과를 보존한다. JAX loop 구현은 허용되는 효과를 별도로 검사한다.
@@ -357,6 +374,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 출처: [TVM Relax DataflowBlock API](https://tvm.apache.org/docs/reference/api/python/relax/relax.html), [MLIR getPreservedProducerResults](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp), [JAX loop effect 검사](https://github.com/jax-ml/jax/blob/main/jax/_src/lax/control_flow/loops.py), [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm).
 
+<a id="4133-사용자-예에-적용한-결과"></a>
 ##### 4.1.3.3 사용자 예에 적용한 결과
 
 `(loss_adjoint [ (loss emit))`는 바깥 fork syntax에서 F1/F3의 parallel 후보를 만든다. 내부 `(loss emit)`이 두 verb의 hook이면 F2의 원 입력 재사용과 producer-consumer edge를 보존한다. `[`의 선택 의미로 F9의 값 live-out을 얻는다.
@@ -369,6 +387,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 
 Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레임워크는 이 후보를 재결합·사용 횟수·영역·비용·효과 정보로 정교화하는 참고 자료다. 해당 구문에 관한 해석 근거는 [J Trains](https://www.jsoftware.com/help/dictionary/dictf.htm), 비교 근거는 [TVM fusion](https://github.com/apache/tvm/blob/main/src/relax/transform/fuse_ops.cc), [MLIR fusion](https://github.com/llvm/llvm-project/blob/main/mlir/lib/Dialect/Linalg/Transforms/ElementwiseOpFusion.cpp)이다.
 
+<a id="4134-j-graph-ir에-추가할-정보와-우선순위"></a>
 ##### 4.1.3.4 J graph IR에 추가할 정보와 우선순위
 
 아래 필드와 기능은 설계 제안이며 현재 구현된 API가 아니다. 다른 프레임워크의 IR나 purity 제약을 그대로 복사하지 않는다.
@@ -384,6 +403,7 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
 
 2026-10-02 프레임워크 비교 당시의 코드 대조 기준(`89b87b8`)에는 `src/j_graph_ir.rs`의 explicit stage/branch graph, `GraphForm`/`GraphHint`, use-count/liveness 및 symbolic resource 분석 seam이 있다. F1–F9는 이 구조를 보강할 설계 근거이며 새 최적화 실행의 완료 보고가 아니다. 현재 구현 상세는 A1.5를 따른다. G1–G5 우선순위를 유지하고, 미지원 syntax 전체 구현이나 실제 CUDA 작업을 이번 조사에 포함하지 않는다.
 
+<a id="4135-체크리스트"></a>
 ##### 4.1.3.5 체크리스트
 
 - [x] JAX, XLA, MLIR Linalg, TVM Relax, Halide의 공식 자료와 관련 소스를 읽었다.
@@ -399,6 +419,7 @@ Topology가 parallel 후보의 출처라는 점을 유지한다. 외부 프레�
 
 이번 변경은 문서만 작성했다. 외부 프레임워크 빌드, Rust/C 실행 테스트, 성능 측정 또는 CUDA 검증은 수행하지 않았다.
 
+<a id="4136-jsource에서-채굴한-최적화-원리와-rustj-적용-위치"></a>
 #### 4.1.3.6 jsource에서 채굴한 최적화 원리와 RustJ 적용 위치
 
 검토 기준: `jsoftware/jsource` source review pin **`13994ffa1ed5f06f79fad6e9822a7ed2d29b1528`**. 이 절은 current jsource의 hand-written specialization을 RustJ에 그대로 복제하기 위한 목록이 아니다. jsource가 오랜 기간 축적한 **J-specific optimization knowledge를 추출해 Graph IR의 fact/rewrite 체계와 downstream execution planning으로 재배치하기 위한 source-derived design input**이다.
@@ -427,6 +448,7 @@ RustJ
 
 따라서 **jsource의 아이디어를 Graph IR에 “특수 함수”로 복제하지 않는다.** J Graph IR은 우선 source 구조·적용 topology·최적화 후보를 발견하고, call-dependent 사실과 legality는 Execution Semantic Lowering 및 proof 단계에서 확정하며, concrete buffer reuse·cache-blocking·SIMD routine 선택은 후속 실행계획에서 담당한다. 아래는 **대표 사례 목록**이지 jsource 전수 조사 완료를 뜻하지 않는다.
 
+<a id="a-source-derived-optimization-catalog"></a>
 ##### A. source-derived optimization catalog
 
 | jsource 관찰 | 직접 근거 | RustJ에서 추출할 일반 원리 | 적용 위치 |
@@ -450,6 +472,7 @@ RustJ
 | under/each는 단순 일반 역함수 실행 외 special structural path가 있음 | `cu.c`의 `u&.>` fast path, `u&.,`/index/cut의 `jtsunder`, `nameless(wvb)` inverse precomputation | forward/inner/inverse 의미, 동적 이름의 binding 시점, effect/alias를 보존한다. static inverse caching/structural route에는 증명 또는 가드가 필요하다. | **J Graph Under provenance → Execution lowering** |
 | noun·상수 결합이 특정 산술 경로 선택을 가능하게 함 | `ca.c::jtatop/jtatco`의 `2&^.` floor/ceil-log와 modulus-bound modular-power 등 | bound operand를 specialization fact로 활용한다. arbitrary algebraic rewrite 대신 도메인·정확도·overflow·numeric type에 대한 witness를 요구한다. | **Graph bound-constant candidate → numeric specialized route** |
 
+<a id="b-pinned-source-links"></a>
 ##### B. pinned source links
 
 - [`jsrc/ca.c` — Result Assembly flag semantics](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L269-L289) · [`jtatop/jtatco` patterns and propagation](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/ca.c#L293-L516)
@@ -467,7 +490,3 @@ RustJ
 - [`jsrc/cu.c` — under/each 및 structural-under fast paths](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/cu.c#L391-L439)
 - [`jsrc/va2.c` — dot-like `jtsumattymes1` type/rank/fit 경계](https://github.com/jsoftware/jsource/blob/13994ffa1ed5f06f79fad6e9822a7ed2d29b1528/jsrc/va2.c#L1640-L1687)
 
-
----
-
-[다음 부분 →](./14-framework-research-p02.ko.md)

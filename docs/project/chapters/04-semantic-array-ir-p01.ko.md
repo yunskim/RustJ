@@ -1,9 +1,11 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="read-semantic"></a>
+<a id="3-j-semantic-array-ir"></a>
 ## 3. J Semantic Array IR
 
+<a id="31-j의-계산-모델"></a>
 ### 3.1 J의 계산 모델
 
 J의 계산은 배열 중심이다.
@@ -46,6 +48,7 @@ Apply
 
 Semantic Analyzer가 이 구조를 분석한 뒤에야 explicit dataflow로 낮춘다.
 
+<a id="32-jsource에서-확인한-근거"></a>
 ### 3.2 jsource에서 확인한 근거
 
 확인 기준: `jsoftware/jsource` master `13994ffa1ed5f06f79fad6e9822a7ed2d29b1528` (2026-09-30 확인), 특히 `jsrc/jtype.h`, `jsrc/cf.c`, `jsrc/jc.h`.
@@ -81,6 +84,7 @@ jsource 주석은 `fgh[3]`의 `h`가 fork에 사용된다고 명시한다. `jtfo
 
 또한 function block의 `AN`, `AR` field는 사용하지 않는다고 명시되어 있다. 즉 **noun array와 verb는 같은 J entity allocation 체계를 공유하지만 동일한 noun representation은 아니다.** RustJ는 이 물리 표현을 복제할 필요는 없지만, **derived verb composition을 first-class semantic structure로 보존한다는 점은 중요한 reference**다.
 
+<a id="33-ir이-보존해야-하는-구조"></a>
 ### 3.3 IR이 보존해야 하는 구조
 
 jsource와 다시 대조한 결과, RustJ의 공통 entity abstraction은 **jsource의 모든 `A` block type**을 복제하는 것이 아니라 parser/evaluator가 실제 semantic RHS로 다루는 `RHS = NOUN + FUNC`, `FUNC = VERB + ADV + CONJ`에 대응시키는 것이 가장 정확하다.
@@ -123,6 +127,7 @@ separate reference/control layer
 8. source span/provenance는 entity identity와 구분해 유지할 수 있어야 한다.
 9. jsource `V.fgh`는 execution object의 cross-check이지 semantic DAG child의 절대 oracle이 아니다. `h` 등은 실행용 parameter storage로도 재사용되므로 parser production에서 확인된 semantic operand만 DAG edge로 올린다.
 
+<a id="331-derived-construction의-결과는-function으로-한정하지-않는다"></a>
 #### 3.3.1 derived construction의 결과는 Function으로 한정하지 않는다
 
 current jsource의 hook/bident/trident construction(`cf.c`)은 input POS 조합에 따라 Verb뿐 아니라 Adverb/Conjunction을 만들며, 일부 production은 즉시 실행되어 Noun을 만든다.
@@ -140,6 +145,7 @@ parser_action(form, operands)
 
 예를 들어 `ADV + ADV + VERB`, `CONJ + VERB + CONJ`, `NOUN + CONJ + ADV` 같은 조합은 constructor table의 실제 result POS를 따라야 하며, `NOUN VERB NOUN`처럼 parser action이 값을 즉시 실행해 noun을 산출하는 경우도 공통 `JEntity` result boundary에서 표현할 수 있어야 한다.
 
+<a id="331a-gerund는-새-atom-type이-아니라-contextually-interpreted-boxed-noun이다"></a>
 #### 3.3.1a gerund는 새 atom type이 아니라 contextually interpreted boxed noun이다
 
 J gerund의 **J-visible 출발점은 boxed noun**이고, 특정 modifier 문맥이 그 noun을 function/entity sequence로 해석한다.
@@ -171,6 +177,7 @@ GerundView / InterpretedEntitySequence
 
 즉 jsource에서 가져올 것은 **boxed noun → context-sensitive function interpretation**이라는 semantic rule이고, function A를 BOX payload에 직접 넣는 내부 storage trick은 가져오지 않는다.
 
+<a id="332-frontend-전체를-jsource-compatible-pipeline으로-유지한다"></a>
 ### 3.3.2 Frontend 전체를 jsource-compatible pipeline으로 유지한다
 
 RustJ는 적어도 **word formation -> enqueue -> parser까지 current jsource를 구현 명세에 가깝게 따른다.** 이 구간에서 compiler-friendly 문법을 새로 만들지 않는다.
@@ -205,6 +212,7 @@ Logical / Optimization / Target / Physical IR
 
 RustJ가 달리 구현해도 되는 것은 포인터 low-bit tagging, refcount, in-place bookkeeping, cache layout, branch-prediction tricks 같은 C implementation detail이다. 반대로 **word boundary, enqueue classification, primitive/name distinction, parser lookup timing, parse reduction, result POS/error semantics**은 jsource compatibility 대상이다.
 
+<a id="enqueuer의-primitive-resolution-hook"></a>
 ##### Enqueuer의 primitive-resolution hook
 
 jsource `jtenqueue`는 symbol spelling primitive와 ordinary NAME을 구분한다. RustJ도 이 경계를 유지한다. **enqueue 단계에서 primitive로 고정되는 것은 core J primitive spelling뿐**이고, alphabetic extension 이름은 ordinary NAME + lookup metadata로 들어간다.
@@ -243,6 +251,7 @@ extension-derived semantic entity
 - portable extension은 target implementation이 없더라도 semantic resolution 자체는 가능하며, lowering 단계에서 unsupported/fallback을 판단할 수 있다.
 - 명시적으로 target-gated인 extension을 향후 지원하더라도 그 gating은 compile profile의 명시적 정책이어야 하며 core J semantics를 변경해서는 안 된다.
 
+<a id="3321-frontend-compatibility-invariant"></a>
 #### 3.3.2.1 Frontend compatibility invariant
 
 `word formation -> enqueue -> parse` 구간은 RustJ가 새 문법을 설계하는 곳이 아니다. 이 세 단계는 **jsource frontend semantics를 충실히 이식**한다.
@@ -283,6 +292,7 @@ RustJ
 
 따라서 frontend 단계에서 차이가 허용되는 것은 **representation과 implementation technique**뿐이다. J-visible word formation/classification/parsing behavior는 compatibility 대상이다.
 
+<a id="3322-canonical-frontend-sentence-trace---y"></a>
 #### 3.3.2.2 Canonical frontend sentence trace — `+/ y`
 
 frontend orientation 표본은 **이미 noun으로 바인딩된 `y`**에 대해 다음 한 문장을 사용한다.
@@ -356,6 +366,7 @@ stack reinsert + rescan
 
 이 trace는 frontend 전체 conformance를 대표하는 **orientation example**이지, locative/direct definition/gerund/value-dependent constructor까지 모두 지원된다는 증거가 아니다. 그 범위는 A0.5/F0–F2/P0–P8 checklist와 differential report가 결정한다.
 
+<a id="3323-compilerinterpreterjit-공통-structured-diagnostics"></a>
 #### 3.3.2.3 Compiler/interpreter/JIT 공통 structured diagnostics
 
 source provenance는 compiler 전용 부가기능이 아니라 frontend semantic infrastructure다. 최신 J의 `d.c` + `eformat_j_` 구조를 참고해 **J error class와 실패 당시의 semantic context를 분리하여 보존한 뒤, 별도 DiagnosticAnalyzer가 설명을 생성**한다. parser conformance 기준 revision은 그대로 유지하고, diagnostic design은 2026-09-30 current jsource master(`1d43f4eb7e43c8243f64dc4e6f31afde4e19d6a9`)의 error-context/eformat 구조도 참고한다.
@@ -430,6 +441,7 @@ RustJ 원칙:
 - 향후 multi-file/import/definition이 생기면 `SourceId + byte span`으로 일반화한다.
 - interpreter/JIT용 별도 error system을 만들지 않는다.
 
+<a id="333-parser-language-rules-are-jsource-compatible"></a>
 #### 3.3.3 Parser language rules are jsource-compatible
 
 RustJ는 parser 단계에서 별도의 언어 규칙을 발명하지 않는다. **token/word가 J parser에 들어온 뒤 어떤 fragment가 언제 reduction되고, 어떤 part of speech의 결과 entity가 다시 parser stack에 놓이는지는 current jsource의 parser 규칙을 기준으로 한다.**
@@ -461,7 +473,3 @@ RustJ는 jsource의 C parser implementation details(bit-packed parse masks, refc
 
 과거 `reduce_modifier_applications -> collapse_verb_trains` staged helper는 최종 semantic model이 아니었다. 현재 선언 row matcher는 통합되어 있으나 runtime semantic actions와 전체 constructor/POS coverage는 아직 미완료다. 장기적으로는 jsource의 9-row parse behavior를 하나의 parser reduction engine에서 재현하고 differential tests로 검증한다.
 
-
----
-
-[다음 부분 →](./04-semantic-array-ir-p02.ko.md)

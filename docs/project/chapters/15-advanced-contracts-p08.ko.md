@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (8/10)
-
+<a id="422-외부-compiler-조사에서-얻은-직접적인-설계-근거"></a>
 ### 4.22 외부 compiler 조사에서 얻은 직접적인 설계 근거
 
 - **MLIR DataLayout / TargetSystemSpec**: type layout과 heterogeneous device properties를 별도 target specification으로 둔다.
@@ -16,6 +13,7 @@
 
 따라서 RustJ hardware-aware IR의 중심은 특정 vendor 필드 복제가 아니라 **logical access/dependency structure + generic target capabilities + explicit physical schedule + derived resource model**이다.
 
+<a id="423-old-analyzer-output-schema는-logicalphysical-계층으로-분해해-흡수한다"></a>
 ### 4.23 old analyzer output schema는 Logical/Physical 계층으로 분해해 흡수한다
 
 `japchae`의 analyzer output schema v0.1은 중요한 prototype이지만 logical 정보와 target-dependent resource 정보가 한 객체에 섞여 있었다.
@@ -28,6 +26,7 @@
 
 compile artifact에는 source revision, PrimitiveSpec registry version, input facts/spec, TargetProfile version, optional CostProfile version, compiler version을 provenance로 기록한다.
 
+<a id="424-flowstorage-semantic-storage-requirement와-physical-materialization을-분리한다"></a>
 ### 4.24 Flow–Storage: semantic storage requirement와 physical materialization을 분리한다
 
 과거 `japchae`와 `jaxa-analyzer`에서 발전한 Flow–Storage 아이디어는 현재 RustJ의 `ValueId` / `BufferId` 분리와 결합한다.
@@ -68,6 +67,7 @@ Logical 단계에서는 `Read`, `Write`, `Accumulate`, `Load`, `Alias/View` 및 
 
 이 원칙은 MLIR이 tensor-level optimization 뒤에 bufferization을 늦추는 구조와 IREE Stream이 tensor computation 뒤에 resource lifetime/allocation을 명시화하는 구조를 따른다.
 
+<a id="4241-destination--alias-relation은-buffer-identity와-분리한다"></a>
 #### 4.24.1 destination / alias relation은 buffer identity와 분리한다
 
 late bufferization을 잘 지원하려면 op가 결과와 operand 사이의 **semantic alias/destination 가능성**을 설명할 수 있어야 한다.
@@ -84,6 +84,7 @@ DestinationRelation
 
 이 relation은 `BufferId`를 미리 배정하는 것이 아니다. native bufferization이나 MLIR One-Shot Bufferize 같은 후속 단계가 SSA use-def, liveness, conflict를 함께 보고 실제 in-place/out-of-place 결정을 내릴 수 있게 하는 contract다.
 
+<a id="4242-mutable-state는-primitive-내부에-숨기지-않는다"></a>
 #### 4.24.2 mutable state는 primitive 내부에 숨기지 않는다
 
 후기 `japchae` D-27/D-31의 결정은 현행 RustJ에서도 유지한다.
@@ -141,6 +142,7 @@ physical side:
 
 
 
+<a id="4243-apexco-dfnstail-연구를-반영한-middle-end-substrate"></a>
 #### 4.24.3 APEX/Co-dfns/TAIL 연구를 반영한 middle-end substrate
 
 APEX, Aaron Hsu의 Co-dfns 연구, APL→TAIL→Futhark 연구를 비교한 결과, 현재 RustJ의 `Semantic IR → ResolvedCallFacts → Logical IR → Optimizer → Route/Schedule` 방향은 유지하되 **analysis substrate를 명시적으로 추가**한다.
@@ -182,6 +184,7 @@ Schedule / Physical Plan
 
 이 구조는 APEX/Co-dfns/TAIL을 복제하는 것이 아니다. 각 연구에서 검증된 array-compiler insight를 **full J semantics + jsource-compatible frontend**라는 RustJ 경계에 맞게 재배치한 것이다.
 
+<a id="4244-morphologyengine-valuefacts를-latticefixpoint-분석으로-승격한다"></a>
 #### 4.24.4 MorphologyEngine: ValueFacts를 lattice/fixpoint 분석으로 승격한다
 
 APEX의 array morphology에서 가져오는 핵심은 type inference가 아니라 **array property의 정식 data-flow analysis**다.
@@ -201,6 +204,7 @@ ValueFacts
 
 `FunctionEntity`에는 actual argument-dependent morphology를 넣지 않는다. call/value/Logical node fact table이 소유한다.
 
+<a id="4245-arraypropertyfacts와-factwitness"></a>
 #### 4.24.5 ArrayPropertyFacts와 FactWitness
 
 APEX의 array predicates와 fact-origin 문제를 반영해 다음을 정식 분석 domain으로 둔다.
@@ -236,6 +240,7 @@ FactWitness
 
 check elimination, fusion legality, route eligibility, specialization은 witness 없는 optimistic fact에 의존하지 않는다.
 
+<a id="4246-graphindex는-semantic-dag의-replacement가-아니라-derived-analysis-view다"></a>
 #### 4.24.6 GraphIndex는 semantic DAG의 replacement가 아니라 derived analysis view다
 
 Hsu의 Node Coordinate Matrix와 현재 Co-dfns의 inverted-table AST는 parent/depth/type/kind/binding/source-range를 columnar form으로 보관해 subtree/group analysis를 batch operation으로 처리하는 장점을 보여 준다.
@@ -265,6 +270,7 @@ GraphIndex
 
 **금지:** semantic identity를 dense matrix/SoA 하나에 종속시키거나 모든 pass를 data-parallel form으로 강제하지 않는다.
 
+<a id="4247-specializationengine-call-site-clone-대신-cacheable-specializationkey"></a>
 #### 4.24.7 SpecializationEngine: call-site clone 대신 cacheable SpecializationKey
 
 APEX의 call-site specialization과 TAIL의 explicit type/rank instantiation을 일반화한다.
@@ -285,6 +291,7 @@ SpecializationKey
 
 specialization explosion을 막기 위해 exact shape/constant/property는 **algorithm/lowering 선택에 실제로 영향을 줄 때만** key에 넣는다. 필요하면 abstract-state widening/merge를 허용한다.
 
+<a id="4248-high-level-parallel-structure를-logical-ir에-보존한다"></a>
 #### 4.24.8 High-level parallel structure를 Logical IR에 보존한다
 
 TAIL→Futhark 연구는 map/reduction nests를 explicit하게 유지해야 fusion, nested-parallelism flattening, coalesced access optimization을 수행할 수 있음을 보여 준다.
@@ -309,6 +316,7 @@ nested `CellApply(Reduce(...))`, `Reduce(CellApply(...))` 등은 Logical IR에�
 
 이 절의 `MatMul`, `Conv`, `OuterProduct` 같은 named high-level op 보존 원칙은 **Graph Basis identity 보존** 문제다. 4.24.11의 Execution basis vocabulary와 경쟁 관계가 아니다. named op는 Graph IR에서 algorithm/access/resource identity를 black box로 유지할 수 있고, execution lowering은 필요하면 `ExecutionBasisExpansion`을 통해 `WindowView + Contract` 같은 더 compositional한 실행 graph를 제공할 수 있다. 더 작은 expansion은 실제 성능상 이득이 있을 때만 추가한다.
 
+<a id="4249-pure-region-extraction과-route-precondition"></a>
 #### 4.24.9 Pure region extraction과 route precondition
 
 TAIL/Futhark와 Co-dfns는 실제 compiler subset을 제한한다. RustJ는 그 제한을 J language restriction으로 채택하지 않는다.
@@ -334,6 +342,7 @@ route cannot lower X
 
 route가 실패하면 native route, guarded JIT, runtime semantic path를 선택한다.
 
+<a id="42410-parameterized-lowering-recipe"></a>
 #### 4.24.10 Parameterized Lowering Recipe
 
 TAIL→Futhark가 static type/rank information에 따라 primitive code skeleton을 specialize하는 방식을 일반화한다.
@@ -355,6 +364,7 @@ semantic op 하나가 kernel 하나라는 가정을 두지 않는다.
 
 
 
+<a id="42410a-graph-basis와-execution-basis를-분리한다"></a>
 #### 4.24.10a Graph Basis와 Execution Basis를 분리한다
 
 `basis`는 하나의 계층을 뜻하지 않는다. RustJ에서는 최소한 두 개를 명시적으로 구분한다.
@@ -409,6 +419,7 @@ Derived Verb
 
 같은 단어인 Map/Reduce/Reindex가 양쪽에 나타날 수 있지만 **타입, 소유 fact, rewrite 법칙, granularity 조건이 다르다.**
 
+<a id="42411-execution-basis-vocabulary-v02-최소성이-아니라-성능상-유효한-실행-최적화-경계"></a>
 #### 4.24.11 Execution basis vocabulary v0.2: 최소성이 아니라 성능상 유효한 실행 최적화 경계
 
 이 절의 **Execution basis operation**은 “더 이상 분해할 수 없는 최소 primitive”를 뜻하지 않는다. Graph Basis의 최소성/생성원 문제와도 별개다. **현재 수준의 semantic/array identity를 보존했을 때 optimizer와 planner가 실제 성능상 이득을 얻는 연산 단위**를 뜻한다.
@@ -484,7 +495,3 @@ Box/Open은 nested computation 자체보다 value construction/representation에
 
 LinearSolve, Grade, GroupBy는 더 작은 operation으로 구현할 수 있어도 지금 분해하지 않는다. solver/ordering/grouping identity 자체가 algorithm, library, sparse/dense, CPU/GPU realization 선택에 직접 유용하기 때문이다. StateMachine은 ;: 의 일반 sequential-machine semantics를 잃지 않기 위한 provisional structured kernel이며, 첫 구현은 generic sequential route여도 된다.
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p07.ko.md) | [다음 부분 →](./15-advanced-contracts-p09.ko.md)

@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (7/10)
-
+<a id="4168-capability-lookup도-locale-fragment를-합성한다"></a>
 #### 4.16.8 Capability lookup도 locale fragment를 합성한다
 
 lowering뿐 아니라 target information도 같은 mechanism을 사용할 수 있다.
@@ -43,6 +40,7 @@ TargetQueries
 
 query resolution 역시 most-specific locale provider가 override하거나, 명시적인 composition rule을 통해 상위 provider를 호출할 수 있다.
 
+<a id="4169-executionhierarchy"></a>
 #### 4.16.9 ExecutionHierarchy
 
 GPU 예는 `Device → ComputeUnit/SM → Workgroup/CTA → Subgroup/Warp/Wave → Lane/Thread`, CPU 예는 `Machine/NUMA → Core → Hardware thread → SIMD lanes`로 본다.
@@ -51,6 +49,7 @@ GPU 예는 `Device → ComputeUnit/SM → Workgroup/CTA → Subgroup/Warp/Wave �
 
 이 정보의 일부는 architecture rule이고 일부는 exact device capacity다. 어느 profile fragment에 속하는지 구분해 저장한다.
 
+<a id="41610-registerresources"></a>
 #### 4.16.10 RegisterResources
 
 register를 단일 숫자로 가정하지 않는다.
@@ -86,6 +85,7 @@ AllocationRule
 
 occupancy/concurrency 계산은 단순 `capacity / usage`가 아니라 allocation rule을 적용한 뒤 계산한다.
 
+<a id="41611-memoryhierarchy"></a>
 #### 4.16.11 MemoryHierarchy
 
 memory space를 `global/shared` 두 종류로 고정하지 않는다.
@@ -116,6 +116,7 @@ ResourceCoupling
   selection_scope
 ```
 
+<a id="41612-computecapabilities"></a>
 #### 4.16.12 ComputeCapabilities
 
 ```text
@@ -135,6 +136,7 @@ special instructions
 
 `tensor_core=true` 같은 boolean 하나보다 operation signature/capability query가 낫다.
 
+<a id="41613-synchronization--memory-ordering--data-movement"></a>
 #### 4.16.13 Synchronization / memory ordering / data movement
 
 architecture/backend profile은 다음 capability를 제공할 수 있다.
@@ -160,24 +162,28 @@ DataMovementCapability
 
 구체적인 barrier/event/atomic/copy 선택은 schedule/physical lowering에서 한다.
 
+<a id="41614-launchandschedulinglimits"></a>
 #### 4.16.14 LaunchAndSchedulingLimits
 
 max threads/workgroup, resident workgroups/compute-unit, subgroups/workgroup, grid limits, dynamic scratchpad limits, cluster/cooperative launch capability 등을 표현한다.
 
 rule 자체가 architecture에 속하는지, exact numeric capacity가 device에 속하는지 분리한다.
 
+<a id="41615-transferandtopology"></a>
 #### 4.16.15 TransferAndTopology
 
 device memory capacity, host-device links, peer-to-peer connectivity, NUMA relation, collective capability, concurrent copy/compute capability를 표현한다.
 
 single-device MVP에는 필수가 아니지만 Placement/Sharding 확장을 막지 않도록 schema 위치를 예약한다.
 
+<a id="41616-abi--datalayout"></a>
 #### 4.16.16 ABI / DataLayout
 
 endianness, type size/alignment, pointer/address-space width, vector alignment 같은 정보다. J logical dtype 의미가 아니라 backend representation constraint다.
 
 architecture/backend family의 ABI rule과 runtime/external ABI requirement를 분리할 수 있어야 한다.
 
+<a id="417-costprofile-hard-limit와-측정-성능을-분리한다"></a>
 ### 4.17 CostProfile: hard limit와 측정 성능을 분리한다
 
 effective memory bandwidth, instruction throughput, cache hit rate, launch overhead, interconnect bandwidth/latency, library-call overhead는 driver, clock, power state, workload, runtime version에 따라 바뀔 수 있다.
@@ -204,6 +210,7 @@ CostProfile
 
 legality는 `TargetProfile` hard facts로 판단하고, 후보 ranking은 `TargetProfile + CostProfile`로 한다. CostProfile이 없어도 conservative heuristic으로 합법적인 plan을 만들 수 있어야 한다.
 
+<a id="418-rustj-native-physical-plan이-기록하는-hardware-mapping"></a>
 ### 4.18 RustJ-native Physical Plan이 기록하는 hardware mapping
 
 TargetProfile의 정보를 Logical IR에 복사하지 않는다. RustJ-native route에서는 Physical Planner가 선택한 결과를 Physical Plan에 기록한다. External route에서는 동등한 mapping을 해당 compiler의 lower-level IR/config가 소유할 수 있다.
@@ -229,10 +236,12 @@ PhysicalRegion
 
 Triton의 `BLOCK_SIZE_*`, `num_warps`, `num_stages`, `maxnreg`와 OpenXLA fusion backend config의 tile/warp/stage 설정은 이 계층의 사례다.
 
+<a id="419-resourceestimate와-costestimate를-분리한다"></a>
 ### 4.19 ResourceEstimate와 CostEstimate를 분리한다
 
 `TargetProfile`의 hard facts와 `CostProfile`의 경험적 성능치를 분리했으므로, plan 평가 결과도 두 종류로 나눈다.
 
+<a id="resourceestimate"></a>
 #### ResourceEstimate
 
 schedule과 target hard facts로부터 계산 가능한 자원/구조 추정이다.
@@ -263,6 +272,7 @@ ResourceEstimate
   = R(LogicalGraph, PhysicalSchedule, resolved TargetProfile)
 ```
 
+<a id="costestimate"></a>
 #### CostEstimate
 
 실제 시간/성능 ranking에 필요한 추정이다.
@@ -292,6 +302,7 @@ CostEstimate
 
 따라서 primitive registry에 `registers=32`처럼 넣지 않는다. primitive/capability는 `output마다 accumulator가 필요`, `이 축은 reduction`, `이 input tile은 재사용됨`, `logical collective가 필요` 같은 구조만 제공한다.
 
+<a id="4190-resourceestimate-derivation-invariants"></a>
 #### 4.19.0 ResourceEstimate derivation invariants
 
 과거 `primitive_blackbox_resource_composition.md`의 핵심 원칙을 현행 resource model에 유지한다.
@@ -360,6 +371,7 @@ ResourceEstimate
 후보 ranking에서만 CostEstimate가 이 여러 축을 target-dependent performance metric으로 결합한다.
 
 
+<a id="4191-backend-compiled-resource-feedback"></a>
 #### 4.19.1 Backend compiled-resource feedback
 
 register allocation과 spill은 최종 backend lowering의 영향을 크게 받으므로 planner의 사전 추정만으로 완전히 확정할 수 없다.
@@ -413,6 +425,7 @@ ExecutionMeasurement
 측정값은 `CostProfile` calibration이나 autotuning database에 반영할 수 있지만, TargetProfile hard fact를 덮어쓰지 않는다.
 
 
+<a id="4192-targetprofile은-data--query-interface다"></a>
 #### 4.19.2 TargetProfile은 data + query interface다
 
 TargetProfile을 모든 vendor 규칙을 정적으로 열거한 거대한 struct로 만들지 않는다.
@@ -434,6 +447,7 @@ TargetQueries
 hard fact는 versioned data로 보존하고, 복잡하거나 architecture-specific한 규칙은 query implementation으로 캡슐화한다.
 
 
+<a id="420-cpu와-gpu에서-실제로-필요한-정보"></a>
 ### 4.20 CPU와 GPU에서 실제로 필요한 정보
 
 공통으로 logical shape/dtype, iteration/dependency axes, reduction/scan semantics, access relation, alias/effect, working-set/reuse structure, vectorization/reassociation legality가 필요하다. Downstream planning에서는 여기에 RepresentationFacts(stride/alignment 등), memory hierarchy, register/vector capacity, parallel execution capacity, cost model을 결합한다.
@@ -444,6 +458,7 @@ GPU에서 특히 중요한 target facts는 SM/CU count, warp/wave/subgroup width
 
 이 차이 때문에 target schema를 NVIDIA의 `SM/register/shared-memory` 세 필드에 맞춰 고정하지 않는다.
 
+<a id="421-현재-rustj에-권장하는-최소-구현-범위"></a>
 ### 4.21 현재 RustJ에 권장하는 최소 구현 범위
 
 처음부터 완전한 hardware database를 만들지 않는다.
@@ -492,7 +507,3 @@ H3 ResourceEstimate MVP
 
 그 다음 empirical `CostProfile`과 richer cache/topology model을 추가한다.
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p06.ko.md) | [다음 부분 →](./15-advanced-contracts-p08.ko.md)

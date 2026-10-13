@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (2/10)
-
+<a id="입력-정보-문제의-프레임워크-비교-2026-10-04"></a>
 ##### 입력 정보 문제의 프레임워크 비교 (2026-10-04)
 
 | 프레임워크 | 실행 전 입력 정보를 얻는 방법 | shape 변화/재사용 처리 | RustJ에 참고할 부분과 한계 |
@@ -19,6 +16,7 @@ tracing은 frontend/host 코드를 실행할 수 있으므로 “사용자 코�
 
 <a id="array-compiler-static-analysis"></a>
 
+<a id="483-배열-컴파일러의-정적-분석-대상과-프레임워크-비교-2026-10-04"></a>
 ### 4.8.3 배열 컴파일러의 정적 분석 대상과 프레임워크 비교 (2026-10-04)
 
 **분석 대상은 입력 배열뿐 아니라 프로그램의 중간 값·연산·사용 관계·제어 흐름·저장소다.** §4.8.2의 IN0–IN11은 분석의 초기 정보이며 아래 SA0–SA8은 그 정보와 보존한 graph/contract에서 도출할 질문이다. 정적 분석은 실행 전 facts·제약·증명·미해결 조건을 산출한다. fusion, DCE, tiling, buffer 배치는 그 결과를 사용하는 변환이며 분석과 구별한다. XLA도 analysis와 HLO 변환 pass를 구분한다. [XLA analysis passes](https://openxla.org/xla/hlo_passes)
@@ -35,6 +33,7 @@ tracing은 frontend/host 코드를 실행할 수 있으므로 “사용자 코�
 | SA7 — 표현·layout·target 적합성 | 논리 reshape/index 관계, 지원 dtype/representation 및 접근 모델; 이후 stride/device/target 제약 | view/copy와 kernel route의 전제. 논리 reshape 증명만으로 외부 버퍼의 zero-copy를 보장하지 않음. [TVM reshape analysis](https://tvm.apache.org/docs/reference/api/python/relax/analysis.html#tvm.relax.analysis.has_reshape_pattern) |
 | SA8 — 자원·코스트·IR 일관성 | 연산량·전송/저장 크기식, 정의/사용·type·region 불변식 검증 | 후보 비교와 잘못된 IR 검출. 비용식은 실측 시간 또는 정확한 물리 메모리가 아님. [XLA cost/verifier](https://openxla.org/xla/hlo_passes) |
 
+<a id="같은-질문을-각-프레임워크가-다루는-방식"></a>
 #### 같은 질문을 각 프레임워크가 다루는 방식
 
 서로 다른 계층을 비교한다. JAX/PyTorch/TensorFlow는 graph 확보와 입력 제약을 포함하는 frontend이고 XLA는 backend, MLIR은 IR 기반시설이다. 아래는 우열·전체 기능표가 아니라 확인한 분석 방법과 RustJ가 참고할 지점이다. tracing으로 graph를 얻은 뒤의 정적 분석과, RustJ가 소스에서 보존한 graph를 분석하는 방법도 구별한다.
@@ -58,6 +57,7 @@ tracing은 frontend/host 코드를 실행할 수 있으므로 “사용자 코�
 - [x] **WI0d** 배열 컴파일러의 분석 대상 SA0–SA8, 프레임워크별 방법/한계 및 현재 구현 경계를 출처와 함께 정리한다.
 - [ ] **WI3c** frontend graph/facts report에 SA 분류·증명 범위·미해결 조건을 연결하고 현재 지원 부분부터 regression을 추가한다. 일반 solver나 physical scheduler를 frontend 완성의 선행 조건으로 만들지 않는다.
 
+<a id="49-vocabulary는-이름-목록이-아니라-form--contract다"></a>
 ### 4.9 Vocabulary는 이름 목록이 아니라 form + contract다
 
 과거 연구의 중요한 결론은 primitive vocabulary가 단순 whitelist가 아니라는 점이다.
@@ -129,6 +129,7 @@ InvalidExtensionRegistration
 
 이 구분은 후기 `jaxa-analyzer`의 Validator 오류 분류를 RustJ의 full-J 목표에 맞게 일반화한 것이다.
 
+<a id="491-analyzable-profile은-허용-목록테스트로-고정한다"></a>
 #### 4.9.1 analyzable profile은 허용 목록/테스트로 고정한다
 
 `Analyzable Array Profile`을 설명 문구로만 두지 않는다. 구현에서는 source/derived form별 compilation disposition을 **명시적 coverage manifest + golden test**로 고정한다.
@@ -175,6 +176,7 @@ system foreign / unsupported boxed-sparse form
 중요하게 이 목록은 **J 언어 validity 목록이 아니라 현재 compiler implementation/route eligibility 목록**이다.
 
 
+<a id="410-primitivespec은-semantic-record이고-realization은-별도-registryinterface다"></a>
 ### 4.10 PrimitiveSpec은 semantic record이고, realization은 별도 registry/interface다
 
 과거 prototype처럼 primitive 하나에 rank, shape, layout, register, tiling, backend implementation을 모두 넣지 않는다.
@@ -259,6 +261,7 @@ ResourceUsage
 
 이렇게 하면 extension primitive를 추가해도 모든 분석/optimizer/backend가 그 이름을 직접 알 필요가 없다.
 
+<a id="4101-기존-j-primitive도-hardware-lowering의-주체다"></a>
 #### 4.10.1 기존 J primitive도 hardware lowering의 주체다
 
 hardware-aware capability/lowering 체계는 extension primitive에만 적용하지 않는다.
@@ -388,6 +391,7 @@ otherwise
 따라서 **컴파일 가능한 J built-in computational entity도 extension-derived entity와 동일한 capability/lowering architecture에 참여**한다. 다만 name/locale/control/system foreign처럼 runtime/effect semantics가 중심인 built-in을 억지로 pure array LogicalOp/GPU kernel로 만들지는 않는다.
 
 
+<a id="411-rank와-axis-role은-서로-다른-정보다"></a>
 ### 4.11 rank와 axis role은 서로 다른 정보다
 
 J rank가 알려주는 것은 argument를 frame과 cell로 어떻게 나누어 verb를 적용하는가이다. `AxisAndIterationSemantics` capability는 그 cell 내부의 각 축이 연산에서 어떤 역할을 하는가를 알려준다.
@@ -430,6 +434,7 @@ conv3d cell = [C, D, H, W] innate rank 4
 
 가변 reduction인 표준 J `+/` 같은 연산은 rank/cell 구조에서 axis가 유도된다. 반대로 derived conv verb처럼 축 역할이 연산 정체성에 고정된 연산은 `AxisAndIterationSemantics` capability가 그 역할을 제공한다.
 
+<a id="4110-rankspec은-absoluteinfiniterelative-rank를-표현한다"></a>
 #### 4.11.0 RankSpec은 absolute/infinite/relative rank를 표현한다
 
 J의 rank를 단순 nonnegative `usize`로 모델링하지 않는다.
@@ -517,7 +522,3 @@ Logical CellApply
 `MapCells` 같은 fixed-shape parallel form으로 더 낮추는 것은 `CellApply`의 uniformity/assembly 조건이 증명된 subset에서만 한다.
 
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p01.ko.md) | [다음 부분 →](./15-advanced-contracts-p03.ko.md)

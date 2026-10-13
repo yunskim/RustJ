@@ -1,9 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
-# 심화 기술 계약 — primitive, Rank, 하드웨어 계획, Flow–Storage — 계속 (6/10)
-
+<a id="41514-j-error-precedence와-internal-semantic-probes를-구분한다"></a>
 #### 4.15.14 J error precedence와 internal semantic probes를 구분한다
 
 backend 병렬 실행이 “먼저 발견한 lane의 오류”를 임의로 사용자 오류로 선택하면 안 된다.
@@ -30,6 +27,7 @@ ErrorSemantics
 
 따라서 “오류 순서 보존”은 **jsource가 정의한 observable error precedence와 suppression/retry semantics를 보존한다**는 뜻이다. 내부적으로 발생한 모든 임시 오류를 그대로 노출한다는 뜻이 아니다.
 
+<a id="41515-j-error는-exceptional-control-flow가-될-수-있다"></a>
 #### 4.15.15 J error는 exceptional control flow가 될 수 있다
 
 explicit definition 안의 J error를 항상 process-level failure 또는 compile diagnostic으로 취급하지 않는다.
@@ -90,6 +88,7 @@ AdverseDerived(u, v)
 
 
 
+<a id="416-compilationtarget은-backend--architecture--device를-분리한다"></a>
 ### 4.16 CompilationTarget은 backend / architecture / device를 분리한다
 
 기존의 하나짜리 `TargetProfile`은 역할이 너무 넓다. 같은 CUDA/ROCm backend에서도 architecture가 다르면 instruction, register organization, subgroup/wave behavior, scratchpad 기능 등이 달라지고, 같은 architecture를 쓰는 device끼리도 compute-unit 수, memory/cache capacity 등이 다를 수 있다.
@@ -129,6 +128,7 @@ TargetProfile
 
 `CostProfile`은 여전히 별도다. 동일 device라도 runtime/clock/workload/calibration에 따라 달라지는 empirical 성능값이기 때문이다.
 
+<a id="4161-backendfamily"></a>
 #### 4.16.1 BackendFamily
 
 backend family는 source primitive identity가 아니라 lowering ecosystem이다.
@@ -156,6 +156,7 @@ BackendFamily가 제공할 수 있는 것:
 
 `CUDA`, `ROCm` 같은 이름만으로 concrete instruction legality를 전부 판단하지 않는다.
 
+<a id="4162-architecturetarget"></a>
 #### 4.16.2 ArchitectureTarget
 
 architecture target은 **code-generation legality와 architecture-specific capability**의 핵심 단위다.
@@ -190,6 +191,7 @@ cpu ISA + microarchitecture feature set
 - family-level 공통 정보와 concrete architecture override를 둘 수 있다.
 - architecture-specific instruction lowering은 이 수준에서 등록할 수 있다.
 
+<a id="4163-deviceprofile"></a>
 #### 4.16.3 DeviceProfile
 
 DeviceProfile은 architecture identity가 아니라 **concrete capacity/topology**를 제공한다.
@@ -219,6 +221,7 @@ DeviceProfile
   "이 legal code를 이 장치에서 어떻게 schedule하는 것이 가능한가?"
 ```
 
+<a id="4164-runtimeprofile"></a>
 #### 4.16.4 RuntimeProfile
 
 일부 capability는 silicon만으로 결정되지 않고 driver/runtime/compiler stack의 지원에도 의존한다.
@@ -234,6 +237,7 @@ RuntimeProfile
 
 ArchitectureTarget이 지원하는 instruction/feature라도 현재 toolchain/runtime route가 노출하지 않으면 해당 lowering candidate는 사용할 수 없다.
 
+<a id="4165-resolved-targetprofile"></a>
 #### 4.16.5 resolved TargetProfile
 
 기존 문서의 `TargetProfile`이라는 이름은 삭제하지 않고 **resolved effective target view**라는 뜻으로 좁힌다.
@@ -251,6 +255,7 @@ TargetProfile =
 
 TargetProfile은 logical IR에 복사하지 않는다. compile invocation, route partition, schedule/physical planner, external adapter가 질의한다.
 
+<a id="41651-compilation-시작-시-active-target-locale을-확정한다"></a>
 ##### 4.16.5.1 Compilation 시작 시 active target locale을 확정한다
 
 각 compile invocation은 parser/J Semantic IR의 의미와 독립적으로 **active compiler target context**를 가진다. 단일-target MVP에서는 compile 시작 시 하나의 `CompilationTargetLocale`을 확정한다.
@@ -312,6 +317,7 @@ Lowering candidates
 - 숫자 architecture 버전으로 암묵적 상속을 추론하지 않는다.
 - 단일-target MVP 이후 heterogeneous execution이 필요해지면 `CompilationSession`이 여러 `TargetContext`를 보유하고 RoutePartition이 region별 context를 선택하도록 확장한다. 이 경우에도 각 region의 built-in/extension은 선택된 동일 target locale chain을 사용한다.
 
+<a id="41652-aot와-jit는-동일한-target-selection-contract를-사용한다"></a>
 ##### 4.16.5.2 AOT와 JIT는 동일한 target selection contract를 사용한다
 
 AOT build와 향후 JIT compilation은 서로 다른 target-selection 시스템을 만들지 않는다. 둘 다 동일한 입력 contract를 사용한다.
@@ -364,6 +370,7 @@ JIT:
 
 JIT 전용 primitive registry나 JIT 전용 hardware metadata 체계를 만들지 않는다. cache key에는 semantic/IR version과 함께 resolved target identity 및 lowering-relevant runtime capability version을 포함할 수 있다.
 
+<a id="4166-target-locale-chain-j-locale-방식을-compiler-lookup에-재사용한다"></a>
 #### 4.16.6 Target locale chain: J locale 방식을 compiler lookup에 재사용한다
 
 backend/architecture/device별 lowering과 capability override는 J의 **locale/path resolution 아이디어**를 compiler namespace에 재사용하면 단순하게 구현할 수 있다.
@@ -425,6 +432,7 @@ compiler.device.<exact-device>
 
 이 path는 **숫자 버전의 자동 상속이 아니라 명시적으로 구성한 resolution path**다.
 
+<a id="4167-lowering-lookup도-locale-resolution을-사용한다"></a>
 #### 4.16.7 Lowering lookup도 locale resolution을 사용한다
 
 각 target locale은 primitive/op에 대한 lowering binding을 가질 수 있다.
@@ -486,7 +494,3 @@ locale lookup
 
 device-specific lowering override는 허용하지만 남발하지 않는다. exact device locale은 주로 capacities/cost/profile override에 사용하고, code-generation 차이가 architecture에서 설명 가능하면 architecture locale에 둔다.
 
-
----
-
-[← 이전 부분](./15-advanced-contracts-p05.ko.md) | [다음 부분 →](./15-advanced-contracts-p07.ko.md)

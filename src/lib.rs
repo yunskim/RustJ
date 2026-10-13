@@ -4,6 +4,7 @@ mod array_ops;
 mod assembly;
 mod comparison_policy;
 mod index_ops;
+pub mod numeric_error_policy;
 mod search_reference;
 // Research-only tolerant lookup proof harness; never an executable fast path.
 #[cfg(test)]
@@ -27,6 +28,7 @@ pub mod facts;
 pub mod frontend_context;
 pub mod frontend_handoff;
 pub mod fusion_planning;
+pub mod j_graph_access;
 pub mod j_graph_composition;
 pub mod j_graph_fusion;
 pub mod j_graph_ir;

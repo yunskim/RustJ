@@ -1,7 +1,6 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
-
+<a id="14-jsource와-rustj의-관계"></a>
 ## 14. jsource와 RustJ의 관계
 
 현재 jsource는 CPU 실행을 전제로 한 C 구현이다.
@@ -62,3 +61,4 @@ jsource에서 적극적으로 가져올 것:
 - backend-specific in-place machinery
 
 ---
+

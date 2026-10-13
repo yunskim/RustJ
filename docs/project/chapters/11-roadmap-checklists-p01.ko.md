@@ -1,13 +1,59 @@
 [전체 목차](../../../PROJECT.ko.md) | [English reference](../../../PROJECT.md)
 
-> 문서 분할 안내: 기존 `PROJECT.ko.md`의 내용을 이동한 모듈입니다. 원문의 단일 파일 정본·신규 Markdown 금지 문구는 최신 [Agent 문서 규약](../../../AGENTS.md)보다 우선하지 않습니다.
 
+<a id="architecture-migration-checklist"></a>
+
+<a id="read-roadmap"></a>
+<a id="10-구현-계획과-체크리스트"></a>
 ## 10. 구현 계획과 체크리스트
 
 이 절이 앞으로 유일한 구현 체크리스트다. **저장장치·느린 I/O·Out-of-core 작업은 [§10 IO-01~IO-30](./11-roadmap-checklists-p05.ko.md#out-of-core-io-checklist)을 이 절 안의 단일 수용 목록으로 사용한다.** 순차 CPU 기준 실행과 J 의미 수렴은 계속 M2→M3→M4 우선이며, IO-A 조사만 병행할 수 있다.
 
+
+<a id="jaxa-future-work-traceability"></a>
+
+<a id="jfw--jaxa-future-work-10개-항목의-rustj-이행-추적표-2026-10-13-문서설계만"></a>
+### JFW — JAXA Future Work 10개 항목의 RustJ 이행 추적표 (2026-10-13; 문서·설계만)
+
+**근거와 권한:** [JAXA 원본 명세의 Future Work 1–10](https://github.com/yunskim/JAXA-complier/blob/ceba0589a80fd1a1e0630b39f3f61c7bf0b6c368/JAXA-README.md)을 항목별로 역대조했다. 이 표는 **기존 §10 작업의 추적 색인**이며, 독립 로드맵·새 필수 IR·새 language semantics가 아니다. §10이 유일한 수용 체크리스트다. 현재 코드/문서에 *설계*가 있다는 사실은 *구현·증명·E2E 완료*가 아니다. 아래의 미완료 체크를 기존 M2→M3→M4보다 앞선 blocking gate로 승격하지 않는다.
+
+| 원본 항목 / RustJ 식별자 | 적용 판단과 현재 경계 (2026-10-13) | 연결된 계층·근거 | 우선순위 |
+|---|---|---|---|
+| **FW1 Completeness Verification / JFW-01** | 범용 신경망 표현의 형식적 완전성 증명 대신, 실제 J 구문·Rank·shape·effect를 유지하는 *명시적 지원 범위/대표 모델 수용 매트릭스*부터 검증. 전체 완전성은 연구 항목 | Frontend, J Semantic IR, NN extension E2E·coverage manifest | 중기, 형식 증명 선택 |
+| **FW2 Automatic Gradient Derivation / JFW-02** | 원래의 자동미분 생성 목표를 **명시적 adjoint/VJP primitive 및 사용자 작성 backward graph**로 변경. Autograd는 필수 기능이 아님. `AdjointVjp` topology는 예약, 실제 전개·실행은 미완료 | `src/opportunity.rs`, `src/nn_extensions.rs`, explicit StateResource | 중기, 방향 변경 |
+| **FW3 Deterministic Memory Scheduling / JFW-03** | 버퍼/뷰 식별과 첫 CPU PhysicalPlan 계약은 있음; 범용 lifetime·offset 배치·재사용·activation retention·transfer plan은 미완료. 정적 크기가 증명되는 region에만 확정 계획 적용 | `src/physical_plan.rs`, §5, §8, M4 | 높음, CPU 경로 후 |
+| **FW4 Equivalent Form Search / JFW-04** | `j_graph_rewrite` / fusion 후보와 `egg` 설계는 있으나 실행 가능한 범용 EqGraph 탐색·extraction 없음. 규칙·가드·증거를 등록하고 안전한 후보만 탐색 | J Graph Basis/Rewrite, [공통배열대수 가설](./11-roadmap-checklists-p04.ko.md#common-array-algebra-hypothesis), `src/j_graph_fusion.rs` | 최상, 후속 연구 |
+| **FW5 Basis Verb Identification / JFW-05** | 전역 최소 primitive 집합을 먼저 증명하지 않음. **Graph Basis(대수적 재작성 단위) ≠ Execution/Lowering Basis(물리 구현 단위)** 구분; 확장 연산 분해는 검증 이후 허용 | J Graph IR, Logical IR, Extended Primitive, §4–§5 | 높음, FW4/8와 연계 |
+| **FW6 Distributed Execution / JFW-06** | device·memory-space·sharding·transfer·ready/synchronization의 계획 계약을 보존하되 실제 multi-GPU/multi-node 런타임은 장기 후속 | §7.5, HE, Physical Plan, `AGENTS.md` | 장기 |
+| **FW7 Hardware Portability / JFW-07** | target locale/capability/lowering 계약 설계 존재. CPU-native E2E를 먼저 닫고 GPU·MLIR/LLVM·StableHLO 부분집합 등은 독립 적법성/실행 검증 후 확장. 현재 CUDA 실행 미구현 | TargetContext, LoweringRegistry, M4→M6, `AGENTS.md` | 높음, 단계적 |
+| **FW8 Model Equivalence Verification / JFW-08** | 정확한 J 관찰 동등성과 오차가 있는 수치 후보를 분리. `numeric_error_policy`는 분석 전용; 동등성 증명기와 EqGraph의 안전한 e-class 병합은 미완료 | J-C 차등 오라클, FactWitness, `src/numeric_error_policy.rs`, `AGENTS.md` | 최상, FW4의 선행 검증 |
+| **FW9 Structural Sparsity / JFW-09** | J-visible sparse 배열 의미 일부 구현, dense/sparse 표현 분리. sparse assembly·atomic kernel 경로에 미지원 사례 존재. MoE·sparse attention의 구조가 입력에 따라 동적일 수 있어 정적이라고 간주 금지 | `src/sparse.rs`, `src/assembly.rs`, `src/kernels.rs`, NN extension | 중기 |
+| **FW10 Quantization Integration / JFW-10** | dtype/precision·cast와 accumulation policy의 독립 계약부터 검증. 원래 JAXA의 precision 표기를 표준 J 구문으로 무단 도입하지 않음. 양자화·mixed precision·자동 cast는 아직 완료 아님 | Frontend DType/Rank, NN family spec, target-specific lowering | 중기 |
+
+**독립 검증·수용 체크리스트 (현재 상태; 각 항목의 완료는 기능별 구현 증거가 생긴 후에만 표시):**
+
+- [x] **JFW-00 추적표 작성:** 원본 FW1–FW10 출처, RustJ 책임 단계, 현행 구현 경계, 우선순위, 한·영 mirror 매핑을 문서에 등록했다. **문서 작업만 완료**.
+- [ ] **JFW-01 / V01:** ResNet·Transformer·비-NN 배열 사례를 포함한 구조 표현 매트릭스와 오류·Rank·shape·binding의 J-C 차등, 지원·미지원 부정 사례를 기록한다. 범용성 증명은 별도 상태다.
+- [ ] **JFW-02 / V02:** 명시적 adjoint/VJP 등록→Frontend 인식→Graph/Logical fan-out→값·weight gradient/state effect 검증→CPU 실행을 단계별로 닫는다. 원시 forward 식에서 자동 미분을 생성하는 것과 혼동하지 않는다.
+- [ ] **JFW-03 / V03:** M4 CPU multi-op에서 value-last-use, buffer lease/alias/ownership, 안전한 reuse, materialization/no-materialization을 증명·실측한다. 미지 크기/효과/오류는 안전한 경계를 유지한다.
+- [ ] **JFW-04 / V04:** guard가 있는 정확한 rewrite 1개부터 end-to-end 후보 생성→합법성→extraction→기본 실행 대비 동등성/비용 비교를 실증한다. 탐색 성공 자체는 의미 증명이 아니다.
+- [ ] **JFW-05 / V05:** Graph Basis별 J 관찰 의미·rank/shape·빈 결과·오류·numeric 가드를 등록한다. Conv 등 extension은 *참조 정의*와 *실제 대체 실행의 동등성 증거*를 구별한다. 최소 기저의 완전성 증명은 필요조건이 아니다.
+- [ ] **JFW-06 / V06:** 단일 CPU·zero-transfer 경로 수용 뒤 장치/메모리 간 version·transfer·ready·sync·effect/error precedence를 검증하며, 다중 노드 실행은 별도로 검증한다.
+- [ ] **JFW-07 / V07:** 동일 J 연산을 native CPU, 다른 target route에서 지원 전제와 결과·오류·효과까지 비교한다. 장치별 cost/profile과 언어 의미를 분리한다.
+- [ ] **JFW-08 / V08:** provenance, Rank/Cell/Frame, prototype/fill, NAME, effect, first observable error, CCT/Fit, float/NaN/zero를 포함한 **Exact-J witness** 없이 e-class를 union하지 않는다. J의 `2^-44` 비교 허용 오차는 최적화 오차 예산이 아니며 근사 동등은 비추이적이다.
+- [ ] **JFW-09 / V09:** 기존 sparse J semantics를 보존한 구조적 희소 연산/NN routing의 긍정·부정 테스트를 만들고, sparse pattern이 runtime dependent이면 guarded/dynamic route로 남긴다.
+- [ ] **JFW-10 / V10:** 저장·계산·누적 dtype, 명시적/자동 cast의 안전 조건, quantize/dequantize 및 overflow/rounding/empty/error를 오라클과 비교한다. FP32 단독 통과를 mixed precision 완료로 세지 않는다.
+- [ ] **JFW-X1 / VX1 — Rank-aware Fusion:** `CellApply`/Map/Reduce/Scan/reindex의 고수준 topology를 보존하고, fusion 전에 frame/cell agreement, empty/prototype, error/effect 순서를 증명한다.
+- [ ] **JFW-X2 / VX2 — Resource-aware Search:** 연산수·bytes moved·temporary peak·layout/tiling·transfer·resource feasibility를 분리 추정한다. 안전하지 않은 early pruning은 금지하고, 선형 chain 비용 평가와 DAG branch/fanout 비용을 구분한다.
+- [ ] **JFW-X3 / VX3 — Explicit State & Adjoint Planning:** forward/backward/optimizer의 `StateResource`, `ValueId`, `BufferId`를 구분하고 gradient emission·activation lifetime·effect/error barriers를 검증한다.
+
+**공통 수용 규약:** 각 V01–V10, VX1–VX3에 `Test / Purpose / Guarantee / Failure meaning / Status`, 재현 입력(특히 반례), 지원 scope, 비교 J-C 기준/커밋, 실제 CI/PR head·merged-main 증거를 기록한다. `PASS`, `FAIL`, `UNRUN`, `BLOCKED`를 구분하며 문서만 추가한 상태는 `UNRUN`이다. 표·체크리스트는 구현 전부 **미완료**이며, 향후 증거가 있을 때 해당 항목만 갱신한다.
+
+**진행 순서와 비목표:** M2 Frontend/의미 → M3 적법성/Logical single-block → M4 native CPU E2E를 먼저 닫는다. 이후 JFW-08/04/05의 *검증된 작은 부분집합* → JFW-03/X1/X2의 자원·fusion → JFW-02/X3·07·09·10의 실행 확장 → JFW-06/형식 완전성 연구 순서로 단계적으로 진행한다. 여러 항목의 연구·문서화는 병행할 수 있지만 CPU 기준 경로의 블로커가 되어서는 안 된다. **자동미분 엔진, 전역 최소 Basis 증명, 전체 J/모든 모델의 완전성 증명, 분산 실행, GPU 실행은 첫 CPU 수직 경로의 필수 선행조건이 아니다.**
+
 <a id="dynamic-boundary-checklist"></a>
 
+<a id="db--동적-의미와-컴파일-경계-이행-db0db7"></a>
 ### DB — 동적 의미와 컴파일 경계 이행 (DB0–DB7)
 
 이 목록은 §10 M2→M3→M4와 WI3/WI4/M5–M8의 연결 지점이며 별도 병렬 backend 구현 계획이 아니다. **M2 frontend 수렴을 먼저 진행한다.** 해당 semantic 변경을 구현할 때 필요한 회귀를 추가하고, 최적화 자체는 별도 승인된 단계에서 진행한다.
@@ -97,6 +143,7 @@ C `numfd`의 비율 계산을 따라 분모 0은 numerator/denominator의 sign x
 
 <a id="vocabulary-migration-checklist"></a>
 
+<a id="nv--현재-j-vocabulary-수렴"></a>
 ### NV — 현재 J vocabulary 수렴
 
 설계 inventory의 정본은 [현재 vocabulary 감사](./15-advanced-contracts-p09.ko.md#current-j-vocabulary)다. M2 frontend 순서에 연결하고 신규 task/fold/GPU executor를 동시에 구현하지 않는다.
@@ -124,6 +171,7 @@ C `numfd`의 비율 계산을 따라 분모 0은 numerator/denominator의 sign x
 
 **NV2 gate (2026-10-05):** native Windows default/portable 각각 **435 passed / 17 ignored**, fmt/clippy/build 통과, Python **27 passed**. 공통 C 구문 12개를 추가해 양 C DLL의 세 runtime 경로 각각 **5,380 cases / 5,380 passed / runtime 경계 0 / failed 0**, stage **10,810 checks**, words **6,623 cases**, 실패 0. capture graph **257건**, static **2건** 경계는 별도다. vocabulary 후보 145개 중 **enqueue POS 143 / Rust enqueue 미지원 0 / code-only 거부 후보 2**이며 **bare function parser binding/AR 140개 / noun payload 3개**를 비교했다. 전체 NuVoc/J 실행 지원률이 아니다. report 12개의 실제 DLL/binary/source hash를 확인하고 NV2를 완료 처리했다. 다음 단계는 NV3이며 NV4/NV5와 DB1–DB7은 미완료다.
 
+<a id="m--현재-구조-수렴-실행-순서"></a>
 ### M — 현재 구조 수렴 실행 순서
 
 이 상위 체크리스트는 **지금 어떤 순서로 구조를 수렴시킬지**를 추적한다. 세부 완료 조건은 아래 A/F/P/G 체크리스트를 그대로 사용하며, 같은 일을 중복 정의하지 않는다.
@@ -146,6 +194,7 @@ J source
 
 Logical J value와 physical representation의 분리는 이 전체 pipeline에 교차하는 불변식으로 유지한다.
 
+<a id="m0--구조-기준선-고정"></a>
 #### M0 — 구조 기준선 고정
 
 - [x] 목표 compiler stage와 각 stage의 책임을 문서에서 확정했다.
@@ -201,6 +250,7 @@ backend / executor
 
 **M0 완료 조건:** **완료.** 새 구현이 어느 stage에 속하는지 한 곳으로 결정할 수 있고, 과도기 compatibility bridge를 새 canonical interface로 오인하지 않는다.
 
+<a id="m1--canonical-logical-execution-ir로-cutover--완료"></a>
 #### M1 — canonical Logical Execution IR로 cutover — 완료
 
 `logical_ir::Plan`이 유일한 canonical execution IR이다. 아래는 현재 유지되는 완료 조건이며 제거한 과도기 container를 현행 모듈처럼 설명하지 않는다.
@@ -215,6 +265,7 @@ backend / executor
 
 **M1 완료 조건:** 충족. `J Graph IR → logical_ir::Plan` 직접 연결과 단일 execution container가 유지되어야 한다. 이 완료는 full frontend, implicit cell semantics 또는 native Physical Executor의 완료를 뜻하지 않는다.
 
+<a id="m2--jsource-compatible-frontendparser-cutover"></a>
 #### M2 — jsource-compatible frontend/parser cutover
 
 목표: 현재 heuristic parser를 jsource-compatible Word Formation → Enqueue → 9-row Parser pipeline으로 교체한다.
@@ -233,6 +284,7 @@ backend / executor
 
 **M2 완료 조건:** supported frontend domain의 parser reduction을 jsource row/semantic action으로 설명할 수 있고 compiler가 별도 언어 문법을 갖지 않는다.
 
+<a id="m3--logicalphysical-array-경계의-코드-수렴"></a>
 #### M3 — Logical/Physical Array 경계의 코드 수렴
 
 목표: logical value identity에 CPU/GPU/layout identity가 역류하지 않게 하고 representation 선택을 physical planning으로 이동한다.
@@ -251,6 +303,7 @@ backend / executor
 
 **M3 완료 조건:** Logical IR/semantic facts에는 stride/offset/device/buffer가 없고, physical representation 변경이 J value identity를 바꾸지 않는다.
 
+<a id="m4--최소-rustj-native-cpu-vertical-slice"></a>
 #### M4 — 최소 RustJ-native CPU vertical slice
 
 목표: optimizer가 똑똑하지 않아도 canonical compiler pipeline이 end-to-end로 실제 실행되게 한다.
@@ -286,6 +339,7 @@ backend / executor
 
 **M4-P0 제한된 코드 통합(PR #4):** `physical_plan`은 plan-time buffer/view ID와 runtime BufferRegistry를 분리하며, 완전히 빈 A3 또는 closed Bool/Int/Float/Char literal 하나의 BindInput → Return만 검증·실행한다. exact literal/source witness로 stale payload/facts/span을 거부하고 singleton stride와 alias를 검증한다. ExtendedInt/Rational/boxed/sparse 및 미지원 op·SemanticCheck·쓰기·이름 조회는 거부한다. Add/Check/View/Materialize/lifetime/reuse와 일반 M3 proof는 미구현이며 M3/M4 전체 완료가 아니다. 현재 런타임 경로는 변경하지 않는다.
 
+<a id="he--이종-cpugpu-실행-계획-수렴-2026-10-07-m4m6-연계-체크리스트"></a>
 #### HE — 이종 CPU/GPU 실행 계획 수렴 (2026-10-07, M4→M6 연계 체크리스트)
 
 **설계 결정:** RustJ는 **CPU 멀티코어 컴파일러가 아니라 이종 배열 컴파일러**다. CPU thread 병렬화는 Physical Plan의 device-local 실행 전략일 뿐이다. `ParallelLegality` 또는 CPU 전용 `ParallelPhysicalPlanner`를 독립적인 canonical 상위 단계로 도입하지 않는다. 기존 `J Graph IR → verified logical_ir::Plan → RoutePartition → Schedule/Transform → Physical Planner → Physical Execution Plan → Executor`를 유지한다. 이 체크리스트는 본 §10의 기존 M/IO 이행 계획에 통합되며 별도 Markdown이나 새로운 필수 IR을 만들지 않는다.
@@ -327,6 +381,7 @@ backend / executor
 
 ---
 
+<a id="m5--routeschedulecost-확장"></a>
 #### M5 — Route/Schedule/Cost 확장
 
 M4 이후에만 optimizer 선택 문제를 키운다. [sw-MLPL SW-05/06 계측 참고](./03-architecture-p02.ko.md#sw-mlpl-reference-checklist)는 기존 physical residency/transfer 비용 검증에만 적용하고 M5/M6 구현 완료를 뜻하지 않는다.
@@ -341,6 +396,7 @@ M4 이후에만 optimizer 선택 문제를 키운다. [sw-MLPL SW-05/06 계측 �
 
 **M5 완료 조건:** planner가 단순 고정 policy가 아니라 여러 합법 physical plan 중 cost/resource 근거로 선택할 수 있다.
 
+<a id="m6--externalarrayfiregpu-route"></a>
 #### M6 — External/ArrayFire/GPU route
 
 M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 진행한다. 모든 adapter는 먼저 §5.5.1 External adapter boundary contract를 만족해야 한다.
@@ -355,6 +411,7 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 **M6 완료 조건:** external library/backend가 J semantics를 정의하지 않고, verified Logical IR의 합법적인 realization route 중 하나로만 동작한다.
 
+<a id="je0je6--jentity--contextual-higher-order-view-보조-트랙"></a>
 #### JE0–JE6 — JEntity / contextual higher-order view 보조 트랙
 
 **목표:** jsource의 공통 `A` 표현에서 **semantic RHS(`NOUN + FUNC`)를 하나의 carrier로 전달하는 원리**를 참고하되 C runtime allocation 구조를 복제하지 않는다. RustJ의 최소 `JEntity`는 parser/binding/assignment/semantic-operand 경계의 얇은 sum type으로 사용한다. `Value`와 `FunctionEntity`의 내부 모델을 하나로 합치거나 모든 IR node의 공통 base type으로 만들지 않는다. higher-order collection은 gerund 등 실제 operator semantics가 요구할 때 operator-specific view부터 도입한다.
@@ -381,6 +438,7 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 - 비채택: unresolved lexical NAME/NameRef를 Noun/Function과 같은 추가 POS/entity kind로 취급하는 방식.
 - 비채택: 공통 entity abstraction이 Logical/Physical Array 경계를 우회하거나 BufferId/device/layout을 semantic layer로 끌어올리는 방식.
 
+<a id="je0--현행-semantic-carrier와-jsource-대응-감사"></a>
 ##### JE0 — 현행 semantic carrier와 jsource 대응 감사
 
 - [x] 상위 목표를 확정했다: `JEntity`는 noun/function을 묶는 semantic abstraction이고, common physical allocation abstraction이 아니다.
@@ -402,6 +460,7 @@ M4의 compiler-native vertical slice와 M5의 route contract가 안정된 뒤 �
 
 **JE0 완료 조건:** 모든 current semantic carrier와 lifetime/ownership/provenance 책임을 표로 설명할 수 있고, 새 타입을 만들기 전에 어떤 중복을 제거할지와 어떤 차이는 유지할지가 결정되어 있다.
 
+<a id="je0-현행-carrier-감사와-첫-migration-seam-2026-10-04"></a>
 ##### JE0 현행 carrier 감사와 첫 migration seam (2026-10-04)
 
 아래 표는 JE1 이전 감사 snapshot이다. `AssignedValue` 제거와 현재 API는 이어지는 JE1 구현 기록에서 관리한다.
@@ -436,6 +495,7 @@ Windows default/portable 각각 **363 passed / 17 ignored**, fmt/clippy/build �
 
 Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/p.c#L1006), [translator pv.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/pv.c#L158), [nameref sc.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/sc.c#L364), [constructor cf.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cf.c#L292), [gerund cg.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2583c01d00538c3d16379677bb/jsrc/cg.c#L101).
 
+<a id="je1--최소-공통-jentity-identity-도입"></a>
 ##### JE1 — 최소 공통 `JEntity` identity 도입
 
 - [x] `JEntity`/`JEntityRef`의 최소 API를 **boundary carrier**로 설계한다. 직접 semantic variants는 `Noun`과 `Function`으로 두고 Function이 `Verb|Adverb|Conjunction` POS를 소유하는 구조를 우선 검토한다.
@@ -450,6 +510,7 @@ Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2
 
 **JE1 완료 조건:** parser/binding API가 noun과 function을 공통 entity handle로 전달할 수 있으면서 기존 `FunctionEntity` DAG와 J noun semantic identity를 훼손하지 않는다.
 
+<a id="je1-구현--대입-경계의-최소-jentity-2026-10-04"></a>
 ##### JE1 구현 — 대입 경계의 최소 JEntity (2026-10-04)
 
 아래는 JE1 도입 시점의 snapshot이다. 임시 SymbolValue/Verb adapter의 제거와 현재 namespace carrier는 이어지는 JE2 구현 기록에서 관리한다.
@@ -466,6 +527,7 @@ Sources: [runtime p.c](https://github.com/jsoftware/jsource/blob/0db94e768a845e2
 
 JE1의 최소 API/첫 boundary는 완료이며 runtime `SymbolValue` seam을 JE2로 넘겼다. stack의 deferred noun/application structure와 lookup observations를 concrete JEntity로 강제하지 않는다. explicit body invocation·scope, semantic nested DD, JE3+ higher-order views, broader storage migration, full J conformance는 계속 별도 미완료다. optimization·CUDA·GitHub CI는 보류한다.
 
+<a id="je2--parserbindingassignment-경계-수렴"></a>
 ##### JE2 — parser/binding/assignment 경계 수렴
 
 - [x] `FunctionOperand::as_entity_ref()`로 공통 borrowed JEntityRef를 제공하고 `span()`으로 provenance를 보존한다. noun의 별도 span과 함수 Arc 소유권을 유지하기 위해 owning enum은 유지한다.
@@ -483,7 +545,3 @@ JE1의 최소 API/첫 boundary는 완료이며 runtime `SymbolValue` seam을 JE2
 
 **JE2 완료 조건:** noun과 function의 parser/binding/assignment transport가 하나의 semantic abstraction으로 수렴하고, POS·lookup timing·effect ordering은 jsource-compatible하게 유지된다.
 
-
----
-
-[다음 부분 →](./11-roadmap-checklists-p02.ko.md)

@@ -463,6 +463,14 @@ pub(crate) fn apply_reduction(
 
 fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value) -> Result<Value> {
     match &function.head {
+        FunctionHead::PrimitiveVerb(id)
+            if id.support() == crate::primitive::PrimitiveSupport::Unimplemented =>
+        {
+            Err(Error::Unsupported(format!(
+                "core primitive {} execution",
+                id.spelling()
+            )))
+        }
         FunctionHead::PrimitiveVerb(id) => match left {
             // FW-02: independent dense sequential oracle, no physical routing.
             Some(left) => match id {
@@ -497,8 +505,7 @@ fn execute_semantic(function: &FunctionEntity, left: Option<Value>, right: Value
         FunctionHead::NameRef(_) => Err(Error::Unsupported(
             "A3 reference executor does not resolve dynamic calls".into(),
         )),
-        FunctionHead::VocabularyPrimitive(_)
-        | FunctionHead::TakeName { .. }
+        FunctionHead::TakeName { .. }
         | FunctionHead::PrimitiveAdverb(_)
         | FunctionHead::PrimitiveConjunction(_)
         | FunctionHead::DefinitionConstructor(_)
