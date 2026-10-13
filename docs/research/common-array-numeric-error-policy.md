@@ -61,3 +61,20 @@ The `jsource/test/g421e.ijs` tolerance adjustment for reordered `+/` summation d
 
 - [#92: Dynamic J CCT and Fit snapshot correctness](https://github.com/yunskim/RustJ/issues/92) — **unimplemented**.
 - [#93: Numerical error propagation and actual EqGraph admission](https://github.com/yunskim/RustJ/issues/93) — **unimplemented**.
+
+
+## N1a: J CCT state object (preparatory, not executed)
+
+- [x] Add `JComparisonState` to `src/comparison_policy.rs`: engine-local candidate, default `2^-44`, internally store `cct = 1-t`, read `1-cct`.
+- [x] Validate scalar **after** numeric conversion using the pinned `jsource/jsrc/xa.c::jtcts` bound `0 <= t <= 5.820766091e-11`; reject NaN/infinities/negative/out-of-range while keeping old value/version.
+- [x] Version every successful set; return immutable `ComparisonPolicySnapshot` preserving earlier C-comparison outcomes, fail atomically on version exhaustion.
+- [x] Add unit tests `j_cct_state_setter_matches_source_range_rounding_and_is_transactional` and `j_cct_snapshots_are_immutable_and_do_not_authorize_egraph_equivalence`.
+- [ ] **Not executable:** `Engine` does not yet own/thread the state; J `9!:18 ''` and `9!:19` are not interpreted, and comparison/search kernels do not consume new runtime snapshots.
+- [ ] **Not verified against executed J C:** operand rank/conversion, first errors, Fit `!.t`, Match `-:`, boxed/sparse and cache invalidation remain future work.
+
+| Test | Purpose | Guarantee | Failure meaning | Status |
+|---|---|---|---|---|
+| `j_cct_state_setter_matches_source_range_rounding_and_is_transactional` | Bound/rounding/atomic updates | Correct complementary store/read, no state mutation on error | Unsafe CCT input or partial mutation | **N1a PR CI pending; no runtime connection** |
+| `j_cct_snapshots_are_immutable_and_do_not_authorize_egraph_equivalence` | Old vs new policy snapshots | Call snapshot isolation and J-strict numeric vs bit identity distinction | Stale/contaminated snapshot | **N1a PR CI pending; EqGraph unconnected** |
+
+Do not mark N1 complete until the actual J interpreter and pinned C differential paths pass independently.
