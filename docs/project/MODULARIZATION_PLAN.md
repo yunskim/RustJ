@@ -98,3 +98,5 @@ Do not redesign the compiler while splitting documents. Implementation and NN ex
 ## 2026-10-13 PR integration validation
 
 Regenerate the 40 Korean modules from the current integrated canonical source. `tools/check_project_docs.py` checks content preservation, explicit and generated-heading relocation anchors, and repository inbound links; Linux CI reruns it. `reports/project-modularization.json` records the source commit and section hashes. English modularization and bilingual semantic acceptance remain incomplete. Runtime semantics and implementation acceptance are unchanged.
+
+Run `python3 tools/check_project_docs.py --verify-source` for the one-time content-preservation audit. Ongoing CI checks links, structure and pinned source evidence while permitting subsequent intentional documentation edits.
