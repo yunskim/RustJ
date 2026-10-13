@@ -898,47 +898,76 @@ stride/dilation이 1보다 크면 cover에 실제로 읽지 않는 구멍이 생
 
 
 
-<a id="conv2d-only-implementation-checklist"></a>
-##### 7.10.7 NN-04 `conv2d` 단일 연산 구현 계획과 실행 체크리스트 (2026-10-13)
+<a id="conv2d-graph-optimization-process"></a>
+##### 7.10.7 `conv2d` 단독 Graph IR 최적화 과정 — 후보 생성·검증·선택 체크리스트 (2026-10-13)
 
-**범위 잠금 — 이번 구현 대상은 오직 `conv2d` 하나다.** 위 `7.10.1–7.10.6은 장기 Graph 최적화의 가능한 연구 범위다. 그러나 아래 **C2D** 실행 원장은 **NN-04의 계산 가능성과 J 의미 보존**을 달성하기 위한 세부 작업이다. `conv1d`/`conv3d`(NN-08), `conv_transpose2d`, pooling·ReLU·BatchNorm 등 다른 NN 연산의 구현, 자동미분 및 명시적 Conv VJP/adjoint, GPU, Winograd/FFT, 외부 cuDNN/oneDNN, im2col/GEMM, SPORES/egg, 다중 op fusion은 이 실행 원장의 **완료 조건이 아니며 이번 작업에서 구현하지 않는다**. 앞 절에 있는 `conv_vjp_lifetime` 등은 장기 연구 테스트로만 남고 현재 C2D의 미완료 항목 수에 넣지 않는다. 별도 milestone/원장이나 신규 primitive family를 생성하지 않고, 상태의 **단일 정본은 `4.6 NN-04 통합 행**([NN 목록](./15-advanced-contracts-p01.ko.md#nn-extension-checklist))이다. C2D 하위 checkbox는 NN-04를 체크하기 위한 **증거·실행 순서**로만 사용한다. [NN-G0–G7](./15-advanced-contracts-p01.ko.md#463a-nn배열-extension-first-수용-게이트실행-체크리스트-2026-10-10-설계계획만), GF4/GF5a/GF6, FW/IO의 기존 책임은 그대로 유지한다.
+**범위 고정.** 이 체크리스트는 **이미 J 의미를 해석한 NN-04 `conv2d` 호출 하나의 Graph IR 최적화 과정**만 다룬다. `conv2d`의 J builder/derived verb/CPU kernel/Physical executor를 **새로 구현하는 계획이 아니다**. 현재 `src/nn_extensions.rs`는 opt-in frontend의 `RECOGNIZED_ONLY` 후보를 기술하며, 지원되지 않는 `conv2d` 호출을 최적화가 실행 가능하게 만들지 못한다. `conv1d`, `conv3d`, `conv_transpose2d`, pooling/activation 등의 **별도 NN 연산 구현**, Conv VJP/adjoint, 자동미분, GPU, 전체 NN 네트워크 및 범용 SPORES/egg 엔진 구현은 이번 완료 범위 밖이다. 연산 단독 내의 index/window/contraction/fusion-like **계획 후보 분석**은 허용하되, 다른 연산의 구현을 요구하지 않는다. 이 문서는 기존 `7.10.1–7.10.6`의 원리에서 **Conv2d만 대상으로 하는 실행 순서**를 추출한 것이고, 별도 NN 완료 원장을 추가하지 않는다. 기존 [NN-04 통합 체크박스](./15-advanced-contracts-p01.ko.md#nn-extension-checklist)는 변경하지 않는다.
 
-**첫 CPU admission profile(초안; C2D-01에서 문서와 테스트로 고정):** PyTorch식 *cross-correlation*(kernel flip 없음), logical NCHW `X[N,Cin,H,W]`, OIHW `K[Cout,Cin/G,Kh,Kw]`, 선택적 bias `b[Cout]`, dense J Float(`f64`) **전용**으로 시작한다. 파라미터는 양의 integer `stride`/`dilation`(2축), 비음수 integer zero `padding`(2축), 양의 `groups` 및 `Cin,Cout` 그룹 나눗셈 조건을 명세한다. 2D 실제 계산만 제공하고 초기 CPU profile은 **rank-4 batched input**이다. `stride>1`, `dilation>1`, `padding>0`, `groups>1`와 `depthwise`를 같은 `conv2d`의 확장 corpus로 입학시키되 단계별 수용 전까지 Unsupported/미입학이라고 표시한다. PyTorch의 3D unbatched CHW, 비대칭/`same`/`valid` 문자열 padding, mixed precision, integer·complex·boxed·sparse 자료형, 다른 Rank/cell invocation은 **초기 제공 계약 밖**이다. 이들은 `conv2d`의 모든 입력을 받는다고 광고하기 전에 별도의 도입/제외·호환성 결정을 해야 한다. 실제 J extension의 정의를 PyTorch 전체와 같다고 주장하지 않는다.
+**분석 대상과 진입 조건.** 기존 `GraphBasisKind::Structured` Conv2d, source `ValueId`/`FunctionEntity`/NAME binding version 및 source span, 실제 호출 instance의 `X`와 `K`(weight), 선택적 bias, axis/shape/dtype/Rank facts, geometry(stride·dilation·padding·groups), observable error/effect/ordered-reduction envelope가 입력이다. 이 중 필수 사실이 모호하면 `NotEligible/Unknown`을 반환하고 원본 Graph를 변경하지 않는다. `ResolvedConvCall`, `ConvAccessWitness`, `ConvDemand` 등의 표기는 **개념적 sidecar**이지 구현된 Rust API가 아니다. builder 이름을 tokenizer keyword로 만들지 않고 실제 J의 생성/호출 시점 바인딩을 참조한다.
 
-**중요한 공개 호출 문제:** 현행 `src/nn_extensions.rs`는 `conv2d`의 **Adverb POS**, 생성 verb에 대한 잠정 `[63,63,63]` Rank 및 가족의 느슨한 `input, weight, bias, stride, padding, dilation, groups` parameter schema만 제공하며, `frontend_preview_context`는 opt-in `RECOGNIZED_ONLY`이다. 그러므로 `X`와 `K`를 J 단항/이항 어느 슬롯에 배치할지, adverb의 좌항 noun이 어떤 immutable configuration/weight를 보유하는지, 호출 때 값이 재평가되는지, weight/bias의 소유권·명칭/버전은 **이미 확정된 것으로 가정하지 않는다**. C2D-01에서 실제 J 문법으로 **정상·음성 예제**를 하나 이상 작성하고 resolver→modifier construction→derived verb application의 실제 POS/Rank 의미와 일치시켜 확정한다. `[63,63,63]`은 잠정 frontend spec이지 임의 frame의 NCHW batch broadcasting을 승인하는 증거가 아니다. 선언한 공개 프로필 밖의 호출에는 조용한 reshape/float 변환·타 연산 fallback을 하지 않는다.
+~~~text
+original J Graph: Structured(Conv2d)   [source identity retained]
+               │
+               ▼
+  Eligibility + Resolved Geometry Witness
+               │  NotEligible/Unknown -> unchanged original
+               ▼
+  Index/Window Access + Output Region Pullback
+               │
+               ▼
+  Non-destructive Alternative Discovery
+    ├─ Original Direct Conv2d
+    ├─ virtual WindowView → ordered Contract
+    ├─ 1×1 / eligible grouped MatMul expression
+    ├─ im2col-like indexed view → GEMM (no eager allocation)
+    └─ tile/halo-aware evaluation candidate
+               │
+               ▼
+  Exact-J legality/guard/error/numeric evidence
+    ├─ Rejected / MathOnly / Unproved → never exact e-union
+    └─ Legal alternative(s)
+               ▼
+  Resource feasibility + work/IO/cost comparison
+               ▼
+  Verified Logical route / optional Physical extraction
+               │  unavailable route -> original/explicit Unsupported
+               ▼
+  Differential tests + measured workload evidence
+~~~
 
-**실행 순서와 게이트 — 모든 구현·테스트는 현재 UNRUN.**
+**세 가지 다른 결론을 구분한다.** (A) **접근 관계를 표현할 수 있다**: free output axes `{n,o,y,x}`와 bound axes `{c,r,t}`에서 `X/K` 좌표가 계산된다. (B) **Exact-J로 재작성할 수 있다**: shape/rank/ordered numeric/error/effect/NAME까지 관찰상 동일하다는 독립 witness/guard가 있다. (C) **더 저렴하고 실행 가능하다**: 특정 target에서 적격한 lowering, 자원 상한, 실측 또는 보정 비용이 있다. A만 참이면 B와 C를 주장하지 않는다. `egg` e-class union은 B를 통과할 때만, kernel/schedule 선택은 B와 C 모두 통과할 때만 허용한다. J의 기본 tolerant equality(`2^-44`)는 floating reassociation의 증명도 자동 근사 오류 예산도 아니다.
 
-| 순서 / 게이트 | 구현 단위와 수정할 후보 | 합격 증거 및 선행 조건 | 실패/미지원 처리 | 상태 |
+**실행 순서 (모든 최적화 단계 미구현/UNRUN; 완료 표시는 문서 작업만).**
+
+| ID / 기존 책임 | Graph IR 최적화 단계 | 필요한 증거 / 결과 | 거절·원본 유지 조건 | 상태 |
 |---|---|---|---|---|
-| **C2D-00 / 문서** | NN-04 한 연산 범위·미입학/후속 범위·수용 순서 고정 (`7.10.7, 영어 미러) | 한영 계약, NN-04 단일 소유권, 단계별 반례와 상태 기록 | 구현 완료로 오인 금지 | [x] 문서만 |
-| **C2D-01 / NN-G0·G1** | public J source 사용 예제, Adverb operand/parameter packing, derived verb valence/rank, input/weight/bias 슬롯, dtype 및 정확한 zero-padding/empty/error 정책과 numerical oracle 정의 | source normal/error corpus 및 독립 scalar reference formula; precondition/지원 매트릭스·J 관찰순서 고정 | 미정이면 다음 단계 실행 route 입학 금지 | [ ] UNRUN |
-| **C2D-02 / NN-G0·M2** | `nn_extensions.rs` opt-in preview → 실제 immutable builder/derived FunctionEntity, ordinary NAME/POS/shadow·locale·binding 버전; tokenizer special case 없음 | frontend → semantic construction 및 source provenance, user rebinding/negative POS 테스트; M2 해당 동작 검증 | 인식만 되는 `RECOGNIZED_ONLY`를 executable로 표시 금지 | [ ] UNRUN |
-| **C2D-03 / NN-G3·GF4** | 원본 `GraphBasisKind::Structured` + `Conv2d` semantic identity, `ValueId` 입력 연결, params, guarded GraphFacts, stable source/version | J Graph 생성/검증 E2E, 임의 배열로 `Map+Reduce` 조기 소거하지 않음, Unknown에서 보수적 차단 | source loss·무증거 Graph rewrite 거부 | [ ] UNRUN |
-| **C2D-04 / GF5a·IO-09** | `ConvAccessWitness`: NCHW grouped indexing/출력 shape, kernel access, padding predicate; `ConvDemand` exact set과 halo safe cover | 1×1·3×3, 비정방, stride/dilation/groups/depthwise, 경계/empty 및 좌표 누락·overflow 음성 비교 | 잘못된 geometry/증거는 Unknown 또는 명시적 오류 | [ ] UNRUN |
-| **C2D-05 / NN-G1·G2·M3** | `ResolvedInstantiation`, ordered `SemanticCheck`, dtype/shape/rank/promotion·빈 결과·alias/NAME/error/effect 및 execution legality; optional Window/Contract 분해 **필수 아님** | verifier 정상·음성, check 순서·source SSA 보존; raw J meaning vs admitted profile 구분 | 미증명 분해 금지·해당 target UnsupportedRoute | [ ] UNRUN |
-| **C2D-06 / NN-G5·G6** | 단일 portable **CPU scalar reference Conv2d** (f64 dense NCHW), 실제 위 좌표 루프 순서, bias/zero padding·groups, output allocation 및 runtime error 매핑 | 독립 deterministic index/scalar oracle와 value/shape/dtype/error 비교; 최소 no-bias 1×1 → bias 3×3 → stride/dilation/group 단계 확대 | 미지원 타입/형상은 조용한 cast/0-fill 없이 명시적 미지원; 효과 후 replay 금지 | [ ] UNRUN |
-| **C2D-07 / M3·M4** | `conv2d` Semantic/Logical call → CPU route verification → PhysicalPlan kernel/buffer/value lifetime; M4 v0 literal-only 확대는 **기존 M3/M4 게이트 이후** 최소 단일 연산 slice | 컴파일된 Conv2d 결과와 CPU scalar oracle E2E, source/error/alias/lease/ownership 검사; semantic/reference route만 통과해 native 완료 선언 금지 | physical 능력 부재 시 reference route 또는 명시적 Unsupported; 없는 runtime fallback을 약속하지 않음 | [ ] UNRUN |
-| **C2D-08 / NN-G6·NN-04** | independent reference, pinned J-C가 표현할 수 있는 core-J 참조식, RustJ reference/physical on-off differential; Linux/head+main CI, 문서 status 업데이트 | 아래 수용 matrix 전체 PASS·ignored/known gaps 분리·exact head/main SHA; scope-admitted NN-04만 통합 목록 체크 | 한 입력이라도 값/type/shape/first error 순서 불명확하면 [ ] 유지 | [ ] UNRUN |
-| **C2D-09 / NN-G7 (독립 후속)** | **conv2d 내부에서만** 타일링, 읽기 중복 감소, consumer access fusion, gemm/SPORES/egg 후보의 적법성·비용 실험 | 별도 Exact-J proof 또는 허가한 numeric mode + 실제 CPU 비용/성능 측정 | 성능 없음/semantic 불확정은 원본 direct CPU 유지; **NN-04 최초 실행 완료의 차단 조건 아님** | [ ] DEFERRED |
+| **C2DO-00 / 문서** | `conv2d` 단독의 원본→후보→증명→비용→선택 프로토콜을 한영 정본에 연결 | 범위·각 stage 소유자·긍정/부정 acceptance 고정 | CPU 구현·최적화 수행 완료라고 표시하지 않음 | [x] 문서만 |
+| **C2DO-01 / GF4·NN-04** | eligible `Structured(Conv2d)` 호출 식별; 원본 `FunctionEntity/ValueId`, operand, source/name version, Rank/cell/frame·effect 검증 | Eligible/Unknown/Barrier 보고; 원본 node와 provenance 불변 | ordinary NAME 재바인딩, dynamic unknown, 오류·효과 순서 불명확 | [ ] UNRUN |
+| **C2DO-02 / GF5a** | shape/axis/geometry 인스턴스화: NCHW `X`, OIHW `K`, groups, stride/dilation/padding, bias 및 output shape; free/bound 축 분리 | checked integer bounds, group divisibility, pad predicate, ordered reduction 및 semantic witness | zero/invalid kernel·stride·dilation·groups, overflow, 불완전 Rank·dtype/empty facts | [ ] UNRUN |
+| **C2DO-03 / GF5a·IO-09** | `ConvAccessWitness`의 X/K/bias 좌표 관계와 `ConvDemand`의 output tile→exact input set/halo conservative cover 계산 | 3×3 stride 1의 8×8 output→10×10 input, stride/dilation holes, group/channel subset, clipped boundary | 최소 read 집합을 bounding box로 과장하거나 padding 위치를 OOB read로 오인 | [ ] UNRUN |
+| **C2DO-04 / GF4·SPORES-R1/R2** | **Conv2d 내부에 한정된** 비파괴 대안식 발견: original, `WindowView→Contract`, 합법 `1×1→(grouped) MatMul`, `im2col/view→GEMM`, tile/halo 경로 | original↔candidate마다 input/output axis·parameter·source·guard·provenance·candidate scope 명시 | 무증거 Sum-Product rewrite, 다른 NN op 구현 강요, 모든 후보를 executable로 승격 | [ ] UNRUN |
+| **C2DO-05 / GF4·FW-05–09** | 후보별 Exact-J observational equivalence/guard 심사; semantic checks/first-error/NAME, empty/prototype/fill, dtype/overflow·floating accumulation order | `LegalExactJ`/`GuardedButUnproved`/`MathOnly`/`Rejected` 구분; e-union은 첫 부류만 | NaN/Inf/±0, FMA·재결합, int promotion, zero-frame, effect/alias/version 충돌, 조건부 guard 누락 | [ ] UNRUN |
+| **C2DO-06 / GF5·GF6·IO-10** | 법적으로 가능한 **Conv2d 후보끼리만** Work/Depth, read bytes, im2col materialization, peak memory, halo 재계산, group packing, fanout·target availability 비교 | 비용보다 먼저 resource feasibility; original vs candidate 측정/추정 분리 및 선택 근거 | 근거 없는 빠름 주장, 전체 e-graph 최적화·GPU 전제, register/temporary 초과 | [ ] UNRUN |
+| **C2DO-07 / M3·GF6** | 검증된 후보만 기존 Logical IR·Physical/외부 route **가용 여부**와 대조하여 extraction/selection 시도 | source checks/effects/SSA/provenance 보존·verifier 성공; 구체 route가 있을 때만 선택 | 지원 kernel/Physical path가 없으면 **최적화 미실행**으로 기록, 실제 없는 CPU 구현/런타임 deopt 가정 금지 | [ ] UNRUN |
+| **C2DO-08 / GF6·IO-10·NN-G6** | 입력/경계/음성 corpus, candidate on/off 동일 관찰, 적격 실행 경로가 있으면 CPU 벤치마크; 정확 PR-head/main 증거 기록 | 선택 후보의 값·dtype·shape·오류/효과 및 자원/실행시간 보고; 미가용 route는 UNRUN | 분석 proof만으로 E2E·성능 개선 완료라고 표시하거나 기본 J tolerance로 차이 은폐 | [ ] UNRUN |
 
-**구현 통합 규칙.** C2D-01→02→03→04→05→06→07→08은 **해당 기능에 관한 선행 의존 관계**이며 전체 저장소의 M2→M3→M4 correctness 우선순위를 역전하지 않는다. C2D-04의 access analysis는 C2D-06 CPU reference에서 **검증된 동일 index mapping을 재사용**할 수 있으나, 분석 증거 없이 codegen하여 데이터 읽기를 생략하지 않는다. C2D-05/07은 J-valid input과 **확장 연산의 선언된 지원 프로필**, 특정 target의 구현 불능을 구분해 실패 유형을 기록한다. NN-G4 임의 decomposition, NN-G7 고성능 realization은 **초기 단일 CPU 구현의 필수 조건이 아니다**. physical path는 current `src/physical_plan.rs`가 closed dense literal만 직접 실행한다는 사실을 명시한 채 후속으로 연다. 기존 NN-D1 `relu` vertical-slice 연구와 NN-D2의 `conv2d+avgpool2d` CNN **전체 구현을 이 Conv2d 한 연산의 선행 조건으로 만들지 않는다**.
+**후보 채택 원칙.** 첫 실험은 **인덱스/halo의 구조적 정확성**에 한정한다(C2DO-01–03). 다음 실험은 Conv2d **한 노드의 비파괴 대안**만 다룬다(C2DO-04–05). `1×1→GEMM`이나 `im2col→GEMM`은 수학적 형태가 성립하더라도 J의 실제 floating 순서/FMA가 다르면 `LegalExactJ`가 아니다. 따라서 원본 Conv를 다른 수치 알고리즘으로 강제 교체하지 않고 `MathOnly/GuardedButUnproved`를 그대로 보관할 수 있어야 한다. `tile/halo` 최적화는 실제 읽기 집합·padding·일부 출력만 계산할 때 발생할 수 있는 원본 오류와 argument/effect를 모두 보존한다는 증거가 필요하다. 먼저 Graph/DACC/RelAccessView의 **analysis-only 후보 수**와 **legally selected 후보 수**를 별도로 기록한다.
 
-**수용 테스트 표(모든 행 UNRUN; 각 행에 positive + negative 필요):**
+**최소 positive/negative 검증 원장 (모든 항목 UNRUN).**
 
-| Test ID / 증거 출처 | Purpose / 필수 Positive | 필수 Negative / Guarantee | Failure meaning | Status |
+| Test | Purpose / positive | 필수 negative·보장 | Failure meaning | Status |
 |---|---|---|---|---|
-| `c2d_frontend_builder_binding` / NN-G0 | 등록·shadow·derived verb Rank/입력 slot/생성·호출 시점 | unknown config, noun/verb POS 착오, NAME rebind, 사용자 정의 우선 | 틀린 J 문법·의미 객체 생성 | [ ] UNRUN |
-| `c2d_shape_dtype_padding` / NN-G1 | NCHW/OIHW, bias/no bias, 1×1·3×3, H≠W와 올바른 OH/OW·f64 | zero stride/dilation, 음수 padding, group=0/비가분, incompatible C, overflow 및 unsupported dtype | 범위 오류·shape·promotion 계약 위반 | [ ] UNRUN |
-| `c2d_indexed_cpu_oracle` / GF5a·NN-G5 | NCHW 직접 scalar convolution과 weight 비교; stride>1·dilation>1·groups/depthwise | OOB read 대신 zero pad, no kernel flip, kernel offset order·FP NaN/Inf/±0 | 잘못된 계산·누산 순서 | [ ] UNRUN |
-| `c2d_halo_exact_cover` / IO-09 | 3×3에서 8×8→10×10, 정확 합집합·bounding cover | edges, holes, output channel subset, empty request·empty output | 필요한 read 누락 또는 보수 cover를 exact로 오인 | [ ] UNRUN |
-| `c2d_graph_logical_verifier` / GF4·M3 | source ValueId/FunctionEntity·params/SSA/ordered checks 유지 | forged fact/shape·source version, rebind, unsound FP sum reassociation·first error 변경 | J 관찰 동등성 훼손 | [ ] UNRUN |
-| `c2d_cpu_physical_e2e` / M4 | call→Graph→Logical→CPU Physical route 결과가 independent oracle과 일치 | missing capability, sparse/boxed/CHW/unknown metadata, alias/error injection, fake fallback | 미검증 경로 실행·효과 재실행·buffer 변조 | [ ] UNRUN |
-| `c2d_pr_main_acceptance` / NN-G6·NN-04 | test suite + toolchain fmt/clippy + PR-head and merged-main CI 재현 | 실패·ignored·UNRUN을 PASS로 세지 않음; reference-J/core-J vs 확장 독립 oracle 분리 | 검증 없이 NN-04 완료 선언 | [ ] UNRUN |
+| `c2do_source_scope` | 실제 Conv2d source node/operand/version과 normalized call의 동등 출처 | shadow/rebind, 타 structured op, Rank/empty/unknown effect는 최적화 미입학 | 다른 J 호출에 잘못된 Conv rule 적용 | [ ] UNRUN |
+| `c2do_geometry_index` | 1×1/3×3, non-square, groups/depthwise, stride/dilation X/K/bias 좌표 | group=0, 비가분 channel, zero stride, overflow, pad OOB 거부 | shape·인덱스 witness 오류 | [ ] UNRUN |
+| `c2do_halo_exact_vs_cover` | 8×8→10×10, requested tile·channels의 역방향 read 집합 | dilation/stride holes, border clipping, empty output, bounding cover≠exact | I/O 수요 축소가 잘못됨 | [ ] UNRUN |
+| `c2do_candidates_preserve_source` | direct/window/1×1/GEMM 후보의 original source/guard/parameter 왕복 | 타 NN op 생성·원본 소거·unsupported route 강제 선택 차단 | 후보 discovery가 의미를 파괴 | [ ] UNRUN |
+| `c2do_rewrite_legality_negative` | 안정된 구조 identity만 exact 승격 | NaN/±0/Inf, floating reassociation, promotion, empty/prototype, first error, NAME/effect/version, unknown은 e-union 거부 | 허위 Exact-J 동등성 | [ ] UNRUN |
+| `c2do_cost_extract_fallback` | admissible target과 resource/cost 비교, 원본 대안 유지 | 과대 peak/packing/halo 비용, target capability 부재, 불확실한 cost와 timed-out search | 잘못된 선택 또는 존재하지 않는 fallback | [ ] UNRUN |
+| `c2do_execution_measurement_when_supported` | 지원되는 실제 route에서 on/off differential와 CPU bytes/time 기록 | 지원 경로 없으면 명시 UNRUN, 모든 변환이 성능 향상한다고 주장 금지 | 측정·실행 없는 최적화 완료 선언 | [ ] UNRUN |
 
-**최종 완료 판정.** C2D-01–08의 각 정량·음성 증거, **최소 하나의 실제 CPU 실행 E2E**와 target legality, J source를 통한 builder/derived call, 도입된 parameter/profile의 shape·dtype·오류/빈 결과·숫자 의미론이 통과했을 때만 **NN-04**의 단일 체크박스 상태를 변경한다. 지원하지 않는 CHW/자료형/모드가 있는 경우 이를 **공개된 지원 계약 및 no-route 검사**로 명시하고 Python/PyTorch 전체와 완전 호환이라고 광고하지 않는다. C2D-09, conv1d/conv3d, 다른 NN, adjoint, GPU, SPORES·egg까지 끝날 때를 기다리지 않는다. 각 작업마다 `source base → PR head → current-head CI → merge → main CI`의 실제 증거를 기록하고 불명확하면 [ ]로 유지한다.
+**수용 규칙.** 각 C2DO 단계는 **Test/Purpose/Guarantee/Failure meaning/Status**와 최소 하나의 긍정·부정 입력, rule/witness ID, exact PR/head·main 검증을 요구한다. Graph 분석이 가능하지만 실행 경로가 없는 경우 *representation PASS / legal rewrite UNRUN / performance UNRUN*처럼 분리한다. 목표는 **Conv2d의 검증된 접근 관계와 합법적인 후보 탐색·비용 선택 과정을 마련하는 것**이지 Conv2d를 계산하는 CPU 커널이나 NN 확장 전반을 구현하는 것이 아니다. 완료된 stage를 체크할 때에도 NN-04 전체 기능 체크박스는 건드리지 않는다. 기존 M2→M3→M4 correctness와 단일 CPU E2E 우선순위를 변경하지 않는다.
 
-**현재 상태 (2026-10-13):** **[x] C2D-00 문서 계획만 작성**. `src/nn_extensions.rs`의 opt-in NAME/POS recognition은 기존 구현이며, **C2D-01–08은 구현·전용 검증 미실시, C2D-09는 보류**이다. RustJ가 지금 `conv2d`를 실제 계산한다고 주장하지 않는다.
+**현재 상태:** **C2DO-00 문서화 완료만 [x]**, **C2DO-01–08 / 실제 최적화·실행·벤치마크는 [ ] UNRUN**. 원본 Conv2d Graph identity, 선택적 `egg`, LegalExactJ 및 Physical 선택의 연결은 아직 설계·검증 과제다.
 
 
 <a id="8-rustj-적용-위치--검증-방법--합격반증-조건"></a>
