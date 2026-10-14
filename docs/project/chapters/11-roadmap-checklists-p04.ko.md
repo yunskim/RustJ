@@ -1184,6 +1184,76 @@ gate:      proven J semantics? correct versions/guards?
 
 **재사용 가능한 원칙.** VirtualExpansion은 Conv에만 하드코딩하는 실행 pass가 아니라, graph의 고수준 primitive가 선택적으로 제공하는 **AlgebraSignature → symbolic index/parameter relation → proven candidate → verified extraction**이라는 공통 분석 인터페이스로 일반화할 수 있다. Linear·MatMul·tensor contraction, attention의 *적격하고 효과가 분리된 contraction 구역*에도 확장 후보가 있으나, softmax, RNG/dropout, stateful normalization까지 임의의 sum-product 법칙으로 재작성할 수 있다는 뜻은 아니다. 원본 high-level identity가 기본 경로이고 sidecar는 요청할 때만 생성된다.
 
+
+<a id="conv-virtual-expansion-related-work"></a>
+**7.10.9 Virtual Expansion 선행 연구 대조 — 구현 시의 유사성과 대수 분석 계약의 경계 (2026-10-14; 문헌 검토·설계 전용).**
+
+**요약.** **구조화된 고수준 표현을 유지하다가, 필요할 때 인덱스·관계·연산자 의미를 펼쳐 분석한다**는 발상은 새롭거나 RustJ만의 것이 아니다. 다음 연구들은 각각 가상 행렬을 실행 중 생성, 텐서 access pattern을 재작성, 고수준 그래프의 대체식을 탐색, 출력 수요에서 입력 범위를 유도, affine index를 모델링, DB view를 펼침, matrix-free 선형 변환을 구성하는 선례를 제공한다. 공통된 비유를 그대로 하나의 알고리즘/IR 또는 이미 증명된 RustJ 동등성으로 혼동해서는 안 된다. 아래 각 행의 **원문에서 확인한 성질**, **RustJ의 구체 적용**, **동일시할 수 없는 경계**를 분리했다.
+
+| 선행 연구 / 근거 | 원문으로 확인한 기술 및 가장 가까운 예제 | RustJ에서 재사용할 아이디어 | 다른 점과 금지할 추론 |
+|---|---|---|---|
+| **NVIDIA CUTLASS implicit GEMM / implicit im2col** — [공식 알고리즘 문서](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md), [Conv 매핑 코드](https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/convolution.h) | 일반 im2col의 **전체 복제 행렬**을 만들지 않고 GPU가 global memory에서 읽을 때 index/predicate로 GEMM에 필요한 **타일**을 구성한다. Forward/dgrad/wgrad 매핑도 제공한다. **E2**의 가장 직접적인 실행 대응 | Graph의 virtual patch relation에서 물리적 on-the-fly gather/implicit-GEMM lowering 후보 생성 | CUTLASS는 **커널 실행/물리적 타일 구성**이며 RustJ VirtualExpansion은 **컴파일러 분석용 sidecar**다. full im2col이 없다는 말은 shared-memory/register staging도 없다는 뜻이 아니다. CUTLASS 자체가 SPORES e-class 증명/원본 Graph 보존 정책을 제공한다는 주장 금지 |
+| **Glenside** — Smith 외, *Pure Tensor Program Rewriting via Access Patterns* (MAPS 2021), [논문·저자 원문](https://ztatlock.net/pubs/2021-maps-glenside/) | 순수 tensor IR의 **access pattern**을 중심으로 layout-aware term rewrite를 수행하며 **im2col 변환의 자동 탐색**을 시연했다. **E1/E2**의 대수 표현 측면에서 가장 가까운 직접 선행 연구 | primitive별 optional AlgebraSignature를 access-pattern/index rewrite에 연결하고, EqGraph 후보를 비파괴적으로 탐색하는 연구 출발점 | Glenside의 자체 pure IR와 RustJ의 **full-J source/FunctionEntity + 외부 StateResource + optional sidecar**가 동일 구조는 아니다. RustJ의 모든 숫자·효과 관측 동등성은 별도 과제 |
+| **TASO** — Jia 외, *TASO: Optimizing Deep Learning Computation with Automated Generation of Graph Substitutions* (SOSP 2019), [논문](https://web.stanford.edu/class/cs245/readings/taso.pdf), [프로젝트](https://catalyst.cs.cmu.edu/projects/taso.html) | 텐서 연산자의 명세/대수적 성질에서 graph substitution **후보를 생성하고 검사**하며 비용 기반 그래프 탐색을 수행한다. **E3/E4/E8**의 규칙 생성·승인에 선례 | 고수준 operator property를 단순한 kernel 정의와 분리하고, rewrite마다 적법성 witness/반례를 수집 | TASO는 이미 operator properties 및 검증을 사용했다. 따라서 **대수 signature를 primitive 계약으로 둔다는 발상 자체가 최초**라고 주장하지 않는다. TASO의 성질 검증을 곧바로 J Rank/NAME/오류/IEEE 동등성 증명이라고 간주하지 않는다 |
+| **TenSat** — Yang 외, *Equality Saturation for Tensor Graph Superoptimization* (MLSys 2021), [학회 원문](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html) | 순차적 치환의 phase-ordering 한계를 넘어 **e-graph equality saturation + extraction**으로 텐서 그래프를 탐색한다. **E3/E8**에 대응 | Rule whitelist, typed e-class/shape facts, budget, target-cost extraction 및 original candidate 보존 | TenSat의 tensor equality를 무조건 J **observational equality**로 옮길 수 없다. 미지원 residual expression은 **높은 비용**이 아니라 **추출 불가**이며, 근사 수치 후보는 별도 정책이 필요 |
+| **Halide bounds inference** — [Halide Func::infer_input_bounds](https://halide-lang.org/docs/api/generated/Func.html), [BoundsInference pass](https://halide-lang.org/docs/_bounds_inference_8h.html) | 주어진 출력 크기에서 필요한 입력 이미지/함수의 범위를 **호출 인덱스 관계로부터 역추론**한다. **E5의 8×8 output → 10×10 input halo**와 직접 대응 | output-demand→input-region pullback, halo, clipping, tile-dependent read set과 conservative cover 계산 | Halide의 bounds analysis 자체는 SPORES sum-product/e-class 증명이 아니다. 계산된 cover가 실제 최소 read 집합인 것도 아니며 J의 빈 셀·필요 검사·first error 제거 허가는 아니다 |
+| **폴리헤드럴 컴파일(isl / Pluto / Tiramisu)** — [isl 공식 매뉴얼](https://libisl.sourceforge.io/user.html), [Tiramisu CGO 2019](https://arxiv.org/abs/1804.10694), [Tiramisu 구현](https://github.com/Tiramisu-Compiler/tiramisu) | affine 정수 제약의 **iteration domain, access relation, dependence 및 schedule**를 모델링한다. isl은 affine set/relation 및 schedule tree를 다루며 Tiramisu는 알고리즘/스케줄/배치의 분리를 제공한다. **E2/E5** 인덱스 관계에 선례 | h*stride + r*dilation - pad와 같은 (관련 값이 고정되거나 symbolic parameter인) affine access를 별도 분석 대상으로 표현; 복잡한 bounds/tiling 조건을 정확하게 계산 | 데이터에 따라 바뀌는 비-affine index, opaque predicate, effect가 있으면 일반 polyhedral 영역 밖일 수 있다. integer index legality는 J floating algebra legality와 다르며, schedule/physical layout을 Graph IR에 조기 주입하지 않는다 |
+| **DB view unfolding** — [PostgreSQL 공식 Views and the Rule System](https://www.postgresql.org/docs/current/rules-views.html) | query rewriter가 view의 저장된 정의를 **query tree의 subquery로 확장**하고 원 질의의 관계와 함께 planner가 탐색하게 한다. **E8의 의미 정의 on-demand 공개**에 구조적 유사성 | opaque/high-level 연산에서 최적화용 관계 정의를 요청 시 내보내고 provenance와 역방향 매핑을 유지 | PostgreSQL은 실제로 query tree를 **재작성**한다. RustJ는 원본 StructuredConv를 authoritative로 남기는 **비파괴 sidecar**를 제안한다. DB view unfolding이 원본 Graph 자동 복귀·증명된 kernel extraction을 보장한다고 쓰지 않는다 |
+| **Matrix-free 선형 연산자: SciPy LinearOperator / PyLops** — [SciPy 공식 API](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html), [PyLops 공식 API](https://pylops.readthedocs.io/en/stable/api/generated/pylops.LinearOperator.html) | 거대한 행렬을 만들지 않고 **matvec/apply**와 **rmatvec/adjoint**를 노출한다. 선형 연산자의 합성도 지연 정의할 수 있다. **E6의 BindRight/BindLeft/Adj**와 수학적으로 가깝다 | B(X,W)에서 W snapshot을 고정한 input-linear operator와 X snapshot을 고정한 weight-linear operator의 명시적 adjoint 계약 | 물리 행렬이 없다는 사실만으로 SPORES식 sum-product rewriting이나 J mutable weight/resource semantics가 구현되는 것은 아니다. complex에서 transpose와 Hermitian adjoint/conjugation을 구분 |
+| **JAX linear_transpose / primitive transposition** — [공식 linear_transpose](https://docs.jax.dev/en/latest/_autosummary/jax.linear_transpose.html), [JAX primitive transposition 설명](https://docs.jax.dev/en/latest/601/jax-primitives.html), [JVP/VJP 설명](https://docs.jax.dev/en/latest/301/cookbook.html) | 선형이라고 **약속된 함수**를 transpose하고, JVP에서 등장하는 primitive에 대한 transpose rule을 조합해 역방향 선형 연산을 만든다. **E6의 선형화와 전치**에 직접 대응 | linearity/in-out ShapeSpec을 검사하는 Adj operator signature, registry 기반 transpose/lowering proof, transpose 복합 규칙 | JAX는 이 규칙을 **autodiff 경로**에 사용한다. RustJ는 사용자가 **명시한 adjoint/VJP만** 연결하고 원 함수의 자동 미분 생성을 강제하지 않는다. dtype/complex conjugation과 stride에 의한 원본 입력 shape 정보를 추가 계약으로 보존 |
+
+**정확한 비교 관점 — 세 가지 '가상'을 구분한다.**
+
+~~~text
+1. Algebraic / compiler analysis: RustJ VirtualExpansion, Glenside access rewrites,
+   Tensat candidate search, DB-like view unfolding analogy
+   -> index and algebra relation is represented; not necessarily executed.
+
+2. Demand / iteration-domain analysis: Halide bounds, isl/Pluto/Tiramisu
+   -> required index set, halo, affine schedule/dependence are analyzed.
+
+3. Runtime realization: CUTLASS implicit GEMM, physical matrix-free matvec
+   -> addresses/tiles are generated when operations actually run.
+
+RustJ combines (1) with (2) as an optional sidecar, and only after proof
+and extraction may choose an implementation in (3). None is the other.
+~~~
+
+**공통 algebra signature의 권장 최소 인터페이스 (연구용, 아직 Rust 타입이 아님).** TASO/Glenside의 원칙을 참고하되, 기존 RustJ Graph IR/StateResource 모델과 충돌하지 않도록 **필수 기능**과 **선택적 분석용 정보**를 나눈다.
+
+~~~text
+AlgebraSignature {
+  semantic_operation: FunctionEntity / StructuredOp ID
+  operand_roles: runtime input, optional parameter references, scalar config
+  type_and_axes: dtype, ShapeSpec, input/output rank/cell/frame, axis roles
+  symbolic_access: output-to-input/index relation, optional padding/fill predicates
+  fold_semantics: bound axes, fold identity/order, numeric policy
+  operator_traits: linearity or bilinearity in SPECIFIED operand position;
+                   optional explicit-adjoint registry key
+  effects_and_provenance: required checks, error precedence, source occurrence,
+                          StateResource read identity and snapshot/version guards
+  available_views: optional relational/sum-product/index-only expansion
+  admission: relation witness != EqGraph union proof != target-lowering proof
+  fallback: original StructuredOp remains authoritative
+}
+~~~
+
+여기서 **입력에 대한 선형성**과 **weight에 대한 선형성**은 bias를 분리한 bilinear core에 한정한다. ReLU/softmax/stateful normalization을 같은 trait로 표시하지 않는다. 정수·complex·J empty/prototype과 effective rank가 미확정이면 완전한 signature가 아니라 Unknown/Opaque 또는 동적 guard를 반환한다. 이 인터페이스는 RustJ의 새로운 강제 IR 노드가 아니라 **primitive가 제공할 수 있는 선택적 계약/분석 exporter**로 설계한다.
+
+**관련 연구에서 얻는 구현 선택과 실험 연결 (모두 아직 미구현/UNRUN).**
+
+| 선행 연구에서 유도되는 검증 질문 | 기존 §7.10.7 소유자/연결 예제 | 상태 |
+|---|---|---|
+| CUTLASS 대비: 가상 patch가 물리적으로 할당되지는 않았는가? 실제 Direct/implicit GEMM/packed GEMM bytes·latency를 구분했는가? | conv_virtual_budget_cost, E2 | [ ] UNRUN |
+| Glenside/TASO/TenSat 대비: typed index/operator signature로 타당한 rewrite 후보를 만들며, unsupported numeric/error/state 가정은 union 없이 기각하는가? | conv_virtual_export_roundtrip / conv_virtual_legality_extract, E3/E4/E8 | [ ] UNRUN |
+| Halide/isl 대비: 정확한 수요 집합·보수적 halo·empty/bounds/stride holes를 구분하는가? | conv_region_halo / conv_virtual_export_roundtrip, E5 | [ ] UNRUN |
+| DB view unfolding 대비: sidecar를 버려도 원본 StructuredConv/NAME provenance가 그대로 실행 가능한가? | conv_candidate_fallback / conv_virtual_export_roundtrip, E8 | [ ] UNRUN |
+| SciPy/PyLops/JAX 대비: input/weight 별도의 올바른 explicit adjoint, 원본 ShapeSpec·conjugation·snapshot, autograd 비강제 규약을 만족하는가? | conv_virtual_adjoint / conv_parameter_identity, E6/E7 | [ ] UNRUN |
+
+**연구 기여 주장 범위.** 선행 연구가 이미 **연산자의 수학적 성질을 계약으로 주는 방법(TASO)**, **access pattern을 rewrite IR의 핵심으로 두는 방법(Glenside)**, **e-graph saturation/extraction(TenSat)**, **실행 시 가상 im2col을 만드는 방법(CUTLASS)**을 보여 주었다. 따라서 'Virtual Expansion 최초 발명'이나 '대수 signature를 1급으로 다루는 최초 컴파일러'라는 표현은 사용하지 않는다. RustJ의 **잠정적인 설계 조합**은 (a) J의 원본 modifier/derived verb와 StructuredOp identity 보존, (b) 사용자 가중치 값 비노출과 별도 명시적 StateResource/version, (c) 필요할 때만 sum-product/access/operator-view 제공, (d) Exact-J numeric·Rank·NAME·error/effect 관문 및 실현 가능한 후보만 추출, (e) explicit adjoint와 원본 Graph fallback을 **같은 계약**으로 연결하는 데 있다. 이것이 학술적으로 기존 연구와 구별되는 *새로운 기여인지*는 더 완전한 선행 문헌 조사와 구현/실측/반례 검증 없이는 단정할 수 없다.
+
+**문헌 검증 상태:** 위 문헌의 논문 초록/원문, 작성자·공식 기술 문서/API로 각 대응 관계를 확인했다. 단, 모든 구현 세부에 대한 source-level 감사나 문헌의 기계 증명 재현을 수행한 것은 아니다. RustJ의 sidecar, rewrite/proof, target 실현/성능 결과는 이 절 추가로 구현되거나 검증된 것이 아니다. **설계 문서만 수정, 기존 M2→M3→M4 관문과 NN/GF/FW/IO의 [ ] UNRUN 상태 유지.**
+
 **관련 출처:** [SPORES 원 논문](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [공통 접근 대수 R0](../../research/common-array-access-composition.ko.md), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
 
