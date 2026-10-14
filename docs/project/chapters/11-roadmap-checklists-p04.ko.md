@@ -894,6 +894,114 @@ stride/dilation이 1보다 크면 cover에 실제로 읽지 않는 구멍이 생
 
 **현황:** 본 절 추가는 **문서 계약 작성만 완료**. Conv Access sidecar, EqGraph/SPORES exporter, 확장된 Graph rewrite, Conv CPU/GPU backend·fusion·성능 실증은 **미구현·미검증/UNRUN**이다. §7.9 R0→R1→R2와 기존 M2/M3/M4 우선순위는 변하지 않는다.
 
+
+<a id="conv-virtual-expansion"></a>
+**7.10.7 가상 전개(Virtual Expansion) — JAXA의 매개변수화 adverb를 유지하고 가중치 값은 노출하지 않음 (2026-10-14; 설계 전용).**
+
+**결정.** rank만 받는 adverb라는 대안은 폐기한다. 역사적 JAXA의 **shape/configuration noun → conv adverb → derived verb** 계약을 출발점으로 둔다. 입력·출력 채널 수, kernel 크기, stride, padding, bias 선택은 사용자가 *연산 정의의 매개변수*로 제공하지만 **학습 가능한 실제 weight 값**을 별도의 사용자 J noun 또는 conv 호출 인자로 제공하지 않는다. Graph IR에는 원본 Structured Conv가 남는다. SPORES 분석이 필요한 때에만 비실행·비파괴 sidecar에서 숨겨진 weight를 기호적 ParameterRef로 나타낸다. 이 과정은 J 소스를 다시 작성하거나 Conv를 J primitive 전체로 분해하는 것이 아니며, 새 필수 IR 단계를 추가하지 않는다.
+
+**JAXA 원문의 정확한 인자 계약 (역사적 원형이지 현행 RustJ 실행 ABI가 아님).** 근거는 JAXA-complier의 Appendix B, docs/JAXA/primitives.py::_infer_conv, jaxa_enqueue.py::CUSTOM_PRIMITIVES다.
+
+| 원형 builder | 왼쪽 noun: 정확한 인자 순서 | 입력 cell / 의미 |
+|---|---|---|
+| conv 2D | C_in C_out kH kW stride pad b_flag (**7개**) | [C_in,H,W], cell rank 3 |
+| conv 3D | C_in C_out kD kH kW stride pad b_flag (**8개**) | [C_in,D,H,W], cell rank 4 |
+| depthwise_conv | C 1 kH kW stride pad b_flag (**7개**) | [C,H,W], 채널별 filter |
+| linear | N_in N_out b_flag (**3개**) | [N_in], weight shape [N_out,N_in] |
+
+~~~j
+NB. 과거 JAXA 문서 표기. 현행 RustJ에서 실행된다는 뜻이 아님.
+C1 =: (1 6 5 5 1 0 1 conv)"3j32
+C2 =: (6 16 5 5 1 0 1 conv)"3j32
+DW =: (32 1 3 3 1 0 0 depthwise_conv)"3j32
+F1 =: (400 120 1 linear)"1j32
+~~~
+
+C_in/C_out은 채널 수, kH/kW/kD는 kernel extents, stride/pad는 JAXA 원형에서 **공간축에 공통인 단일 scalar**이며 b_flag는 기본값 없이 명시하는 0/1이다. 유효한 2D geometry의 출력 H는 floor((H-kH+2*pad)/stride)+1이다. JAXA의 3/4 rank는 배치축을 제외한 cell에 적용한다. 과거의 RjP 표기(예: 3j32 = cell rank 3과 fp32 설정)는 JAXA 전용 연구 표기다. **일반 J의 rank conjunction(")에 precision을 새로 인코딩하지 않는다.** RustJ에서는 rank/cell·dtype/precision·numeric policy를 별도 의미 계약으로 두고, 원형 표기를 그대로 채택할지 여부는 미결정이다.
+
+**JAXA와 RustJ 확장 범위를 구별한다.** 확인된 JAXA 일반 conv 원형은 단일 stride, 단일 pad, bias flag이며 dilation/groups 및 축별 비대칭 padding/stride 인자를 노출하는 계약은 없다. RustJ NN-04/08의 conv2d/conv1d/conv3d에는 dilation/groups를 포함하는 *확장 후보 스키마*가 별도로 존재한다. JAXA 7/8-field 입력은 호환/참조 계약으로 기록하고, RustJ의 확장 인자는 독립된 버전·형상·축·오류 의미론 및 oracle 검증을 거쳐야 한다. 누락된 configuration을 임의 기본값으로 채우지 않는다. RustJ의 공개 확장 NAME은 현재 conv2d이고, JAXA의 conv 명칭을 새 예약어나 기존 alias로 간주하지 않는다.
+
+~~~j
+NB. RustJ의 논의용 surface 후보; 실행 지원 확정 아님.
+C1 =: (1 6 5 5 1 0 1 conv2d)"3
+C2 =: (6 16 5 5 1 0 1 conv2d)"3
+model =: C2 @: relu @: C1
+~~~
+
+여기서 7개 수는 **weight 값이 아니라 weight shape와 convolution 설정**이다. C1·C2의 layer instance는 서로 다른 weight를 가진다. J 이름은 일반 NAME으로 parser에서 해결하고 재정의/locale/late lookup을 보존한다. 실제 config, rank, input channel shape가 불일치하면 오류나 UnsupportedRoute를 명시한다. 사용자에게 직접 weight/gradient/optimizer noun을 관리하도록 강요하지 않는다.
+
+**의미론과 상태의 소유권 (제안 분석 타입; 미구현).**
+
+~~~text
+J semantic / canonical Graph IR:
+  ConvBuilder(config_noun, adverb_name_ref) -> DerivedFunction
+  Apply(DerivedFunction, X) -> StructuredConv(call_id, X)
+  retain FunctionEntity, NAME/locale/binding version, source span,
+         Rank/CellApply, error/effect semantics
+
+Semantic resources (not hidden mutable fields in a verb):
+  LayerInstanceId -> StateResourceId(weight)
+                   -> optional StateResourceId(bias)
+  StateRead(weight, version=v) -> captured use/snapshot token
+  StateWrite/Accumulate -> separate ordered effects
+  ValueId != StateResourceId != BufferId
+
+Analysis-only:
+  virtual_expand(StructuredConv, resolved geometry, state versions)
+    -> ConvAlgebraView {free_axes, bound_axes, index maps,
+        IndexJoin(X, ParameterRef(instance, weight, version)),
+        Multiply, OrderedAggregate, optional BiasRef,
+        original_call_id, source/shape/rank/numeric/effect/error guards,
+        proof obligations, expansion_budget}
+    | Opaque(unknown configuration/resource/semantics)
+~~~
+
+LayerInstanceId는 사용자 NAME의 철자나 동일한 shape 자체가 아니다. DerivedFunction instance identity, 원본 binding/version 및 resource owner의 연결을 증명한다. C1과 C2의 shape가 같아도 weight는 합치지 않는다. 명시적으로 공유한 경우만 같은 StateResource를 참조하며, J NAME shadow/rebind, dynamic lookup, fixation(f.) 및 alias를 존중한다. JAXA의 과거 conv_forward/conv_backward 접미사 기반 weight 공유 관례는 참고 이력이며 RustJ에서 동일성을 증명하는 규칙으로 도입하지 않는다. 훈련 단계의 W@v와 W@(v+1)는 다른 관측 시점이다. 미확정 mutable read는 순수 값으로 추정하지 않으며, snapshot/ordered effect 없이 공통 부분식 소거나 e-class 병합을 허용하지 않는다.
+
+**가상 전개의 절차와 각 경계.**
+
+1. **요청 시 해석:** Conv의 config, output/input/weight ShapeSpec, Rank/Cell/frame, dtype, geometry, source FunctionEntity 및 state-read/version을 해석한다. 지원 범위 밖이거나 미상인 경우 Opaque로 유지한다. 이때 실제 weight 값을 읽거나 초기화하지 않는다.
+2. **인덱스 전개:** 기존 §7.10.1–2의 NCHW/group/stride/pad/dilation 공식과 ConvAccessWitness로 free/bound axes, 유효 index/padding predicate, ordered fold를 산출한다. JAXA 원형은 계약이 확인될 때 groups=1, dilation=1, stride=(s,s), pad=(p,p)로 정규화할 수 있다.
+3. **기호 parameter:** W는 ParameterRef(layer_instance, role=weight, resource_version, logical_shape)로, 선택적 bias는 별도 BiasRef로 나타낸다. 여기서 W는 J noun이나 physical buffer가 아니다. bias를 포함한 전체 affine Conv를 쌍선형이라고 부르지 않고, bilinear core와 bias Add를 분리한다.
+4. **SPORES 후보:** IndexJoin(X,W) -> Multiply -> OrderedAggregate(+ optional Bias)로 export한다. 원본 축 이름·padding/fill·순서·provenance가 남는다. 단순 index relation의 기술 가능성과 실제 J 관측 동등성은 다르다. float reassociation, FMA, NaN/±0, integer overflow/promotion, empty/prototype, J error order, alias/state가 걸리면 Exact-J witness/guard 없이 e-class union을 금지한다. J 비교 허용오차 2^-44를 근사 rewrite 예산으로 자동 쓰지 않는다.
+5. **복귀와 추출:** 후보는 original_call_id와 source/NAME/resource version 및 검증 의무를 함께 Graph rewrite candidate로 돌아온다. Logical IR에서 check/effect/error 및 shape·Rank를 검증하고, 실제 target lowering이 존재할 때만 실행 가능한 후보로 추출한다. 미지원 lowering은 비용만 높이는 방식이 아니라 추출 대상에서 제외한다.
+6. **원본 보존/비용:** 증명 실패·불명·시간 초과·확장 비용 과다·타깃 미지원이면 원본 StructuredConv가 유지된다. sidecar 자체는 im2col, window, W buffer를 물리적으로 할당하지 않는다. Physical Planner가 나중에 buffer/parameter load, Direct Conv, GEMM, fused kernel과 스케줄을 결정한다.
+
+~~~text
+J source: (config conv2d)"rank -> derived function C1
+             |
+         Graph: StructuredConv(C1, X)   <-- authoritative
+             |                 |
+             |                 +--> semantic StateResource(weight@v, bias@v)
+             v
+       optional VirtualExpansion sidecar (non-executing)
+         X + symbolic ParameterRef(C1, weight@v)
+             -> index relation / ordered sum-product
+             -> SPORES search (bounded)
+             -> proof/guard + candidate extraction
+             -> Logical IR verification
+             -> selected physical route (or original Conv)
+~~~
+
+**명시적 adjoint.** 순수 bilinear core B_config(X,W)에 대해 내부 분석 연산자 BindRight(B_config, W@v) 및 BindLeft(B_config, X@snapshot)를 기호적으로 정의한다. 첫째의 Adj는 input adjoint(dX), 둘째의 Adj는 weight adjoint(dW)이며 bias adjoint는 별도 합산이다. 이는 사용자에게 bindL/bindR를 요구하거나 자동미분을 켜는 것이 아니다. 명시적으로 등록/호출한 adjoint/VJP만 Graph에 도출한다. dX에는 원본 input shape가 필요하다(stride>1에서 dY만으로 입력 크기가 유일하지 않을 수 있음). dW에도 원본 weight shape·X·dY·group/stride/pad/dilation이 필요하다. activation lifetime, gradient StateResource 누산, optimizer write의 효과와 버전을 보존한다. complex dtype은 inner product의 conjugation 계약을 별도로 정해야 한다.
+
+**증분 처리·폭발 제어.** Conv algebra signature와 geometry witness는 식 자체를 복제하지 않는 bounded analysis sidecar로 캐시할 수 있다. key에는 relevant config/geometry, FunctionEntity/NAME binding, LayerInstanceId, state snapshot/version, dtype/numeric policy를 포함한다. 무효화·eviction을 제공하며 버전이 바뀐 weight를 같은 순수 parameter e-class로 간주하지 않는다. operator-level rewriting, index relation 탐색, relational saturation은 영역·node/time budget 및 rule whitelist로 제한한다. 정확한 합법성·numeric 검증 없이 operator identity만으로 Kernel fusion을 승인하지 않는다.
+
+**수용 조건 (기존 NN-04/08, NN-G2, NN-AG, GF4/5a/6, FW/IO 체크리스트에 귀속; 새 병렬 로드맵 아님).**
+
+| 시험 / 기존 담당 | 긍정·부정 사례 및 통과 의무 | 상태 |
+|---|---|---|
+| conv_jaxa_builder_schema / NN-04·08 | JAXA 2D 7개/3D 8개·depthwise/linear 인자, b_flag·rank/cell, 출력 shape. 누락·과잉·채널/geometry 오류와 unsupported dilation/groups 구분 | [ ] UNRUN |
+| conv_parameter_identity / NN-G2·GF4 | 사용자/Graph에 weight 값 noun 요구 없음, C1/C2 별도 StateResource, 명시 공유/alias와 NAME rebind, update 전후 version 구분 | [ ] UNRUN |
+| conv_virtual_export_roundtrip / GF4·GF5a | 원본 StructuredConv 보존; ParameterRef는 symbolic, index/padding/ordered fold/원본 source 보존, Unknown은 Opaque | [ ] UNRUN |
+| conv_virtual_adjoint / NN-AG·GF5a | forward/dX/dW·bias shape, stride>1 크기 반례, activation snapshot과 gradient 누산/weight update 효과, 자동미분 부재 | [ ] UNRUN |
+| conv_virtual_legality_extract / GF4·FW·GF6 | FP 재결합/NaN/±0/overflow, empty J 오류, state version mismerge 차단, 증명·lowering 부재시 원본 유지 | [ ] UNRUN |
+| conv_virtual_budget_cost / GF6·IO | expansion/e-graph bounded, cache invalidation, legal direct/GEMM/fused 경로의 ResourceEstimate와 CostEstimate/CPU 시간 구분 | [ ] UNRUN |
+
+**상태.** JAXA의 역사적 operand 원문과 구현 대조는 완료했지만, 이 절은 **설계 문서만 추가**한다. 현재 NN-04 parameter schema의 명시적 weight/bias 계약과 비노출 surface 간의 interface 정합, rank/dtype 구체 표기, Conv sidecar, SPORES exporter, e-graph union, adjoint lowering, 테스트/CI는 **미구현·UNRUN**이다. J 의미론을 변경하거나 기본 실행 경로를 바꾸지 않는다. M2→M3→M4와 §7.9 우선순위도 유지한다.
+
+**출처:** [JAXA Appendix B](https://github.com/yunskim/JAXA-complier/blob/main/paper_draft_appendix_b.md), [JAXA shape inference](https://github.com/yunskim/JAXA-complier/blob/main/docs/JAXA/primitives.py), [JAXA custom adverb registry](https://github.com/yunskim/JAXA-complier/blob/main/jaxa_enqueue.py), [SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [RustJ StateResource](./15-advanced-contracts-p08.ko.md).
+
 **관련 출처:** [SPORES 원 논문](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [공통 접근 대수 R0](../../research/common-array-access-composition.ko.md), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
 
