@@ -2955,6 +2955,116 @@ Each test records **Test/Purpose/Guarantee/Failure meaning/Status**, positive/ne
 
 **Status:** **Design/documentation only**. Conv access sidecar, SPORES exporter, egg/e-class, executable decompositions, Conv fusion, CPU/GPU speedups and all tests above remain **unimplemented/unverified/UNRUN**. No change to the existing R0→R1→R2 or M2→M3→M4 precedence.
 
+
+<a id="conv-virtual-expansion"></a>
+**7.10.7 Virtual Expansion: keep JAXA's parameterized adverb while leaving weight values unexposed (2026-10-14; design only).**
+
+**Decision.** Reject the earlier proposal for a rank-only convolution adverb. Retain the **configuration/shape noun → convolution adverb → derived verb** pattern investigated in historical JAXA. Input/output channel counts, kernel dimensions, stride, padding and whether a bias exists are *operator configuration*, not exposed weight array values. The user should not have to pass a mutable weight noun into a Conv call. The authoritative J Graph IR still contains the original Structured Conv. An optional, non-executing and non-destructive **VirtualExpansion sidecar** exposes a symbolic weight ParameterRef and a sum-product/index description only when SPORES-style analysis asks for it. Do not expand all Conv calls into J primitives, rewrite J source, or add another mandatory IR stage.
+
+**Verified historical JAXA builder operand order**, from JAXA-complier Appendix B, docs/JAXA/primitives.py::_infer_conv and jaxa_enqueue.py::CUSTOM_PRIMITIVES. These are historical prototype contracts, **not current runnable RustJ ABI**:
+
+| Historical builder | Configuration/shape noun to the left of the adverb | Expected cell |
+|---|---|---|
+| conv 2D | C_in C_out kH kW stride pad b_flag (**7** fields) | [C_in,H,W], rank 3 |
+| conv 3D | C_in C_out kD kH kW stride pad b_flag (**8** fields) | [C_in,D,H,W], rank 4 |
+| depthwise_conv | C 1 kH kW stride pad b_flag (**7** fields) | [C,H,W], per-channel kernels |
+| linear | N_in N_out b_flag (**3** fields) | [N_in], weight [N_out,N_in] |
+
+~~~j
+NB. Historical JAXA examples — not verified as runnable RustJ code.
+C1 =: (1 6 5 5 1 0 1 conv)"3j32
+C2 =: (6 16 5 5 1 0 1 conv)"3j32
+DW =: (32 1 3 3 1 0 0 depthwise_conv)"3j32
+F1 =: (400 120 1 linear)"1j32
+~~~
+
+C_in/C_out are channel counts; kH/kW/kD are kernel extents; JAXA's stride/pad are **single scalars shared across spatial axes**. b_flag is an explicitly required 0/1 without a default. In valid 2D geometry, output height is floor((H-kH+2*pad)/stride)+1. Rank 3 or 4 describes a *cell excluding the batch frame*. The historical RjP extension (e.g. 3j32 for rank 3, proposed fp32) is not a new interpretation of J's ordinary rank conjunction ("). **RustJ preserves J Rank/cell and dtype/numeric policy as distinct semantic contracts**; adoption of the historical surface syntax has not been decided.
+
+**Keep old and new capability contracts separate.** The verified historical JAXA general Conv builder did not expose general dilation/groups or per-axis asymmetric stride/padding operands. RustJ's NN-04/08 candidate set separately describes conv2d/conv1d/conv3d with broader dilation/groups semantics. Preserve the 7/8-field JAXA form as a documented reference/compatibility schema; any RustJ extension must independently version and verify its axis, geometry, shape, error and numerical meaning. Never synthesize missing fields from undocumented defaults. RustJ's current public extension spelling is conv2d as an ordinary J NAME, not the legacy conv keyword.
+
+~~~j
+NB. Illustrative RustJ surface candidate — executable support not asserted.
+C1 =: (1 6 5 5 1 0 1 conv2d)"3
+C2 =: (6 16 5 5 1 0 1 conv2d)"3
+model =: C2 @: relu @: C1
+~~~
+
+The seven numbers configure **weight shape and geometry, not weight array values**. C1 and C2 have distinct parameter resources by default; ordinary J name rebinding, locale lookup, modifier/derived-verb identity, and effective Rank/CellApply must remain intact. Invalid channel/shape/geometry cannot be concealed by automatic weight selection. Neither J source nor the ordinary applied Graph needs a literal W noun, but the compiler/runtime must own explicit semantic weight, bias, gradient and optimizer state.
+
+**Proposed ownership and sidecar contract (not implemented Rust types).**
+
+~~~text
+J semantics / authoritative Graph:
+  ConvBuilder(config_noun, adverb_name_ref) -> DerivedFunction
+  Apply(DerivedFunction, X) -> StructuredConv(call_id, X)
+  keep FunctionEntity, NAME/locale/binding version, source span,
+       Rank/CellApply and J-observable errors/effects
+
+Semantic state, external to any mutable hidden verb field:
+  LayerInstanceId -> StateResourceId(weight)
+                   -> optional StateResourceId(bias)
+  StateRead(weight, version=v) -> captured snapshot/use token
+  StateWrite/Accumulate -> explicit ordered effects
+  ValueId != StateResourceId != BufferId
+
+Optional non-executing analysis:
+  virtual_expand(StructuredConv, resolved geometry, state versions)
+    -> ConvAlgebraView {
+        free_axes, bound_axes, index/padding predicates,
+        IndexJoin(X, ParameterRef(instance,weight,version)),
+        Multiply, OrderedAggregate, optional BiasRef,
+        original_call_id, source/Rank/shape/numeric/effect/error guards,
+        proof obligations, expansion_budget
+       }
+    | Opaque(unknown geometry/resource/semantics)
+~~~
+
+LayerInstanceId is not merely a source variable's spelling or a tensor shape. Bind it to a derived-function instance and state owner using witnessed source/name versions. Same-shaped C1/C2 weights must not be merged. Proven intentional weight sharing uses a common StateResource identity; J shadow/rebind, dynamic lookup, fixation and alias must not be guessed away. Historical JAXA paired conv_forward/conv_backward by a naming convention; that convention is **not** a RustJ proof of shared resources. W@v and W@(v+1) are distinct observed weight snapshots. An unresolved mutable read cannot be treated as a pure expression or floated across its effect barrier.
+
+**Virtual expansion procedure, respecting existing §7.10.1–5:**
+
+1. **Resolve only on demand:** use original FunctionEntity, builder configuration, resolved input/output/weight ShapeSpec, Rank/frame/cell, dtype/numeric policy, source provenance, read resource token and version. If any required geometry/state/semantic fact is unavailable, yield Opaque, without reading or initializing actual weight values.
+2. **Build index relations:** reuse §7.10.1's grouped NCHW cross-correlation and §7.10.2 ConvAccessWitness. Preserve free and bound axes, bounds, zero-padding/fill predicates, and the ordered reduction. When the source schema is the historical JAXA form, only a proven conversion allows groups=1, dilation=1, stride=(s,s), padding=(p,p).
+3. **Introduce symbolic parameter references:** W is ParameterRef(instance, role=weight, version, logical_shape), **not** a user-visible J noun or physical buffer. Optional bias is an independent BiasRef and affine addition, not part of the bilinear Conv core.
+4. **Export SPORES-style candidates:** IndexJoin(X,W) → Multiply → OrderedAggregate (plus optional Bias). Representation as a relation is not J-observational equality. Exact-J evidence/guards are required before e-class union; float reassociation/FMA/NaN/signed zero, integer overflow/promotion, empty/prototype, first error, rank, NAME and state effects may invalidate a mathematical law. J comparison tolerance 2^-44 is not an automatic rewrite error budget.
+5. **Return a witnessed candidate:** carry original_call_id, resource version, original source/NAME and all shape/rank/error/effect guards back to the Graph rewrite candidate. Logical IR verification and an available, legal target lowering are prerequisites for extraction. A non-executable expression is excluded rather than merely assigned a large extraction cost.
+6. **Preserve the original:** failed proof, timeout, unknown facts, excessive budget or unsupported target leaves StructuredConv untouched. The analysis sidecar does not materialize im2col/windows/weight buffers. Physical Planning subsequently chooses Direct Conv, GEMM, fused/library kernels, loading, placement and scheduling.
+
+~~~text
+(config conv2d)"rank -> derived function C1
+          |
+     StructuredConv(C1, X)  [authoritative source graph]
+          |                       |
+          |                  StateResource(weight@v, bias@v)
+          v
+   optional VirtualExpansion sidecar [analysis only]
+      X + symbolic ParameterRef(C1, weight@v)
+        -> index relation / ordered sum-product
+        -> bounded SPORES search
+        -> witnessed candidate / verified extraction
+        -> Logical IR / selected physical route
+      (or retain original StructuredConv)
+~~~
+
+**Explicit adjoints without exposed weights or autograd.** For the bilinear core B_config(X,W), the *internal algebraic model* uses BindRight(B_config,W@v) and BindLeft(B_config,X@snapshot). Adj of the first models input cotangent dX; Adj of the second models weight cotangent dW. Bias cotangent is a separate accumulation. This neither requires user-facing bindL/bindR syntax nor introduces implicit automatic differentiation. Only explicitly registered/requested adjoint/VJP operations are emitted. Input adjoints need original input ShapeSpec (stride>1 may make output-to-input shape inversion ambiguous); weight adjoints need original weight shape, X, dY, grouping/dilation/stride/padding. Preserve activation lifetime, gradient StateResource updates, optimizer ordering and error effects; complex dtypes require an explicit conjugating inner-product contract.
+
+**Bounded analysis and cache correctness.** Lazy sidecars can be cached by *relevant* builder configuration, geometry, FunctionEntity/NAME binding, LayerInstanceId, state snapshot/version, dtype and numeric policy. Require invalidation/eviction; never reuse a stale weight version as if it were a pure equality. Limit the size/time/area of operator and relational e-graph search. A convincing geometry mapping is not itself proof of a safe kernel fusion or an observed speedup.
+
+**Acceptance cases attached to existing NN-04/08, NN-G2, NN-AG, GF4/5a/6, FW and IO gates (not a second roadmap).**
+
+| Case / existing owner | Positive and negative obligations | Status |
+|---|---|---|
+| conv_jaxa_builder_schema / NN-04/08 | 2D 7-field and 3D 8-field historical operand order, depthwise/linear references, b_flag, actual Rank/cell/output shape; reject omissions, extra fields, channel/geometry mismatch and unsupported extensions | [ ] UNRUN |
+| conv_parameter_identity / NN-G2/GF4 | no required user W noun, distinct C1/C2 StateResources, explicitly proven sharing/alias, J rebind and weight version boundaries | [ ] UNRUN |
+| conv_virtual_export_roundtrip / GF4/GF5a | StructuredConv remains authoritative, W is symbolic, indices/padding/ordered aggregate and source proof survive; unknown input → Opaque | [ ] UNRUN |
+| conv_virtual_adjoint / NN-AG/GF5a | correct dX/dW/bias shapes, stride>1 ambiguity, activation snapshot, gradient accumulation and explicit-only semantics | [ ] UNRUN |
+| conv_virtual_legality_extract / GF4/FW/GF6 | forbid FP/NaN/±0/overflow/empty-J/first-error/state-mismatch unions and non-executable extraction; preserve original | [ ] UNRUN |
+| conv_virtual_budget_cost / GF6/IO | bounded expansion/e-graph, cache invalidation and legal Direct/GEMM/fused route resource/cost and CPU timing distinction | [ ] UNRUN |
+
+**Implementation status:** historical JAXA operands were checked against prototype docs and code; everything in this section remains **design/documentation only**. The hidden-weight surface still needs to be reconciled with the currently registered NN-04 input/weight/bias parameter schema. The final RustJ Rank/dtype surface, actual StateResource binding, sidecar/exporter, EqGraph, adjoint lowering, tests and CI are **unimplemented/UNRUN**. Do not alter full-J semantics, mutable-state externalization, or the M2→M3→M4 precedence.
+
+**Sources:** [JAXA Appendix B](https://github.com/yunskim/JAXA-complier/blob/main/paper_draft_appendix_b.md), [JAXA primitive inference](https://github.com/yunskim/JAXA-complier/blob/main/docs/JAXA/primitives.py), [JAXA custom adverbs](https://github.com/yunskim/JAXA-complier/blob/main/jaxa_enqueue.py), [SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [Korean canonical §7.10.7](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion).
+
 **Sources:** [Original SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Korean canonical Conv section](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization), [ExecutionBasisExpansion](docs/project/chapters/15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
 
