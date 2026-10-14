@@ -3065,6 +3065,184 @@ LayerInstanceId is not merely a source variable's spelling or a tensor shape. Bi
 
 **Sources:** [JAXA Appendix B](https://github.com/yunskim/JAXA-complier/blob/main/paper_draft_appendix_b.md), [JAXA primitive inference](https://github.com/yunskim/JAXA-complier/blob/main/docs/JAXA/primitives.py), [JAXA custom adverbs](https://github.com/yunskim/JAXA-complier/blob/main/jaxa_enqueue.py), [SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [Korean canonical §7.10.7](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion).
 
+
+<a id="conv-virtual-expansion-examples"></a>
+**7.10.8 Virtual Expansion worked examples: numerical cells, relational views, candidate rewrites and deliberate rejections (2026-10-14; design only).**
+
+All conv2d source snippets below illustrate the *proposed* RustJ surface described in §7.10.7. They have not been verified as executable RustJ code. They reuse historical JAXA's seven-field configuration noun, not its RjP precision extension as an interpretation of ordinary J Rank. The array examples use ordinary 2D NCHW cross-correlation and exact-real symbolic arithmetic for illustration. Batch/channel axes of size one are suppressed in printed matrices. A **virtual relation is an analysis artifact**, not a newly allocated weight buffer, user-visible J noun, executable J expansion, rewritten authoritative Graph IR, or proof of a legal numeric optimization.
+
+**E1 — One Structured Conv, a 3×3 input and a 2×2 symbolic filter.**
+
+~~~j
+NB. Proposed user surface, no explicit weight values:
+C1 =: (1 1 2 2 1 0 0 conv2d)"3
+model =: relu @: C1
+~~~
+
+C_in=1, C_out=1, kernel=(2,2), stride=1, padding=0, bias=0, cell rank=3. Given one-channel X=[[1,2,3],[4,5,6],[7,8,9]], X shape is [1,3,3] and Conv output shape is [1,2,2]. The *authoritative* graph is Input(X) → StructuredConv(C1,X) → ReLU → Output. A separate semantic resource record could associate C1 with StateResource(weight_C1, logical_shape=[1,1,2,2], version=7). The version is an illustrative snapshot marker, not evidence of a runtime read.
+
+When VirtualExpansion(C1) is requested, it may denote the symbolic ParameterRef(weight_C1@v7) as [[a,b],[c,d]] and produce:
+
+~~~text
+Y[0,0] = 1a + 2b + 4c + 5d
+Y[0,1] = 2a + 3b + 5c + 6d
+Y[1,0] = 4a + 5b + 7c + 8d
+Y[1,1] = 5a + 6b + 8c + 9d
+
+free axes: output_h, output_w
+bound axes: kernel_h, kernel_w
+X_access = X[output_h + kernel_h, output_w + kernel_w]
+W_access = ParameterRef(C1,weight@v7)[kernel_h,kernel_w]
+index_join(X,W) -> multiply -> ordered_aggregate(kernel_h,kernel_w)
+~~~
+
+No actual a,b,c,d weight values were read. For a hand-check only, the hypothetical weight [[1,0],[0,-1]] gives Y=[[-4,-4],[-4,-4]]. The *structure* is unchanged for other weights. ReLU remains outside the ordered convolution aggregate and cannot be moved inside by assumption.
+
+**E2 — The same index relation yields a virtual im2col/GEMM candidate, not mandatory allocation.**
+
+The four output windows of E1 can be described as four *virtual rows*:
+
+~~~text
+VirtualPatchMatrix(X) =
+  [[1,2,4,5],
+   [2,3,5,6],
+   [4,5,7,8],
+   [5,6,8,9]]
+
+VirtualWeightColumn(C1,version=7) = [[a],[b],[c],[d]]
+
+Y_flat = VirtualPatchMatrix(X) @ VirtualWeightColumn(C1)
+      = [a+2b+4c+5d, 2a+3b+5c+6d,
+         4a+5b+7c+8d, 5a+6b+8c+9d]
+~~~
+
+VirtualPatchMatrix is a table of *index expressions* for explanation and does **not** prove a physical 4×4 patch buffer is allocated. Direct Conv, WindowView+Contract, physically packed im2col+GEMM and on-the-fly fused GEMM are different lowering candidates. Each needs J-compatible Rank/cell, padding, error/first-error, ordered value and numeric proofs and physical resource/cost comparison. SPORES-level relational equivalence does not require packing or executing GEMM.
+
+**E3 — Two adjacent 1×1 convolutions: an actual algebraic fusion opportunity, but only a candidate.**
+
+~~~j
+C1 =: (1 2 1 1 1 0 0 conv2d)"3
+C2 =: (2 1 1 1 1 0 0 conv2d)"3
+model =: C2 @: C1
+~~~
+
+At one spatial position, let W1=[a,b] for 1→2 channels and W2=[c,d] for 2→1 channels. First z0=a*x, z1=b*x, then y=c*z0+d*z1. Algebraically y=(c*a+d*b)*x. The optimizer may propose a 1×1 fused Conv with virtual effective weight k=c*a+d*b:
+
+~~~text
+ORIGINAL: X -> Conv(C1,W1@v3) -> Z(2 channels) -> Conv(C2,W2@v8) -> Y
+RELATION: y = c*(a*x) + d*(b*x)
+CANDIDATE: Conv1x1(X, VirtualContract(W2@v8,W1@v3))
+           effective_weight = c*a+d*b
+
+IF LEGAL ONLY:
+  X -> FusedConv(C1,C2, original resource dependencies retained) -> Y
+~~~
+
+This is an equality of the *exact-real mathematical expression*, not universal IEEE/J observational equality. The changed FP association, rounding and FMA require independent exact-J or guarded numeric legality evidence. Both state resource versions, intervening writes and name bindings matter. Training may also need original per-weight gradient paths and saved activations. Rejection must preserve the original two Conv operations; do not force the user to synthesize a mutable k noun.
+
+**E4 — Conv→ReLU may fuse physically; ReLU does not distribute over a reduction.**
+
+~~~j
+C1 =: (1 1 2 2 1 0 0 conv2d)"3
+model =: relu @: C1
+~~~
+
+The algebra view is ReLU(sum(X*W)). It is generally **not** sum(ReLU(X*W)): if two summands are 2 and -3, the first expression is ReLU(-1)=0 and the second is 2. Pushing ReLU into individual contraction terms is an invalid rewrite. Yet a single physical Conv+ReLU kernel that avoids storing the intermediate Y is a possible *fusion candidate* after proving consumers/fanout, error and numerical behavior, target capabilities and resource feasibility. Physical producer/consumer fusion is not a statement that nonlinear algebra distributes over the sum.
+
+**E5 — Output tile demand and halo: expand necessary *indices*, not an entire tensor.**
+
+For a 3×3 filter, unit stride/dilation and padding one, suppose the requested 8×8 output tile y∈[10,18), x∈[10,18) lies inside the image. The input spatial *safe bounding cover* is [9,19)×[9,19), a 10×10 region (§7.10.3).
+
+~~~text
+Demand:    Y[10:18,10:18]           -- 8x8
+IndexMap:  X[y - 1 + r,x - 1 + s]   -- r,s = 0,1,2
+Cover:     X[9:19,9:19]            -- 10x10
+Weight:    ParameterRef(C1,W@v7)   -- symbolic, not materialized
+~~~
+
+For stride/dilation>1 a rectangular cover may include unused holes. Keep the **exact index union** separate from the **safe bounding rectangle**. An out-of-range padded coordinate is a fill/predicate, never permission to read invalid memory. Even empty demand does not license removal of original J shape/prototype checks, name/effects or observable first errors.
+
+**E6 — Explicit input and weight adjoints from one bilinear signature: source shapes are indispensable.**
+
+For the bias-free bilinear core B_config(X,W), the following are *internal algebraic operator notations*, not required user syntax or implicit autograd:
+
+~~~text
+forward = B_config(X,W@v7)
+L_W = BindRight(B_config,W@v7)            : XSpec -> YSpec
+R_X = BindLeft(B_config,X@snapshot)       : WSpec -> YSpec
+
+dX = Apply(Adj(L_W),dY)  : YSpec -> XSpec
+dW = Apply(Adj(R_X),dY)  : YSpec -> WSpec
+db = Reduce(dY over batch/spatial axes)  -- optional separate bias
+~~~
+
+With kH=kW=3, stride=2 and pad=1, **input H=5 and H=6 both produce output H'=3**. So dY and W alone cannot reconstruct the original dX shape. Retain original XSpec and WSpec as well as groups/dilation/stride/padding, batch/frame and activation snapshots. dX may lower to a transpose/scatter/window operation and dW to batch/spatial reductions, each with legality and cost checks. Emit only explicitly requested/registered adjoint/VJP paths. Gradient accumulation and optimizer updates preserve StateResource identities and ordered effects. A complex-number extension additionally needs an explicit conjugating inner-product policy.
+
+**E7 — Similar shapes are not shared parameters; a parameter read after update is not the old value.**
+
+~~~text
+C1: ConvConfig(in=1,out=2,k=1) -> LayerInstanceId(101)
+C2: ConvConfig(in=1,out=2,k=1) -> LayerInstanceId(102)
+
+ParameterRef(101,weight,v4) != ParameterRef(102,weight,v4)
+    even if shapes and numerical values happen to be equal
+
+ParameterRef(101,weight,v4) != ParameterRef(101,weight,v5)
+    if an optimizer update occurs between reads
+
+C1/C3 can share only when a common StateResourceId is witnessed,
+and the particular reads have compatible snapshot/version semantics.
+~~~
+
+Do not infer sharing merely from a source spelling, tensor geometry or coincidence of contents. Combining two Conv reads across a weight update by CSE is incorrect. Sharing the resource itself also does not waive per-read version/effect and error constraints. Mutable weight storage remains a separate semantic StateResource, never a hidden mutable field of the derived verb.
+
+**E8 — End-to-end sidecar round-trip with unsupported/unknown fallback.**
+
+~~~text
+source:    C1 =: (1 1 2 2 1 0 0 conv2d)"3
+           model =: relu @: C1
+                     |
+semantic:  DerivedFunction(C1, config, rank), binding/version
+                     |
+Graph IR:  Input -> StructuredConv(call_17,C1) -> ReLU
+                     |  authoritative and not mutated
+                     +-- state table: C1 -> weight_C1@v7
+                     |
+                     v   [optional, lazy, non-executing]
+sidecar:   ConvAlgebraView(call_17,
+             X indexed join ParameterRef(weight_C1@v7),
+             OrderedAggregate, source/geometry/check witnesses)
+                     |
+SPORES:    original expression + candidate relations
+                     |
+legality:  J-observational proof? state version/guard valid?
+           executable Logical IR/target route? profitable?
+                     |
+           +---------+---------+
+           |                   |
+          YES             NO / UNKNOWN / TIMEOUT / UNSUPPORTED
+           |                   |
+           v                   v
+    accepted candidate    original StructuredConv
+           |                   |
+           +---------+---------+
+                     |
+           Logical IR -> Physical Planner
+~~~
+
+| Situation | Virtual relation | Executable rewrite decision |
+|---|---|---|
+| Valid 2×2 Conv with stable snapshot | E1/E2 index relations available | Needs independent executable proof |
+| Conv→ReLU, single consumer | Conv may expand | Fused physical kernel is candidate; distributive rewrite rejected (E4) |
+| Two 1×1 Conv layers with fixed versions | E3 exact-real fusion candidate | Numeric, training, effects and lowering gates required |
+| Different versions due to update | Symbolically representable as distinct reads | Cross-version CSE/union rejected (E7) |
+| Unknown shape/rank/dtype/name or parameter binding | Opaque/guarded analysis | No unverified extraction |
+| Missing proof, budget exhaustion or no target route | Preserve original Graph | Use original StructuredConv |
+
+**Acceptance additions (all [ ] UNRUN; map onto existing §7.10.7 owners rather than adding another roadmap):** E1 four-cell symbolic expansion plus hypothetical-weight hand check; E2 four virtual patch rows **without** physical allocation; E3 1×1 merge candidate with IEEE negative; E4 nonlinear non-distributivity; E5 8×8→10×10 exact/cover and empty-demand guards; E6 stride=2 original H=5 versus H=6 ambiguity; E7 distinct resource/version and explicit sharing; E8 roundtrip with unsupported route/timeout/budget failure. Assign them to conv_virtual_export_roundtrip, conv_virtual_legality_extract, conv_virtual_adjoint, conv_parameter_identity and conv_virtual_budget_cost. These are **documentation fixtures**, not run source code, reference oracle or CI validation.
+
+**Generalized interface.** VirtualExpansion should be an optional **AlgebraSignature → symbolic parameter/index relation → proved candidate → verified extraction** analysis interface supplied by high-level Graph primitives, not a Conv-specific executable lowering pass. Linear/MatMul/tensor contraction and eligible pure contraction subregions in attention are plausible next clients. This does **not** authorize applying SPORES sum-product equalities indiscriminately to softmax, RNG/dropout or stateful normalization. Preserve the original high-level structured operation as the default path; instantiate its sidecar only on demand.
+
 **Sources:** [Original SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Korean canonical Conv section](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization), [ExecutionBasisExpansion](docs/project/chapters/15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
 
