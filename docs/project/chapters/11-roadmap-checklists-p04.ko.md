@@ -1002,6 +1002,188 @@ J source: (config conv2d)"rank -> derived function C1
 
 **출처:** [JAXA Appendix B](https://github.com/yunskim/JAXA-complier/blob/main/paper_draft_appendix_b.md), [JAXA shape inference](https://github.com/yunskim/JAXA-complier/blob/main/docs/JAXA/primitives.py), [JAXA custom adverb registry](https://github.com/yunskim/JAXA-complier/blob/main/jaxa_enqueue.py), [SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [RustJ StateResource](./15-advanced-contracts-p08.ko.md).
 
+
+<a id="conv-virtual-expansion-examples"></a>
+**7.10.8 Virtual Expansion 상세 예제집 — 계산값·관계형 전개·최적화 후보·거부 사례 (2026-10-14; 설계 전용).**
+
+이 절의 J 표면 예제에서 conv2d builder와 해당 인자 배열은 **§7.10.7의 RustJ 제안 표기**이며 실행을 검증한 문법이 아니다. 과거 JAXA의 7-field configuration은 재사용하지만 JAXA의 RjP precision 확장을 일반 J rank 문법으로 가져오지 않는다. 배열 숫자 예제는 아래에 명시한 일반적 2D NCHW *cross-correlation* 및 정확한 실수 계산의 교육용 모델이다. 모든 X, W, Y의 단순화된 2D 표기에서는 크기 1인 batch·channel 축을 생략한다. 각 예제의 **virtual relation은 분석 산출물이지 실제 weight buffer, 추가 J noun, 변경된 Graph IR 또는 실행 검증의 증거가 아니다**.
+
+**E1 — 3×3 입력, 2×2 kernel: 하나의 Structured Conv를 기호식으로 펼치기.**
+
+~~~j
+NB. 사용자 surface 후보; weight 값 선언 없음
+C1 =: (1 1 2 2 1 0 0 conv2d)"3
+model =: relu @: C1
+~~~
+
+* Configuration: C_in=1, C_out=1, kernel=(2,2), stride=1, pad=0, bias=0, cell rank=3.
+* 예시 X (단일 채널): [[1,2,3],[4,5,6],[7,8,9]]; shape [1,3,3]. Y shape=[1,2,2].
+* 원본 Graph: Input(X) → StructuredConv(C1,X) → ReLU → Output. 별도 user-level W 노드는 없다.
+* State side table: LayerInstance(C1) → StateResource(weight_C1, logical_shape=[1,1,2,2], version=7). shape/version은 분석용 예시이며 실제 snapshot read가 아니다.
+
+분석기가 VirtualExpansion(C1)을 요청하면 ParameterRef(weight_C1@v7)를 [[a,b],[c,d]]라는 **기호**로 표시할 수 있다. IndexJoin/Multiply/OrderedAggregate가 뜻하는 결과:
+
+~~~text
+Y[0,0] = 1a + 2b + 4c + 5d
+Y[0,1] = 2a + 3b + 5c + 6d
+Y[1,0] = 4a + 5b + 7c + 8d
+Y[1,1] = 5a + 6b + 8c + 9d
+
+free axes: output_h, output_w
+bound axes: kernel_h, kernel_w
+X_access = X[output_h + kernel_h, output_w + kernel_w]
+W_access = ParameterRef(C1,weight@v7)[kernel_h,kernel_w]
+index_join(X,W) -> multiply -> ordered_aggregate(kernel_h,kernel_w)
+~~~
+
+a,b,c,d는 실제 weight 값을 알거나 읽었다는 의미가 아니다. 검산용으로만 가상의 weight [[1,0],[0,-1]]을 대입하면 Y=[[-4,-4],[-4,-4]]가 된다. 실제 weight가 무엇이든 참조 관계는 동일하다. ReLU는 Conv의 ordered aggregate 바깥에 남으며 임의로 sum 안으로 이동하지 않는다.
+
+**E2 — 동일 관계의 im2col/GEMM 후보: 관계식 생성과 물리 materialization은 다르다.**
+
+E1의 네 output window를 *가상 행*으로 놓으면 다음 행렬 곱 후보가 만들어진다.
+
+~~~text
+VirtualPatchMatrix(X) =
+  [[1,2,4,5],
+   [2,3,5,6],
+   [4,5,7,8],
+   [5,6,8,9]]
+
+VirtualWeightColumn(C1,version=7) = [[a],[b],[c],[d]]
+
+Y_flat = VirtualPatchMatrix(X) @ VirtualWeightColumn(C1)
+      = [a+2b+4c+5d, 2a+3b+5c+6d,
+         4a+5b+7c+8d, 5a+6b+8c+9d]
+~~~
+
+이때 VirtualPatchMatrix는 **지표식의 표 보기**이지 별도 4×4 배열을 할당했다는 뜻이 아니다. 후보 경로는 DirectConv, WindowView+Contract, physical im2col+GEMM, fused on-the-fly patch GEMM 등이 가능하지만 모두 원래 Rank/cell, padding, 오류, numeric contract와 원소 순서를 검증한 뒤 cost 비교를 해야 한다. SPORES가 관계 동일성을 발견했다는 이유로 physical pack이나 GEMM 실행을 강제하지 않는다.
+
+**E3 — 연속된 1×1 Conv 두 개: 실제로 찾을 수 있는 대수적 재작성 후보.**
+
+~~~j
+NB. 설명용 surface 후보; 두 layer 모두 bias 없음
+C1 =: (1 2 1 1 1 0 0 conv2d)"3
+C2 =: (2 1 1 1 1 0 0 conv2d)"3
+model =: C2 @: C1
+~~~
+
+같은 공간 위치에서 W1=[a,b] (1→2), W2=[c,d] (2→1)라 하면 z0=a*x, z1=b*x, y=c*z0+d*z1. 가상 전개는 결합 가중치 k=(c*a+d*b)를 사용해 y=k*x인 1×1 Conv 후보를 제시한다.
+
+~~~text
+BEFORE: X -> Conv(C1, W1@v3) -> Z(2 channels) -> Conv(C2, W2@v8) -> Y
+VIRTUAL: y = c*(a*x) + d*(b*x)
+CANDIDATE: Y = Conv1x1(X, VirtualContract(W2@v8,W1@v3))
+            effective_weight = c*a + d*b
+
+AFTER only if legal:
+  X -> FusedConv(C1,C2, resource dependencies preserved) -> Y
+~~~
+
+이 변환은 **실수대수에서만 무조건 성립**한다. 실제 floating 계산의 누산 순서/반올림/FMA가 바뀌므로 Exact-J 증명 없는 e-class union은 금지한다. 두 resource의 version과 쓰기·재바인딩 시점이 유지되어야 하며 훈련에서 각 weight gradient가 필요하다면 전개·materialization/activation 정책까지 보존해야 한다. 후보가 거부되더라도 원본 Conv→Conv는 그대로 실행 가능해야 한다. **입력 데이터가 바뀔 때마다 실물 k를 새 J weight noun으로 만들어 관리하도록 요구하지 않는다.**
+
+**E4 — Conv→ReLU fusion은 가능해도 ReLU의 대수적 분배는 일반적으로 불가.**
+
+~~~j
+C1 =: (1 1 2 2 1 0 0 conv2d)"3
+model =: relu @: C1
+~~~
+
+VirtualExpansion은 y=ReLU(Σ X*W)로 의미를 보존한다. ReLU(Σ X*W)와 Σ ReLU(X*W)는 일반적으로 같지 않다. 예를 들어 항이 2와 -3이면 전자는 ReLU(-1)=0이고, 후자는 2이다. 따라서 **ReLU를 contraction의 각 항으로 밀어 넣는 대수적 rewrite는 부정 사례**다. 반면 Conv와 ReLU를 하나의 physical kernel로 처리하면서 중간 Y의 저장을 생략하는 *fusion candidate*는 있다. 이 경우에도 다른 consumer의 fanout, numeric/Rank/error, target capability 및 resource feasibility를 따로 검증한다.
+
+**E5 — Halo·부분 출력 demand: 전개하는 것은 필요한 인덱스 범위이지 곧바로 전체 tensor가 아니다.**
+
+3×3 kernel, stride=1, dilation=1, padding=1이고 그림의 해당 타일이 실제 image 경계에서 충분히 떨어져 있다고 한다. output 좌표에서 y∈[10,18), x∈[10,18)인 **8×8 타일**을 소비한다면 (§7.10.3의 공식) 입력 X의 안전한 공간 bounding cover는 [9,19)×[9,19), 즉 **10×10**이다.
+
+~~~text
+Demand:    Y[10:18, 10:18]          -- 8x8
+IndexMap:  X[y - 1 + r, x - 1 + s]  -- r,s = 0,1,2
+Cover:     X[9:19, 9:19]            -- 10x10
+Weight:    ParameterRef(C1, W@v7)   -- no materialization
+~~~
+
+stride/dilation이 1보다 크면 rectangular cover 안에 실제로 읽지 않는 hole이 있을 수 있다. **정확한 index union과 안전한 bounding cover는 서로 다른 fact**로 유지한다. 경계 clipping/zero fill은 실제 array 범위 밖 메모리를 읽는 것과 다르다. empty demand 역시 원래 J의 shape/prototype, required checks, first error 및 effect를 자동 제거하는 근거는 아니다.
+
+**E6 — 명시적 input/weight adjoint: 같은 쌍선형 signature에서 유도하되 원본 ShapeSpec이 필수.**
+
+bias를 뺀 B_config(X,W)에 대해 내부 분석 기호는 다음과 같다. 이는 사용자 J에 bindL/bindR를 강제하는 문법도, autograd 생성도 아니다.
+
+~~~text
+forward = B_config(X, W@v7)
+L_W     = BindRight(B_config, W@v7)           : XSpec -> YSpec
+R_X     = BindLeft(B_config, X@snapshot)      : WSpec -> YSpec
+
+dX = Apply(Adj(L_W), dY)   : YSpec -> XSpec
+dW = Apply(Adj(R_X), dY)   : YSpec -> WSpec
+db = Reduce(dY over batch/spatial axes)      -- optional, separate affine bias
+~~~
+
+예: kH=kW=3, stride=2, pad=1이면 입력 H=5와 H=6 **모두 출력 H'=3**을 만들 수 있다. 따라서 dY와 W만으로 원본 dX의 크기를 유일하게 복원할 수 없다. 원래 XSpec과 weight ShapeSpec, group/dilation/stride/padding, batch/frame 및 activation snapshot이 필요하다. 실제 dX는 경계·stride를 반영한 gather/scatter/transpose kernel 후보이고 dW는 batch·공간축 누산 후보다. 두 후보는 오직 등록된 explicit adjoint/VJP 요청 경로에 대해서만 생성한다. W에 대한 gradient는 optimizer가 관리하는 StateResource 누산과 별개의 의미적 출력·효과 계약을 갖는다.
+
+**E7 — 숨은 weight의 *동일성*과 값의 *동일성*은 다르다: 공유·업데이트 부정 사례.**
+
+~~~text
+C1: ConvConfig(in=1,out=2,k=1) -> LayerInstanceId(101)
+C2: ConvConfig(in=1,out=2,k=1) -> LayerInstanceId(102)
+
+ParameterRef(101,weight,v4) != ParameterRef(102,weight,v4)
+     even when shapes and current numerical contents match
+
+ParameterRef(101,weight,v4) != ParameterRef(101,weight,v5)
+     when an optimizer update occurs between reads
+
+Shared C1/C3 is legal only with witnessed common StateResourceId
+and a compatible snapshot/version across the particular uses.
+~~~
+
+동일한 shape, 동일한 source spelling 또는 우연히 같은 값만으로 weight를 공유한다고 추론하지 않는다. optimizer 업데이트의 전후 Conv를 하나로 CSE하면 잘못된 계산이다. 명시적으로 같은 state resource를 공유하더라도 읽기 버전·오류·효과·사용 조건이 다르면 합칠 수 없다. 실제 가중치는 계속 외부 StateResource에 있으며 derived verb의 은닉 mutable field가 아니다.
+
+**E8 — 한눈에 보는 sidecar 왕복, 반례 및 실행 fallback.**
+
+~~~text
+source:    C1 =: (1 1 2 2 1 0 0 conv2d)"3
+           model =: relu @: C1
+                 |
+semantic: DerivedFunction(C1, config, rank), binding/version
+                 |
+Graph IR: Input -> StructuredConv(call_17,C1) -> ReLU
+                 |  authoritative; do not mutate
+                 +-- state table: C1 -> weight_C1@v7
+                 |
+                 v   [optional, lazy, non-executing]
+sidecar:   ConvAlgebraView(call_17,
+             X indexed join ParameterRef(weight_C1@v7),
+             OrderedAggregate, source/geometry/check witnesses)
+                 |
+SPORES:    original + relational candidates
+                 |
+gate:      proven J semantics? correct versions/guards?
+           executable Logical IR/target route? lower cost?
+                 |
+           +-----+------+
+           |            |
+         YES           NO / UNKNOWN / TIMEOUT / UNSUPPORTED
+           |            |
+           v            v
+    accepted candidate  original StructuredConv
+           |            |
+           +-----+------+
+                 |
+          Logical IR / Physical Planner
+~~~
+
+| 상황 | 가상 전개 가능성 | 최적화 승인 |
+|---|---|---|
+| 유효한 k=2 Conv와 안정된 W snapshot | yes: E1/E2의 index relation | 실제 실행 rewrite는 별도 증명 |
+| Conv→ReLU, 단일 consumer | yes: Conv 내부만 전개 | fused kernel은 후보, 분배법칙은 거부(E4) |
+| 두 1×1 Conv와 불변 weight versions | yes: E3의 수학적 병합 후보 | 수치·학습·상태·kernel 검증 이후에만 |
+| 업데이트 중 서로 다른 W versions | 버전을 분리하면 기술 가능 | 서로 다른 snapshot의 CSE/병합은 거부(E7) |
+| shape/rank/dtype/parameter binding 미확정 | Opaque 또는 guarded analysis | 무증명 추출 거부 |
+| proof 실패, e-graph 예산 초과, target 미지원 | 원본은 계속 존재 | 원본 StructuredConv로 fallback |
+
+**테스트 수용 추가 (기존 §7.10.7 테스트 항목에 사례 연결, 모두 [ ] UNRUN).** E1 symbolic 4-cell 전개와 예제 W 검산, E2 가상 4×4 patch와 실제 할당 부재, E3 1×1 두 계층의 algebra candidate 및 IEEE negative, E4 ReLU 비분배, E5 8×8→10×10 exact/cover·빈 결과, E6 stride=2에서 H=5/6의 dX shape 부정 사례, E7 자원 identity/version/명시 공유, E8 original-call roundtrip·unsupported/fuel-exhaustion/target-failure를 각각 기존 conv_virtual_export_roundtrip, conv_virtual_legality_extract, conv_virtual_adjoint, conv_parameter_identity, conv_virtual_budget_cost로 귀속한다. 모든 시나리오는 documentation fixture일 뿐 실행 코드/CI·C oracle·target 검증 **UNRUN**이다.
+
+**재사용 가능한 원칙.** VirtualExpansion은 Conv에만 하드코딩하는 실행 pass가 아니라, graph의 고수준 primitive가 선택적으로 제공하는 **AlgebraSignature → symbolic index/parameter relation → proven candidate → verified extraction**이라는 공통 분석 인터페이스로 일반화할 수 있다. Linear·MatMul·tensor contraction, attention의 *적격하고 효과가 분리된 contraction 구역*에도 확장 후보가 있으나, softmax, RNG/dropout, stateful normalization까지 임의의 sum-product 법칙으로 재작성할 수 있다는 뜻은 아니다. 원본 high-level identity가 기본 경로이고 sidecar는 요청할 때만 생성된다.
+
 **관련 출처:** [SPORES 원 논문](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [공통 접근 대수 R0](../../research/common-array-access-composition.ko.md), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
 
