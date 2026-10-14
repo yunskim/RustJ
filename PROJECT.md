@@ -2864,7 +2864,7 @@ VerifiedFrontend + canonical J Graph
 <a id="conv-graph-ir-optimization"></a>
 ##### 7.10 Convolution optimization in J Graph IR: structured identity, index access, halo and candidate search (2026-10-13; design only)
 
-**Scope and status.** This is the Convolution application of the common array algebra and SPORES/RelAccessView §7.9. Current **NN-04 conv2d** and **NN-08 conv1d/conv3d** in **src/nn_extensions.rs** are frontend-recognized candidates, not executable graph optimizations. A conv2d spelling remains an ordinary J NAME; its builder is an **Adverb**, whose derived computational verb has a separate FunctionEntity/Rank/valence contract. Preserve NAME shadowing/rebinding, constructor/call-time lookup, source occurrences and J observable errors/effects. **Keep the original GraphBasisKind::Structured(Conv)** and attach optional **WindowView+Contract**, **im2col+GEMM**, direct/library and fusion alternatives without destroying the source. Do not add an obligatory IR or change J syntax. Convolution access sidecars, executable decompositions, e-graph and optimized kernels remain unimplemented.
+**Scope and status.** This is the Convolution application of the common array algebra and SPORES/RelAccessView §7.9. Current **NN-04 conv2d** and **NN-08 conv1d/conv3d** in **src/nn_extensions.rs** are frontend-recognized candidates, not executable graph optimizations. A conv2d spelling remains an ordinary J NAME; its builder is an **Adverb**, whose derived computational verb has a separate FunctionEntity/Rank/valence contract. Preserve NAME shadowing/rebinding, constructor/call-time lookup, source occurrences and J observable errors/effects. **Keep the original GraphBasisKind::Structured(Conv)** and make index/relational SPORES projections **optional analysis-only Graph sidecars, not J source**. Attach **WindowView+Contract**, **im2col+GEMM**, direct/library and fusion alternatives non-destructively. **Neither a J-primitive Conv implementation nor a J-written Conv reference oracle is required.** Run candidate exploration alongside Graph IR, and decompose only optionally during verified Logical lowering. Do not add an obligatory IR or change J syntax. See [the decided §7.10.7 contract](#conv2d-graph-spores-semantic-blackbox). Convolution access sidecars, executable decompositions, e-graph and optimized kernels remain unimplemented.
 
 | Stage | Inputs and outputs | Invariants and forbidden early decisions |
 |---|---|---|
@@ -2951,13 +2951,74 @@ Direct/GEMM/Winograd/FFT/vendor-library algorithms are **physical realization ca
 | conv_cpu_cost_comparison / GF6·IO-10 | compare legal direct/GEMM/tiled routes | work/bytes/peak/halo duplicates separately from measured CPU time | unsupported performance claim | [ ] UNRUN |
 | conv_vjp_lifetime / NN-16·GF5a | explicit adjoint demands | activation leases, input/weight gradients, state/error barriers | autograd forced or state reordered | [ ] UNRUN |
 
-Each test records **Test/Purpose/Guarantee/Failure meaning/Status**, positive/negative corpus, pinned J-C revision where standard-J reference expressions exist, an **independent extension semantics oracle**, and exact PR-head vs merged-main CI. A standard-J reference formula passing C does not by itself prove a new Conv extension's semantics, alternative legality or resource estimate. Unknown facts must reject the route or preserve a safe original fallback. Implement in order: geometry/index witness → exact/cover halo → negative numeric/empty/effect guards → source/candidate round-trip → measured CPU legal alternatives.
+Each test records **Test/Purpose/Guarantee/Failure meaning/Status**, positive/negative corpus, an **independent indexed CPU / pinned external Conv2d semantics oracle** (J-primitive Conv code is optional, not mandatory), and exact PR-head vs merged-main CI. Use pinned J-C only for the applicable standard-J semantic subcases. A standard-J reference formula passing C does not by itself prove a new Conv extension's semantics, alternative legality or resource estimate. Unknown facts must reject the route or preserve a safe original fallback. Implement in order: geometry/index witness → exact/cover halo → negative numeric/empty/effect guards → source/candidate round-trip → measured CPU legal alternatives.
 
 **Status:** **Design/documentation only**. Conv access sidecar, SPORES exporter, egg/e-class, executable decompositions, Conv fusion, CPU/GPU speedups and all tests above remain **unimplemented/unverified/UNRUN**. No change to the existing R0→R1→R2 or M2→M3→M4 precedence.
 
 
+<a id="conv2d-graph-spores-semantic-blackbox"></a>
+##### 7.10.7 Design decision — opaque high-level Conv2d participating in Graph IR SPORES (2026-10-13; design/checklist only)
+
+**Decided boundary.** NN-04 `conv2d` does **not** need to be written or expanded into combinations of J primitives (`;._3`/Cut or Window/Multiply/Reduce) in source or Graph IR. A Conv2d reference implementation written in J is **not required**. Once the frontend resolves an ordinary J NAME, POS, and the derived computational function, J Graph IR retains **one high-level `Structured(Conv2d)` semantic operation**. *Blackbox* means the implementation body is hidden, **not** that shape, axis, Rank, operand bindings, access patterns, errors and effects are unknowable. NN-08 Conv1d/Conv3d, adjoints, other NN implementations and whole networks remain outside this focused decision. Multi-op fusion ideas in §7.10.4 remain longer-term research, not prerequisites for Conv2d analysis.
+
+**Where SPORES belongs.** **Graph IR optimization** uses an **optional semantic sidecar** attached to the original `Structured(Conv2d)` to generate an index/relational sum-product **projection for candidate exploration**. The projection is **not J source code**, **not a mandatory replacement Graph IR**, and **not automatically executable Logical IR**. The original node and projection share source/ValueId/FunctionEntity/parameter version and proof provenance. If required call-specific facts are unknown, retain `Opaque/Unknown`. Reuse existing `j_graph_access.rs` / `j_graph_rewrite.rs` analysis concepts; these interfaces have **not** yet been implemented for Conv2d.
+
+~~~text
+ordinary J NAME / derived function
+      ↓
+Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
+      │
+      ├─ semantic sidecar:
+      │    shape, Rank, axis / group geometry
+      │    X, K, bias indexed AccessRelation and padding
+      │    free and bound axes; ordered numeric reduction
+      │    empty/fill, first-error, effects, NAME/version obligations
+      │
+      └─ graph-time SPORES projection (analysis only)
+               ↓
+         non-destructive alternative discovery
+               ↓
+         Exact-J legality + guard evidence
+           unproved/math-only → no exact e-class union
+               ↓
+         candidate registry + conditional cost evidence
+               ↓
+       execution semantic lowering → Logical IR
+          original high-level op OR selected proved expansion
+               ↓
+         physical target/resource/cost and realization
+~~~
+
+**No J-level Conv expansion.** The `7.10.1` formula (free output axes `n,o,y,x`, reduced axes `c,r,t`, grouped/strided/dilated accesses and padding) is the **semantic index description** consumed by the sidecar, not a specification for generating a J verb string or eagerly materializing thousands of Gather/Multiply/Reduce nodes. SPORES does not automatically understand an arbitrary opaque `Conv2d`; RustJ must provide a **Conv2d-specific relation exporter and explicit, verifiable rewrite conditions**. Virtual WindowView→Contract, eligible 1x1/grouped MatMul, virtual im2col/GEMM and halo tiling are **alternative proposals**; none automatically deletes the original or becomes a selected/executable plan.
+
+**Separate proof questions.** Indexed **representability**, **mathematical equivalence**, **Exact-J observational equivalence**, and **target feasibility/profitability** are four different claims. Real-semiring associativity/distributivity does not automatically preserve J floating NaN/±0/FMA, ordered rounding/accumulation, integer promotion/overflow, Rank/CellApply/empty/prototype/fill, argument evaluation and first errors, NAME/rebind or effects/aliasing. Exact e-class union requires an actual J-observational witness. Retain math-only, conditional and unknown candidates separately; evaluate necessary guards and their version validity **before** observable effects. Do not turn J's default `2^-44` comparison tolerance into a universal numeric rewrite budget.
+
+**Stage ownership.** Graph IR preserves the high-level semantic node, inputs/weight/bias bindings, candidate relationships, proofs, observable ordering obligations and **speculative** costs. It neither commits a kernel nor requires decomposing Conv2d. Logical IR may **optionally** materialize only a selected legal WindowView/Contract/etc. recipe, or retain original high-level Conv identity with SSA, Rank, shape, ordered SemanticChecks and first-error validation. If no true Logical/Physical route exists, report explicit `UnsupportedRoute` rather than inventing a CPU kernel, fallback or deoptimization. Physical planning decides buffers/strides/materialization, target capabilities, hard resource feasibility, schedules and actual costs. No measured speedup is implied by a low graph cost estimate.
+
+**Reference/oracle choice.** Pinned jsource comparisons remain necessary for the J language semantics they cover, but **the Conv2d extension does not require a reference definition composed of J primitives**. An independent, simple indexed CPU reference, a pinned external oracle, or hand-checked small cases may be used after explicitly matching Conv2d parameter signature, dtype, numeric order, padding, empty/error contracts. Mathematical agreement with an external library alone is **not** a J-observational equivalence proof. Unimplemented oracle runs must remain UNRUN.
+
+**Bounded checklist (evidence drawn from existing §7.10.6; no duplicate NN-04 completion owner):**
+
+| Gate / owner | Positive evidence | Negative / failure interpretation | State |
+|---|---|---|---|
+| **GCS-00 / docs** | Korean + English boundary and optional projection/Logical/oracle policy | documentation ≠ compiler execution or CI proof | [x] docs only |
+| **GCS-01 / GF4·NN-04** | preserve source/FunctionEntity/ValueId/name/weight binding/Rank on one Structured Conv; `conv_builder_binding` | rebind/shadow/uncertain effects must not attach wrong Conv identity | [ ] UNRUN |
+| **GCS-02 / GF5a·IO-09** | sidecar geometry, groups/padding/ordered reduction and exact vs halo demand; `conv_index_geometry`/`conv_region_halo` | invalid geometry/overflow, stride holes, unknown/empty facts never fabricate precise witnesses | [ ] UNRUN |
+| **GCS-03 / GF4·SPORES R1/R2** | Conv2d-local relation export and non-destructive original/Window/MatMul/im2col/tiling candidates; `conv_candidate_fallback` | no forced J-language expansion, source deletion or dependencies on implementing other NN ops | [ ] UNRUN |
+| **GCS-04 / GF4·FW-05–09** | distinguish Exact-J / math-only / conditional / rejected proof plus guards; `conv_numeric_rewrite_negative`·`conv_padding_empty_error` | reject false union from FP reassociation, ±0/NaN, Rank/fill, errors/effects, NAME changes | [ ] UNRUN |
+| **GCS-05 / M3·GF6** | optional Logical expansion of proved candidates, retained high-level source, SSA/checks and explicit unsupported route; `conv_candidate_fallback` | no mandatory Window/Contract rewrite or fictional native fallback | [ ] UNRUN |
+| **GCS-06 / GF6·IO-10** | compare legal alternatives with resource/work/bytes/halo/peak, target support and costs only where credible; `conv_cpu_cost_comparison` | no unmeasured speedup or missing packing/resource hard limit | [ ] UNRUN |
+| **GCS-07 / NN-G6·GF6** | independent indexed oracle, differential values/types/shapes/errors/effects for genuinely available routes, actual PR-head/main CI | never count differing oracle semantics or missing runtime runs as PASS | [ ] UNRUN |
+
+**Acceptance:** GCS-01–03 establish **only analysis/candidate coverage**. Without GCS-04, no exact union/committed rewrite; without GCS-05–06 real lowering/resource evidence, no optimized execution claim. GCS-07 may mark execution and performance PASS only for actually implemented and tested routes. This decision does **not** implement or complete NN-04; `conv_vjp_lifetime` and other NN families remain separate. Preserve project-wide M2→M3→M4 correctness priority.
+
+**Current state:** only GCS-00 (documentation) is complete. GCS-01–07, the Conv relation exporter, SPORES/e-graph integration, actual optimization and differential/runtime testing remain **unimplemented / UNRUN**.
+
+
 <a id="conv-virtual-expansion"></a>
-**7.10.7 Virtual Expansion: keep JAXA's parameterized adverb while leaving weight values unexposed (2026-10-14; design only).**
+**7.10.8 Virtual Expansion: keep JAXA's parameterized adverb while leaving weight values unexposed (2026-10-14; design only).**
+
+**Execution boundary.** Preserving StructuredConv does not create runtime support. The original can execute only when a real Logical/Physical route exists; otherwise report explicit UnsupportedRoute. Follow [the §7.10.7 execution boundary](#conv2d-graph-spores-semantic-blackbox).
 
 **Decision.** Reject the earlier proposal for a rank-only convolution adverb. Retain the **configuration/shape noun → convolution adverb → derived verb** pattern investigated in historical JAXA. Input/output channel counts, kernel dimensions, stride, padding and whether a bias exists are *operator configuration*, not exposed weight array values. The user should not have to pass a mutable weight noun into a Conv call. The authoritative J Graph IR still contains the original Structured Conv. An optional, non-executing and non-destructive **VirtualExpansion sidecar** exposes a symbolic weight ParameterRef and a sum-product/index description only when SPORES-style analysis asks for it. Do not expand all Conv calls into J primitives, rewrite J source, or add another mandatory IR stage.
 
@@ -3063,13 +3124,13 @@ LayerInstanceId is not merely a source variable's spelling or a tensor shape. Bi
 
 **Implementation status:** historical JAXA operands were checked against prototype docs and code; everything in this section remains **design/documentation only**. The hidden-weight surface still needs to be reconciled with the currently registered NN-04 input/weight/bias parameter schema. The final RustJ Rank/dtype surface, actual StateResource binding, sidecar/exporter, EqGraph, adjoint lowering, tests and CI are **unimplemented/UNRUN**. Do not alter full-J semantics, mutable-state externalization, or the M2→M3→M4 precedence.
 
-**Sources:** [JAXA Appendix B](https://github.com/yunskim/JAXA-complier/blob/main/paper_draft_appendix_b.md), [JAXA primitive inference](https://github.com/yunskim/JAXA-complier/blob/main/docs/JAXA/primitives.py), [JAXA custom adverbs](https://github.com/yunskim/JAXA-complier/blob/main/jaxa_enqueue.py), [SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [Korean canonical §7.10.7](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion).
+**Sources:** [JAXA Appendix B](https://github.com/yunskim/JAXA-complier/blob/main/paper_draft_appendix_b.md), [JAXA primitive inference](https://github.com/yunskim/JAXA-complier/blob/main/docs/JAXA/primitives.py), [JAXA custom adverbs](https://github.com/yunskim/JAXA-complier/blob/main/jaxa_enqueue.py), [SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [Korean canonical §7.10.8](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion).
 
 
 <a id="conv-virtual-expansion-examples"></a>
-**7.10.8 Virtual Expansion worked examples: numerical cells, relational views, candidate rewrites and deliberate rejections (2026-10-14; design only).**
+**7.10.9 Virtual Expansion worked examples: numerical cells, relational views, candidate rewrites and deliberate rejections (2026-10-14; design only).**
 
-All conv2d source snippets below illustrate the *proposed* RustJ surface described in §7.10.7. They have not been verified as executable RustJ code. They reuse historical JAXA's seven-field configuration noun, not its RjP precision extension as an interpretation of ordinary J Rank. The array examples use ordinary 2D NCHW cross-correlation and exact-real symbolic arithmetic for illustration. Batch/channel axes of size one are suppressed in printed matrices. A **virtual relation is an analysis artifact**, not a newly allocated weight buffer, user-visible J noun, executable J expansion, rewritten authoritative Graph IR, or proof of a legal numeric optimization.
+All conv2d source snippets below illustrate the *proposed* RustJ surface described in §7.10.8. They have not been verified as executable RustJ code. They reuse historical JAXA's seven-field configuration noun, not its RjP precision extension as an interpretation of ordinary J Rank. The array examples use ordinary 2D NCHW cross-correlation and exact-real symbolic arithmetic for illustration. Batch/channel axes of size one are suppressed in printed matrices. A **virtual relation is an analysis artifact**, not a newly allocated weight buffer, user-visible J noun, executable J expansion, rewritten authoritative Graph IR, or proof of a legal numeric optimization.
 
 **E1 — One Structured Conv, a 3×3 input and a 2×2 symbolic filter.**
 
@@ -3239,13 +3300,13 @@ legality:  J-observational proof? state version/guard valid?
 | Unknown shape/rank/dtype/name or parameter binding | Opaque/guarded analysis | No unverified extraction |
 | Missing proof, budget exhaustion or no target route | Preserve original Graph | Use original StructuredConv |
 
-**Acceptance additions (all [ ] UNRUN; map onto existing §7.10.7 owners rather than adding another roadmap):** E1 four-cell symbolic expansion plus hypothetical-weight hand check; E2 four virtual patch rows **without** physical allocation; E3 1×1 merge candidate with IEEE negative; E4 nonlinear non-distributivity; E5 8×8→10×10 exact/cover and empty-demand guards; E6 stride=2 original H=5 versus H=6 ambiguity; E7 distinct resource/version and explicit sharing; E8 roundtrip with unsupported route/timeout/budget failure. Assign them to conv_virtual_export_roundtrip, conv_virtual_legality_extract, conv_virtual_adjoint, conv_parameter_identity and conv_virtual_budget_cost. These are **documentation fixtures**, not run source code, reference oracle or CI validation.
+**Acceptance additions (all [ ] UNRUN; map onto existing §7.10.8 owners rather than adding another roadmap):** E1 four-cell symbolic expansion plus hypothetical-weight hand check; E2 four virtual patch rows **without** physical allocation; E3 1×1 merge candidate with IEEE negative; E4 nonlinear non-distributivity; E5 8×8→10×10 exact/cover and empty-demand guards; E6 stride=2 original H=5 versus H=6 ambiguity; E7 distinct resource/version and explicit sharing; E8 roundtrip with unsupported route/timeout/budget failure. Assign them to conv_virtual_export_roundtrip, conv_virtual_legality_extract, conv_virtual_adjoint, conv_parameter_identity and conv_virtual_budget_cost. These are **documentation fixtures**, not run source code, reference oracle or CI validation.
 
 **Generalized interface.** VirtualExpansion should be an optional **AlgebraSignature → symbolic parameter/index relation → proved candidate → verified extraction** analysis interface supplied by high-level Graph primitives, not a Conv-specific executable lowering pass. Linear/MatMul/tensor contraction and eligible pure contraction subregions in attention are plausible next clients. This does **not** authorize applying SPORES sum-product equalities indiscriminately to softmax, RNG/dropout or stateful normalization. Preserve the original high-level structured operation as the default path; instantiate its sidecar only on demand.
 
 
 <a id="conv-virtual-expansion-related-work"></a>
-**7.10.9 Virtual Expansion and prior art: distinguish analogous mechanisms from the proposed semantic/algebraic interface (2026-10-14; literature review and design only).**
+**7.10.10 Virtual Expansion and prior art: distinguish analogous mechanisms from the proposed semantic/algebraic interface (2026-10-14; literature review and design only).**
 
 **Positioning.** Keeping a high-level structured operation while selectively exposing its indexed, relational, or algebraic definition for analysis is **not an invention unique to RustJ**. Multiple established systems embody important parts of this pattern. We compare **what the original research/API explicitly demonstrates**, **the concrete RustJ application**, and **what cannot be inferred**. Similarity does not imply a shared IR, an interchangeable implementation, or a validated J-observational rewrite.
 
@@ -3317,6 +3378,7 @@ Input-linearity and weight-linearity refer to a **bias-separated bilinear core**
 **Review and implementation status.** The cited primary paper abstracts, author/public documentation and APIs were checked for the correspondences above, but this does not constitute exhaustive source-level auditing or reproduction of the papers' formal claims. The RustJ sidecar, rewriting/proof infrastructure, target lowerings and performance tests remain **unimplemented/UNRUN**. This is documentation only and does not change M2→M3→M4 priorities or existing NN/GF/FW/IO gates.
 
 **Sources:** [Original SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Korean canonical Conv section](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization), [ExecutionBasisExpansion](docs/project/chapters/15-advanced-contracts-p10.ko.md#executionbasisexpansion).
+
 
 
 ##### 8. RustJ placement, experimental design and falsification criteria

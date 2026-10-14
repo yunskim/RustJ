@@ -218,6 +218,8 @@ MatMul·FFT·Embedding·MoE 연구 항목까지 **위 단일 목록**에 통합�
 
 **Frontend E2E 연결:** `nn_extensions::frontend_preview_context()`는 별도 명시 opt-in 엔진에서만 카탈로그의 `frontend_preview` NAME에 POS/semantic ID/lowering key를 붙인다. `examples/frontend_e2e.rs`는 원래 J pipeline 검증 이후 `NN_EXTENSION_FRONTEND ... status=RECOGNIZED_ONLY` 출력으로 이름·rank·후속 spec·미검증 gate를 조회하고 `tests/frontend_stages.rs`는 34개 ID·중복·NAME 유지·POS 인식·사용자 이름 우선을 검사한다. `Engine::new()` 기본 어휘는 변경하지 않는다. **현재 parser는 spec을 실행 가능한 FunctionEntity로 고정하지 않는다**; 이름 식별과 실제 Graph atom/CPU 실행/분해·비교 결과는 구분한다. 검증 전 `NN-G1–G7`, `NN-D1` 완료를 표시하지 않는다. PyTorch 참고: [functional API](https://docs.pytorch.org/docs/stable/nn.functional.html), [PyTorch tensor ops](https://docs.pytorch.org/docs/stable/torch.html), [Torchvision ops](https://docs.pytorch.org/vision/stable/ops.html).
 
+**NN-04 확정 최적화 경계 (2026-10-13):** [`conv2d` Graph IR blackbox + SPORES 관계형 투영과 optional Logical 분해](./11-roadmap-checklists-p04.ko.md#conv2d-graph-spores-semantic-blackbox)를 따른다. `conv2d`를 J primitive로 구현하거나 J로 된 Conv 참조 정의를 요구하지 않는다. **Graph 후보 발견/동등성 증명과 NN-04의 실행 완료 상태는 서로 다르며**, NN-04의 단일 체크박스는 위 목록에서만 관리한다. GCS-00은 문서만 완료, GCS-01–07은 UNRUN이다.
+
 **단일 목록 정책:** NN-01–NN-34의 우선순위·체크상태·품사·계약·분해 후보·출처는 **위 통합 표에서만 관리**한다. 이하에는 수용 검증 규약과 실행 단계만 남기며 기능 목록을 반복하지 않는다.
 
 **의도적으로 extension primitive로 중복하지 않을 것:** `+`, `*`, `+/`, `|:`, Rank `"`, `@:`, fork/hook 등 기존 J 어휘; 일반 residual connection·MLP/Transformer block·모델/학습 loop는 **라이브러리의 derived verb 조합**을 우선한다. `matmul`/reshape처럼 기존 J가 표현하는 연산은 이름을 추가하더라도 최적화 경로를 기존 J 표현과 공유해야 한다. `with`는 이미 선택된 *typed semantic-contract conjunction*이고 device/tile 지정 통로가 아니다.
