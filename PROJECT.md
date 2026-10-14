@@ -3243,6 +3243,79 @@ legality:  J-observational proof? state version/guard valid?
 
 **Generalized interface.** VirtualExpansion should be an optional **AlgebraSignature → symbolic parameter/index relation → proved candidate → verified extraction** analysis interface supplied by high-level Graph primitives, not a Conv-specific executable lowering pass. Linear/MatMul/tensor contraction and eligible pure contraction subregions in attention are plausible next clients. This does **not** authorize applying SPORES sum-product equalities indiscriminately to softmax, RNG/dropout or stateful normalization. Preserve the original high-level structured operation as the default path; instantiate its sidecar only on demand.
 
+
+<a id="conv-virtual-expansion-related-work"></a>
+**7.10.9 Virtual Expansion and prior art: distinguish analogous mechanisms from the proposed semantic/algebraic interface (2026-10-14; literature review and design only).**
+
+**Positioning.** Keeping a high-level structured operation while selectively exposing its indexed, relational, or algebraic definition for analysis is **not an invention unique to RustJ**. Multiple established systems embody important parts of this pattern. We compare **what the original research/API explicitly demonstrates**, **the concrete RustJ application**, and **what cannot be inferred**. Similarity does not imply a shared IR, an interchangeable implementation, or a validated J-observational rewrite.
+
+| Prior work / primary source | Confirmed mechanism and closest example | RustJ design lesson | Boundary and invalid inference |
+|---|---|---|---|
+| **NVIDIA CUTLASS implicit GEMM / im2col** — [algorithm docs](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md), [Conv mapping code](https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/convolution.h) | Forms GEMM-required **tiles on the fly when loading from global memory**, avoiding a full explicitly replicated im2col matrix; covers forward/data-gradient/weight-gradient mappings. Nearest **runtime** analogue to E2 | Offer implicit-GEMM/on-the-fly gather as a physical realization candidate from a virtual patch relation | This is a **kernel execution** mechanism, not RustJ's **compiler-analysis** sidecar. Avoiding the full im2col allocation does not mean avoiding shared-memory/register staging. CUTLASS does not by itself establish SPORES e-class proofs or original-Graph preservation |
+| **Glenside** — Smith et al., *Pure Tensor Program Rewriting via Access Patterns* (MAPS 2021), [author page and paper](https://ztatlock.net/pubs/2021-maps-glenside/) | Uses an **access-pattern-centric, pure tensor rewrite IR** for layout-aware rewrites; demonstrates automatic discovery of **im2col** transformations. Closest direct algebraic predecessor of E1/E2 | Expose optional primitive AlgebraSignatures as access/index rewrites, then search non-destructive candidate relations | Glenside's own pure IR is not RustJ's **full-J FunctionEntity/source graph + independent StateResource + optional sidecar**. Its tensor math does not establish all J numeric/name/effect equivalences |
+| **TASO** — Jia et al., *TASO: Optimizing Deep Learning Computation with Automated Generation of Graph Substitutions* (SOSP 2019), [paper](https://web.stanford.edu/class/cs245/readings/taso.pdf), [project](https://catalyst.cs.cmu.edu/projects/taso.html) | Generates and checks graph substitutions using **operator properties/specifications**, then conducts cost-based graph search. Precedent for the rules and legality conditions in E3/E4/E8 | Treat high-level operator algebraic properties and rewrite witnesses as explicit contracts, separate from kernels | **Operator properties as input to verified rewrites are already prior art.** Never claim first-ever primitive algebra signatures. TASO proof assumptions do not automatically cover J Rank, NAME, errors and IEEE observations |
+| **TenSat** — Yang et al., *Equality Saturation for Tensor Graph Superoptimization* (MLSys 2021), [proceedings](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html) | Explores tensor-graph substitutions via **e-graph equality saturation and extraction**, mitigating sequential rewrite phase-ordering. Relevant to E3/E8 | Bounded typed e-classes, rule admission/guards, cost extraction and original alternatives | Tensor-graph equalities cannot be imported as unconditional J **observational equality**. An unlowerable residual must be **excluded** from extraction, not merely assigned a high cost |
+| **Halide bounds inference** — [Func::infer_input_bounds](https://halide-lang.org/docs/api/generated/Func.html), [BoundsInference pass](https://halide-lang.org/docs/_bounds_inference_8h.html) | Derives required **input regions from requested output bounds and function calls**. Exactly the demand/halo theme in E5 (8×8 output, 10×10 input for an interior 3×3 unit-stride convolution) | Output-demand-to-input-region pullback with edge clipping, halo and a distinct conservative bounding cover | Bounds analysis is not SPORES sum-product/e-graph equality. A safe cover need not be a minimal exact read set; it does not authorize removing J empty/prototype checks or first-error constraints |
+| **Polyhedral compilation: isl / Pluto / Tiramisu** — [isl manual](https://libisl.sourceforge.io/user.html), [Tiramisu CGO 2019](https://arxiv.org/abs/1804.10694), [implementation](https://github.com/Tiramisu-Compiler/tiramisu) | Models **integer affine iteration domains, access/dependence relations and schedules**. isl offers sets/relations and schedule trees; Tiramisu separates algorithms, loop schedules and data layouts. Related to E2/E5 | Analyze parameterized affine Conv mappings, for example h*stride + r*dilation - pad, when parameter/legal constraints permit | Non-affine data-dependent indexing, unknown predicates and observable effects may escape the affine profile. Proving index equivalence is not proving J floating algebra equivalence; do not place physical schedule/layout into Graph semantics |
+| **Database view unfolding** — [PostgreSQL official view-rewriting docs](https://www.postgresql.org/docs/current/rules-views.html) | A query rewriter expands stored view definitions as **subqueries in a query tree** so the planner can optimize the combined relationships. Structural analogy to E8 | Allow the optimizer to consult an opaque operation's algebraic/relational definition on demand, retaining provenance | PostgreSQL's rewrites **change the query tree**. RustJ instead proposes a **non-destructive sidecar with authoritative StructuredConv retained**. Database view expansion alone does not ensure automatic original-Graph fallback or proved kernel extraction |
+| **Matrix-free operators: SciPy LinearOperator / PyLops** — [SciPy API](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html), [PyLops API](https://pylops.readthedocs.io/en/stable/api/generated/pylops.LinearOperator.html) | Specify **matvec/apply and rmatvec/adjoint without forming a dense matrix**; composite operators may remain lazy. Nearest mathematical analogue to E6 BindRight/BindLeft/Adj | Define input-linear/weight-linear views of a bilinear Conv with explicit operator shape/adjoint contracts | Matrix-free application alone is not SPORES relational saturation or management of mutable J weights. Distinguish transpose from complex Hermitian adjoint and conjugation |
+| **JAX linear_transpose and primitive transposition** — [official linear_transpose](https://docs.jax.dev/en/latest/_autosummary/jax.linear_transpose.html), [primitive rules](https://docs.jax.dev/en/latest/601/jax-primitives.html), [JVP/VJP cookbook](https://docs.jax.dev/en/latest/301/cookbook.html) | Transposes an operator **promised to be linear**; JAX uses transposition rules for primitives in linearized/JVP computations. Direct precedent for the linear operator portion of E6 | Type-checked linearity, original input/output shape and registry-based transpose/lowering rules | JAX also uses these rules as part of **automatic differentiation**; RustJ deliberately emits only **explicitly requested/registered adjoint/VJP** paths. Retain dtype/complex and original stride/input shape requirements |
+
+**Three different meanings of 'virtual' — do not conflate them.**
+
+~~~text
+1. Compiler algebra / relation analysis:
+   RustJ VirtualExpansion, Glenside access rewrites, TenSat search,
+   analogy with database view unfolding.
+   -> Represent algebra and candidate relations; not necessarily execute them.
+
+2. Demand / iteration-domain analysis:
+   Halide bounds inference, isl / Pluto / Tiramisu.
+   -> Find required index sets, halos, affine schedules and dependences.
+
+3. Runtime realization:
+   CUTLASS implicit GEMM, physical matrix-free matvec.
+   -> Generate addresses/tiles/operators during execution.
+
+RustJ proposes optional analysis combining (1) and (2), followed only
+after proof and extraction by a selected implementation in (3).
+~~~
+
+**Suggested minimal AlgebraSignature (research sketch, NOT implemented Rust types).** Following ideas from Glenside and TASO without disturbing existing RustJ graph and resource ownership, treat the following as **optional analysis metadata/export contract**, not a mandatory new IR node.
+
+~~~text
+AlgebraSignature {
+  semantic_operation: FunctionEntity / StructuredOp ID
+  operand_roles: runtime inputs, optional symbolic parameters, scalar config
+  type_and_axes: dtype, ShapeSpec, input/output Rank/cell/frame, axis roles
+  symbolic_access: output-to-input maps, index bounds, padding/fill predicates
+  fold_semantics: bound axes, fold identity/order, numeric policy
+  operator_traits: per-operand proven linearity/bilinearity,
+                   optional explicit-adjoint registry key
+  effects_and_provenance: checks, error precedence, source occurrence,
+                          StateResource read identity/snapshot/version guards
+  available_views: optional index-only, relational or sum-product expansion
+  admission: relation witness != EqGraph-union proof != lowering legality
+  fallback: authoritative original StructuredOp retained
+}
+~~~
+
+Input-linearity and weight-linearity refer to a **bias-separated bilinear core**, not an arbitrary affine/nonlinear operator. ReLU, softmax and stateful normalization do not receive these traits by implication. For uncertain integer/complex/empty/prototype or effective-rank semantics, yield Unknown/Opaque or checked dynamic guards rather than pretending the signature is complete.
+
+**Transfer to existing tests/gates (no second roadmap; all [ ] UNRUN).**
+
+| Prior-work-derived verification question | Existing gate and example | Status |
+|---|---|---|
+| CUTLASS: Does virtual im2col avoid physical patch allocation, while measured Direct/implicit-GEMM/packed-GEMM bytes and latency remain distinct? | conv_virtual_budget_cost, E2 | [ ] UNRUN |
+| Glenside/TASO/TenSat: Can typed relations generate candidates yet reject any unsupported numeric/error/state rewrite without e-class union? | conv_virtual_export_roundtrip / conv_virtual_legality_extract, E3/E4/E8 | [ ] UNRUN |
+| Halide/isl: Do exact demand, conservative halo, stride holes, clipping and J empty/check semantics remain distinguishable? | conv_region_halo / conv_virtual_export_roundtrip, E5 | [ ] UNRUN |
+| Database unfolding: Does discarding the analysis sidecar leave the original StructuredConv and J NAME/source provenance executable? | conv_candidate_fallback / conv_virtual_export_roundtrip, E8 | [ ] UNRUN |
+| SciPy/PyLops/JAX: Do explicit input- and weight-adjoints carry correct ShapeSpec, conjugation, state snapshots, and no automatic autograd requirement? | conv_virtual_adjoint / conv_parameter_identity, E6/E7 | [ ] UNRUN |
+
+**Claim of research contribution: strict bounds.** Existing research has already demonstrated **operator-property-based verified graph substitution (TASO)**, **access-pattern tensor rewrite IR (Glenside)**, **e-graph saturation/extraction (TenSat)**, and **implicit on-the-fly im2col realization (CUTLASS)**. Therefore do **not** claim to have invented Virtual Expansion, first-class algebraic operator properties, or the first algebraic tensor optimizer. RustJ's **proposed combination** is (a) preserving full-J modifier/derived-function and StructuredOp identity, (b) hiding mutable parameter *values* from the user graph while retaining separate, explicit StateResource identity/version, (c) generating relational/access/operator views lazily, (d) admitting only proved J numeric/Rank/NAME/error/effect rewrites and executable extractions, and (e) unifying explicit adjoints and original-Graph fallback in one contract. Its novelty as an academic contribution remains **an open hypothesis** pending a more exhaustive related-work review, implementation, benchmarks and counterexample studies.
+
+**Review and implementation status.** The cited primary paper abstracts, author/public documentation and APIs were checked for the correspondences above, but this does not constitute exhaustive source-level auditing or reproduction of the papers' formal claims. The RustJ sidecar, rewriting/proof infrastructure, target lowerings and performance tests remain **unimplemented/UNRUN**. This is documentation only and does not change M2→M3→M4 priorities or existing NN/GF/FW/IO gates.
+
 **Sources:** [Original SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Korean canonical Conv section](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization), [ExecutionBasisExpansion](docs/project/chapters/15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
 
