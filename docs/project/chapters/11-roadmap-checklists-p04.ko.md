@@ -955,7 +955,6 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 **현재 상태:** GCS-00 **문서 설계만 완료**. GCS-01–07, Conv relation exporter, SPORES/e-graph 통합, 실사용 최적화 및 검증은 **미구현·UNRUN**이다.
 
 
-<a id="8-rustj-적용-위치--검증-방법--합격반증-조건"></a>
 <a id="conv-virtual-expansion"></a>
 **7.10.8 가상 전개(Virtual Expansion) — JAXA의 매개변수화 adverb를 유지하고 가중치 값은 노출하지 않음 (2026-10-14; 설계 전용).**
 
@@ -1259,7 +1258,7 @@ gate:      proven J semantics? correct versions/guards?
 | **Glenside** — Smith 외, *Pure Tensor Program Rewriting via Access Patterns* (MAPS 2021), [논문·저자 원문](https://ztatlock.net/pubs/2021-maps-glenside/) | 순수 tensor IR의 **access pattern**을 중심으로 layout-aware term rewrite를 수행하며 **im2col 변환의 자동 탐색**을 시연했다. **E1/E2**의 대수 표현 측면에서 가장 가까운 직접 선행 연구 | primitive별 optional AlgebraSignature를 access-pattern/index rewrite에 연결하고, EqGraph 후보를 비파괴적으로 탐색하는 연구 출발점 | Glenside의 자체 pure IR와 RustJ의 **full-J source/FunctionEntity + 외부 StateResource + optional sidecar**가 동일 구조는 아니다. RustJ의 모든 숫자·효과 관측 동등성은 별도 과제 |
 | **TASO** — Jia 외, *TASO: Optimizing Deep Learning Computation with Automated Generation of Graph Substitutions* (SOSP 2019), [논문](https://web.stanford.edu/class/cs245/readings/taso.pdf), [프로젝트](https://catalyst.cs.cmu.edu/projects/taso.html) | 텐서 연산자의 명세/대수적 성질에서 graph substitution **후보를 생성하고 검사**하며 비용 기반 그래프 탐색을 수행한다. **E3/E4/E8**의 규칙 생성·승인에 선례 | 고수준 operator property를 단순한 kernel 정의와 분리하고, rewrite마다 적법성 witness/반례를 수집 | TASO는 이미 operator properties 및 검증을 사용했다. 따라서 **대수 signature를 primitive 계약으로 둔다는 발상 자체가 최초**라고 주장하지 않는다. TASO의 성질 검증을 곧바로 J Rank/NAME/오류/IEEE 동등성 증명이라고 간주하지 않는다 |
 | **TenSat** — Yang 외, *Equality Saturation for Tensor Graph Superoptimization* (MLSys 2021), [학회 원문](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html) | 순차적 치환의 phase-ordering 한계를 넘어 **e-graph equality saturation + extraction**으로 텐서 그래프를 탐색한다. **E3/E8**에 대응 | Rule whitelist, typed e-class/shape facts, budget, target-cost extraction 및 original candidate 보존 | TenSat의 tensor equality를 무조건 J **observational equality**로 옮길 수 없다. 미지원 residual expression은 **높은 비용**이 아니라 **추출 불가**이며, 근사 수치 후보는 별도 정책이 필요 |
-| **Halide bounds inference** — [Halide Func::infer_input_bounds](https://halide-lang.org/docs/api/generated/Func.html), [BoundsInference pass](https://halide-lang.org/docs/_bounds_inference_8h.html) | 주어진 출력 크기에서 필요한 입력 이미지/함수의 범위를 **호출 인덱스 관계로부터 역추론**한다. **E5의 8×8 output → 10×10 input halo**와 직접 대응 | output-demand→input-region pullback, halo, clipping, tile-dependent read set과 conservative cover 계산 | Halide의 bounds analysis 자체는 SPORES sum-product/e-class 증명이 아니다. 계산된 cover가 실제 최소 read 집합인 것도 아니며 J의 빈 셀·필요 검사·first error 제거 허가는 아니다 |
+| **Halide bounds inference** — [Halide Func::infer_input_bounds](https://halide-lang.org/docs/api/generated/Func.html), [BoundsInference pass](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp) | 주어진 출력 크기에서 필요한 입력 이미지/함수의 범위를 **호출 인덱스 관계로부터 역추론**한다. **E5의 8×8 output → 10×10 input halo**와 직접 대응 | output-demand→input-region pullback, halo, clipping, tile-dependent read set과 conservative cover 계산 | Halide의 bounds analysis 자체는 SPORES sum-product/e-class 증명이 아니다. 계산된 cover가 실제 최소 read 집합인 것도 아니며 J의 빈 셀·필요 검사·first error 제거 허가는 아니다 |
 | **폴리헤드럴 컴파일(isl / Pluto / Tiramisu)** — [isl 공식 매뉴얼](https://libisl.sourceforge.io/user.html), [Tiramisu CGO 2019](https://arxiv.org/abs/1804.10694), [Tiramisu 구현](https://github.com/Tiramisu-Compiler/tiramisu) | affine 정수 제약의 **iteration domain, access relation, dependence 및 schedule**를 모델링한다. isl은 affine set/relation 및 schedule tree를 다루며 Tiramisu는 알고리즘/스케줄/배치의 분리를 제공한다. **E2/E5** 인덱스 관계에 선례 | h*stride + r*dilation - pad와 같은 (관련 값이 고정되거나 symbolic parameter인) affine access를 별도 분석 대상으로 표현; 복잡한 bounds/tiling 조건을 정확하게 계산 | 데이터에 따라 바뀌는 비-affine index, opaque predicate, effect가 있으면 일반 polyhedral 영역 밖일 수 있다. integer index legality는 J floating algebra legality와 다르며, schedule/physical layout을 Graph IR에 조기 주입하지 않는다 |
 | **DB view unfolding** — [PostgreSQL 공식 Views and the Rule System](https://www.postgresql.org/docs/current/rules-views.html) | query rewriter가 view의 저장된 정의를 **query tree의 subquery로 확장**하고 원 질의의 관계와 함께 planner가 탐색하게 한다. **E8의 의미 정의 on-demand 공개**에 구조적 유사성 | opaque/high-level 연산에서 최적화용 관계 정의를 요청 시 내보내고 provenance와 역방향 매핑을 유지 | PostgreSQL은 실제로 query tree를 **재작성**한다. RustJ는 원본 StructuredConv를 authoritative로 남기는 **비파괴 sidecar**를 제안한다. DB view unfolding이 원본 Graph 자동 복귀·증명된 kernel extraction을 보장한다고 쓰지 않는다 |
 | **Matrix-free 선형 연산자: SciPy LinearOperator / PyLops** — [SciPy 공식 API](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html), [PyLops 공식 API](https://pylops.readthedocs.io/en/stable/api/generated/pylops.LinearOperator.html) | 거대한 행렬을 만들지 않고 **matvec/apply**와 **rmatvec/adjoint**를 노출한다. 선형 연산자의 합성도 지연 정의할 수 있다. **E6의 BindRight/BindLeft/Adj**와 수학적으로 가깝다 | B(X,W)에서 W snapshot을 고정한 input-linear operator와 X snapshot을 고정한 weight-linear operator의 명시적 adjoint 계약 | 물리 행렬이 없다는 사실만으로 SPORES식 sum-product rewriting이나 J mutable weight/resource semantics가 구현되는 것은 아니다. complex에서 transpose와 Hermitian adjoint/conjugation을 구분 |
@@ -1321,6 +1320,116 @@ AlgebraSignature {
 
 
 
+<a id="conv-virtual-expansion-walkthrough"></a>
+**7.10.11 Virtual Expansion 입출력과 최적화 전 과정 — 분석 요청에서 후보 선택까지 (2026-10-14).**
+
+이 절은 §7.10.8–10의 설계를 **입력 → 분석 산출물 → 후보 → 승인/거부 → 실행 경로** 순서로 읽는 안내다. 아래 요청 객체·RuleId·후보 이름은 설명용 의사 인터페이스이며 현재 Rust API가 아니다. 산술·배열 크기는 검산한 예제이고, RustJ Conv exporter/SPORES/커널 실행·성능 검증은 여전히 **UNRUN**이다. 기존 NN/GF/FW/IO 원장을 확장해 읽으며 새 완료 체크리스트를 만들지 않는다.
+
+**A. 무엇을 입력으로 받는가?** 사용자 프로그램, compiler가 보유한 의미적 facts, 선택적 output demand, downstream의 물리 실행 조건은 서로 다른 입력이다. 실제 weight 원소를 받아야 index 관계를 만들 수 있는 것은 아니다.
+
+| 제공자 | 이 예제의 입력 | 용도와 미확정 시 처리 |
+|---|---|---|
+| J source / parser | `(3 16 3 3 1 1 1 conv2d)"3`, 뒤의 `relu`; 원본 FunctionEntity·source span·ordinary NAME binding | 설명용 builder 후보. 품사/서명/NAME 확인이 안 되면 Conv라고 추측하지 않음 |
+| call analysis | XShape=[1,3,64,64], WShape=[16,3,3,3], YShape=[1,16,64,64]; rank-3 cell, batch frame [1]; groups=1, dilation=1 | NCHW cross-correlation의 axis·bounds·padding 관계. 이 값들은 이 예제의 명시된 사양이며 현재 등록된 API의 자동 기본값이 아님 |
+| semantic resource owner | layer L17, weight Rw@v7, bias Rb@v3, source/binding epoch; immutable snapshot 또는 ordered-read 의무 | 값 대신 기호 참조. 버전·공유·effect를 모르면 Opaque/guarded로 유지 |
+| numeric/error contract | float32 storage, 명시된 accumulator/rounding·fold 순서, bias→ReLU 순서, empty/fill·first-error 의무 | dtype만으로 재결합/FMA 허가를 추론하지 않음. 이 예제는 c,r,s 순서를 명시하나 최종 RustJ extension 계약은 별도 수용 필요 |
+| consumer demand | n=[0,1), o=[0,16), y=[10,18), x=[10,18) | 최종 출력의 8×8 타일. demand가 없으면 전체 출력; 작은 demand도 원래 오류·효과를 지울 권한이 아님 |
+| downstream planner | 실제 target capability, layout, patch scratch 제한 8 KiB, 경험적 cost 정보 | **VirtualExpansion 뒤에** 후보를 거르는 물리 조건. source 의미/FunctionEntity identity의 일부가 아님 |
+
+~~~text
+ExpansionRequest (proposed):
+  original_call=L17; operation=StructuredConv; input_value=Vx
+  geometry=(Cin=3,Cout=16,k=3x3,stride=1,pad=1,groups=1,dilation=1)
+  state=(ParameterRef(Rw,v7),BiasRef(Rb,v3))
+  facts=(XShape,YShape,WShape,Rank,NumericContract,Checks,Effects)
+  demand=Y[0:1,0:16,10:18,10:18]
+  limits=(node_budget,time_budget); required_provenance=(source,binding)
+
+ExpansionResult (proposed):
+  original_call=L17                -- authoritative Graph is retained
+  free_axes=(n,o,y,x); bound_axes=(c,r,s)
+  X_access=(n,c,y-1+r,x-1+s); W_access=(o,c,r,s)
+  predicates=(0<=c<3,0<=r,s<3,valid_X_or_zero_padding)
+  fold=ordered(c,r,s); post_ops=(bias,ReLU)
+  parameter_versions=(Rw@v7,Rb@v3)
+  demand_pullback + witnesses + unknowns + proof_obligations
+~~~
+
+전개의 결과는 weight 값이나 patch 배열이 아니다. 입력 값 Vx와 기호 parameter를 결합하는 index relation, ordered reduction, 원본으로 돌아가는 provenance다. padding 밖 좌표는 해당 계약의 zero-fill이며 실제 범위 밖 load가 아니다. 출력 shape 검증·빈 cell 검사·ordered state read는 data demand와 별개의 의무로 남는다.
+
+**B. Conv→ReLU, 8×8 출력 타일의 최적화 기록.** 전개된 식은 다음과 같다. bias 뒤 ReLU 적용을 유지한다.
+
+~~~text
+Z[n,o,y,x] = OrderedSum_(c,r,s)
+    X_or_zero[n,c,y-1+r,x-1+s] * ParameterRef(Rw@v7)[o,c,r,s]
+    + BiasRef(Rb@v3)[o]
+Y[n,o,y,x] = ReLU(Z[n,o,y,x])
+
+Demand(Y): [0:1,0:16,10:18,10:18]
+Pullback(X): [0:1,0:3,9:19,9:19]        -- 300 atoms
+Pullback(W): [0:16,0:3,0:3,0:3]        -- 432 atoms
+Pullback(bias): [0:16]                 -- 16 atoms
+~~~
+
+이 interior 타일은 image 경계에 닿지 않고 stride/dilation=1이므로 입력 공간 union이 정확히 10×10이다. 다른 stride/dilation에서는 직사각형 cover와 실제 index 집합을 별도로 산출한다. 이것은 필요한 값의 영역이지 source의 모든 오류/효과를 생략해도 된다는 증명이 아니다.
+
+| 항목 | 전체 출력 기준 | 요청 타일 기준 | 해석 |
+|---|---|---|---|
+| Conv 출력 원소 | 16×64×64=65,536 | 16×8×8=1,024 | bias/ReLU 산술은 별도로 계산 |
+| multiply-accumulate 쌍 | 65,536×27=1,769,472 | 1,024×27=27,648 | 구현의 FLOP 수 또는 실행 시간 실측이 아님 |
+| conceptual patch matrix | 4,096×27=110,592 float32, **432 KiB** | 64×27=1,728 float32, **6.75 KiB** | 실제 packing을 선택할 때만 allocation 후보; 분석 relation 자체는 0 bytes of patch storage |
+| Z 중간 결과 저장 | 65,536×4=256 KiB | 1,024×4=4 KiB | sole-consumer Conv→ReLU fusion에서 생략 가능한 후보. fanout이면 liveness/소비자 의미를 재검사 |
+
+여기서 8 KiB는 **patch scratch만**의 예산이다. input/weight/output, accumulators, shared/register staging와 lease를 포함한 총 peak-memory 한도가 아니다. 임시 배열 bytes 감소를 runtime latency 향상으로 환산하지 않는다.
+
+| 후보 / 생성 근거 | 의미 관문 | 물리 관문과 이 예제의 결론 |
+|---|---|---|
+| Original StructuredConv | source·state·checks 보존 | 실제 지원되는 original route가 있으면 baseline으로 유지; 없으면 UnsupportedRoute |
+| Full im2col→GEMM / 가상 window→matrix 관계 | fold 순서·FMA·padding/type/error 동등성 필요 | 432 KiB patch는 8 KiB patch 제한을 초과해 거부. 비용이 높다는 이유가 아니라 자원 부적격 |
+| Tiled pack→GEMM / demand를 64개 row로 제한 | demand pushback·checks·numeric witness 필요 | patch 6.75 KiB는 해당 제한만 통과. 나머지 자원·kernel·정확성은 별도로 검사 |
+| Direct tiled Conv→ReLU / 같은 fold와 post-op 보존 | 다른 Z consumer 없음, rounding·error·effect 동일, alias/lease 안전 | full patch 불필요. 실제 direct/fused route가 있고 관문을 통과할 때만 후보 선택 가능 |
+| Implicit GEMM / 주소로 virtual patch를 생성 | GEMM 누산/타깃 numeric 계약 증명 필요 | full global patch는 없지만 tile staging·layout conversion 비용은 남음. CUDA 부재면 CPU direct의 대체 실행 경로로 취급하지 않음 |
+
+설명용 candidate ledger의 결정은 `full_pack: Reject(Resource)`, `tile_pack: Needs(NumericWitness,Kernel)`, `direct_fused: Needs(Effect/NumericWitness,Kernel)`, `implicit_gemm: Reject(NoTargetRoute)`다. **현재 RustJ에서는 해당 Conv 경로가 구현되지 않았으므로 이 예제의 실제 실행 결론은 UnsupportedRoute/UNRUN이다.** 향후 가령 direct_fused만 검증된 CPU 경로이고 측정 비용도 낮다면 그 후보를 선택할 수 있다. 이것이 후보 생성, 적법성, 자원 검사와 최종 extraction을 분리하는 이유다.
+
+**C. 값이 있는 재현 예와 값 없이 하는 분석.** §7.10.9 E1/E2의 작은 입력을 독립 Python 산술로 재현하면 아래와 같다. 값 W는 **문서 검산용 fixture**이며 RustJ 사용자 surface나 분석 요청이 W noun을 요구한다는 뜻이 아니다.
+
+~~~python
+X = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+W = [[1, 0], [0, -1]]
+patches = [[X[y+r][x+s] for r in range(2) for s in range(2)]
+           for y in range(2) for x in range(2)]
+flat_w = [W[r][s] for r in range(2) for s in range(2)]
+direct = [[sum(X[y+r][x+s] * W[r][s]
+               for r in range(2) for s in range(2))
+           for x in range(2)] for y in range(2)]
+via_patch = [sum(a*b for a, b in zip(row, flat_w)) for row in patches]
+assert direct == [[-4, -4], [-4, -4]]
+assert via_patch == [-4, -4, -4, -4]
+~~~
+
+Python이 여기서 patches를 실제 list로 만드는 것은 독립 정답 검산을 위한 것이다. VirtualExpansion은 같은 row의 **좌표 매핑만** 저장하고 a,b,c,d는 기호로 남긴다. 이 정수 fixture 통과는 일반 float32 GEMM의 재결합·FMA·J error equivalence를 증명하지 않는다.
+
+**D. 두 1×1 Conv의 실제 후보와 거부 입력.** config=(1→2→1), bias 없음, 같은 spatial domain, resource W1@v3=(a,b), W2@v8=(c,d)에 대해 `c*(a*x)+d*(b*x)`에서 `(c*a+d*b)*x`라는 후보를 생성한다. x=2,a=3,b=4,c=5,d=6이면 원본 5×6+6×8=78, 후보 k=39 및 k×2=78이다. 이는 수학적 후보를 설명하는 작은 정수 예다.
+
+그러나 binary64 입력 `a=1e308,b=1e308,c=1,d=-1,x=2`에서는 원본의 두 첫 곱이 +Inf이고 다음 합은 `Inf + -Inf = NaN`인 반면, 후보는 k=0 및 0×2=0이다. 따라서 **같은 기호식 후보라도 Exact-J 승인에는 실패**한다. 이 Python/IEEE 반례는 재결합 위험의 검산이며 pinned J-C 실행 결과로 보고하지 않는다. weight write가 v3→v4를 만들거나 중간 Z의 다른 consumer/각 layer gradient가 필요하면 state/fanout/adjoint 관문도 독립적으로 실패할 수 있다. 승인 거부는 원본 graph 보존으로 이어지고 실행 가능한 원본 경로가 없으면 UnsupportedRoute다.
+
+**E. 같은 입력을 다른 시스템이 어떻게 다루는가?** 다음 비교는 §7.10.10의 문헌을 이 요청에 적용한 해석이다. RustJ column은 **제안 설계**다. 라이브러리별 성능 순위가 아니다.
+
+| 시스템 / 공식 근거 | 받는 입력과 실제 역할 | 이 예제에서 대응되는 부분 / RustJ의 독립 의무 |
+|---|---|---|
+| [SPORES, PVLDB 2020](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf) | 선형대수 식을 관계대수로 옮겨 equality saturation 후 LA plan으로 추출 | IndexJoin·aggregate 기반 후보 탐색의 참고. opaque Conv를 자동 인식하거나 J state/IEEE/effect를 증명한다는 뜻이 아님 |
+| [Glenside, MAPS 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | pure tensor의 access pattern 표현과 rewrite; im2col 변환 탐색을 시연 | virtual patch의 인덱스 표현과 layout 후보 참고. NAME/resource version과 J 오류의 증거는 별도로 필요 |
+| [CUTLASS implicit GEMM](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md) | 실제 activation/filter tensor와 CUDA kernel configuration; load 때 convolution-matrix 타일을 형성 | B의 implicit_gemm 물리 후보와 대응. 분석-only 투영과 다르며 shared/register staging는 존재. 이 문서의 NCHW cross-correlation과 CUTLASS 예제의 layout/filter 방향도 adapter에서 확인 |
+| [Halide bounds inference](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp) | pipeline의 호출 인덱스에서 필요한 함수 영역을 추론 | 8×8 demand→10×10 halo의 참고. bounds 추론만으로 ordered aggregate 재작성이나 e-class union을 승인하지 않음 |
+| [SciPy LinearOperator](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html) | shape/dtype 및 matvec, 선택적 adjoint callable; matrix 없이 적용·지연 합성 | W snapshot을 고정한 Conv의 input-linear operator/explicit adjoint와 대응. callable만으로 sum-product 내부가 드러나지는 않음; 자동 e-graph 탐색기라고 간주하지 않음 |
+
+RustJ 제안의 추가 연결은 **원본 FunctionEntity/StructuredConv ↔ source와 state version을 가진 분석 relation ↔ witnessed candidate ↔ 실제 supported Logical/Physical route**다. 사용자는 layer 구성과 X를 제공하며, compiler는 분석에 필요한 좌표·parameter identity를 공개하고 runtime은 선택된 경로에서 실제 parameter를 읽는다. 이 세 시점을 분리해야 값을 읽지 않는 가상 전개와 실제 실행 최적화를 혼동하지 않는다.
+
+**검증 기록과 남은 작업.** 이 절의 정수 fixture, IEEE 반례, tile/patch bytes·MAC 쌍 산술 및 문서 링크는 별도로 검사한다. exporter roundtrip/demand witness는 `conv_virtual_export_roundtrip`·`conv_region_halo`, FP 반례는 `conv_virtual_legality_extract`, version/fanout는 `conv_parameter_identity`, resource/route/cost는 `conv_virtual_budget_cost`에 연결한다. 기존 구현 수용 항목은 모두 [ ] UNRUN이며, 문서 검사나 CI의 기존 J suite 통과가 새 Conv 실행을 수용하지 않는다.
+
+
+<a id="8-rustj-적용-위치--검증-방법--합격반증-조건"></a>
 ##### 8. RustJ 적용 위치 / 검증 방법 / 합격·반증 조건
 
 **아키텍처 배치.** J Syntax/FunctionEntity → 기존 J Graph IR(구조적 primitive identity 유지) → **후보 DACC/AccessRegion analysis sidecar** → `GraphRewriteCandidate + FactWitness/Guard` → Verified Logical Execution IR(Checks/Effects/Error order) → existing route legality/target/cost/Physical Plan 순이다. 이 배치는 새 mandatory algebra IR 또는 새 executor를 요구하지 않는다. Graph Basis의 `Scan/CellApply/Conv`는 남기고, 검증된 경우에만 ExecutionBasis expansion이나 외부 library path를 선택한다. `with`는 static dtype/shape/semantic boundary facts를 제공할 수 있으나 tile/device/layout은 physical 정책이다.

@@ -3316,7 +3316,7 @@ legality:  J-observational proof? state version/guard valid?
 | **Glenside** — Smith et al., *Pure Tensor Program Rewriting via Access Patterns* (MAPS 2021), [author page and paper](https://ztatlock.net/pubs/2021-maps-glenside/) | Uses an **access-pattern-centric, pure tensor rewrite IR** for layout-aware rewrites; demonstrates automatic discovery of **im2col** transformations. Closest direct algebraic predecessor of E1/E2 | Expose optional primitive AlgebraSignatures as access/index rewrites, then search non-destructive candidate relations | Glenside's own pure IR is not RustJ's **full-J FunctionEntity/source graph + independent StateResource + optional sidecar**. Its tensor math does not establish all J numeric/name/effect equivalences |
 | **TASO** — Jia et al., *TASO: Optimizing Deep Learning Computation with Automated Generation of Graph Substitutions* (SOSP 2019), [paper](https://web.stanford.edu/class/cs245/readings/taso.pdf), [project](https://catalyst.cs.cmu.edu/projects/taso.html) | Generates and checks graph substitutions using **operator properties/specifications**, then conducts cost-based graph search. Precedent for the rules and legality conditions in E3/E4/E8 | Treat high-level operator algebraic properties and rewrite witnesses as explicit contracts, separate from kernels | **Operator properties as input to verified rewrites are already prior art.** Never claim first-ever primitive algebra signatures. TASO proof assumptions do not automatically cover J Rank, NAME, errors and IEEE observations |
 | **TenSat** — Yang et al., *Equality Saturation for Tensor Graph Superoptimization* (MLSys 2021), [proceedings](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html) | Explores tensor-graph substitutions via **e-graph equality saturation and extraction**, mitigating sequential rewrite phase-ordering. Relevant to E3/E8 | Bounded typed e-classes, rule admission/guards, cost extraction and original alternatives | Tensor-graph equalities cannot be imported as unconditional J **observational equality**. An unlowerable residual must be **excluded** from extraction, not merely assigned a high cost |
-| **Halide bounds inference** — [Func::infer_input_bounds](https://halide-lang.org/docs/api/generated/Func.html), [BoundsInference pass](https://halide-lang.org/docs/_bounds_inference_8h.html) | Derives required **input regions from requested output bounds and function calls**. Exactly the demand/halo theme in E5 (8×8 output, 10×10 input for an interior 3×3 unit-stride convolution) | Output-demand-to-input-region pullback with edge clipping, halo and a distinct conservative bounding cover | Bounds analysis is not SPORES sum-product/e-graph equality. A safe cover need not be a minimal exact read set; it does not authorize removing J empty/prototype checks or first-error constraints |
+| **Halide bounds inference** — [Func::infer_input_bounds](https://halide-lang.org/docs/api/generated/Func.html), [BoundsInference pass](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp) | Derives required **input regions from requested output bounds and function calls**. Exactly the demand/halo theme in E5 (8×8 output, 10×10 input for an interior 3×3 unit-stride convolution) | Output-demand-to-input-region pullback with edge clipping, halo and a distinct conservative bounding cover | Bounds analysis is not SPORES sum-product/e-graph equality. A safe cover need not be a minimal exact read set; it does not authorize removing J empty/prototype checks or first-error constraints |
 | **Polyhedral compilation: isl / Pluto / Tiramisu** — [isl manual](https://libisl.sourceforge.io/user.html), [Tiramisu CGO 2019](https://arxiv.org/abs/1804.10694), [implementation](https://github.com/Tiramisu-Compiler/tiramisu) | Models **integer affine iteration domains, access/dependence relations and schedules**. isl offers sets/relations and schedule trees; Tiramisu separates algorithms, loop schedules and data layouts. Related to E2/E5 | Analyze parameterized affine Conv mappings, for example h*stride + r*dilation - pad, when parameter/legal constraints permit | Non-affine data-dependent indexing, unknown predicates and observable effects may escape the affine profile. Proving index equivalence is not proving J floating algebra equivalence; do not place physical schedule/layout into Graph semantics |
 | **Database view unfolding** — [PostgreSQL official view-rewriting docs](https://www.postgresql.org/docs/current/rules-views.html) | A query rewriter expands stored view definitions as **subqueries in a query tree** so the planner can optimize the combined relationships. Structural analogy to E8 | Allow the optimizer to consult an opaque operation's algebraic/relational definition on demand, retaining provenance | PostgreSQL's rewrites **change the query tree**. RustJ instead proposes a **non-destructive sidecar with authoritative StructuredConv retained**. Database view expansion alone does not ensure automatic original-Graph fallback or proved kernel extraction |
 | **Matrix-free operators: SciPy LinearOperator / PyLops** — [SciPy API](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html), [PyLops API](https://pylops.readthedocs.io/en/stable/api/generated/pylops.LinearOperator.html) | Specify **matvec/apply and rmatvec/adjoint without forming a dense matrix**; composite operators may remain lazy. Nearest mathematical analogue to E6 BindRight/BindLeft/Adj | Define input-linear/weight-linear views of a bilinear Conv with explicit operator shape/adjoint contracts | Matrix-free application alone is not SPORES relational saturation or management of mutable J weights. Distinguish transpose from complex Hermitian adjoint and conjugation |
@@ -3379,6 +3379,115 @@ Input-linearity and weight-linearity refer to a **bias-separated bilinear core**
 
 **Sources:** [Original SPORES](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf), [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/), [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/), [Korean canonical Conv section](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-graph-ir-optimization), [ExecutionBasisExpansion](docs/project/chapters/15-advanced-contracts-p10.ko.md#executionbasisexpansion).
 
+
+
+<a id="conv-virtual-expansion-walkthrough"></a>
+**7.10.11 Virtual Expansion inputs, outputs and optimization walkthrough: from an analysis request to candidate selection (2026-10-14).**
+
+Read the design in §7.10.8–10 as **inputs → analysis artifact → candidates → admission/rejection → execution route**. Request records, RuleIds and candidate names below are explanatory pseudointerfaces, not implemented Rust APIs. Arithmetic and array sizes are independently checked examples; RustJ Conv export, SPORES search, kernel execution and performance remain **UNRUN**. Evidence belongs to the existing NN/GF/FW/IO gates, not a new completion ledger.
+
+**A. What are the inputs?** Source, semantic call facts, optional output demand and downstream physical requirements are separate inputs. Index analysis need not receive actual weight elements.
+
+| Provider | Example input | Purpose and unknown handling |
+|---|---|---|
+| J source/parser | `(3 16 3 3 1 1 1 conv2d)"3`, followed by `relu`; FunctionEntity, source span and ordinary NAME binding | Illustrative builder proposal. Unresolved POS/signature/NAME must not be guessed to denote Conv |
+| Call analysis | XShape=[1,3,64,64], WShape=[16,3,3,3], YShape=[1,16,64,64]; rank-3 cells, batch frame [1]; groups=1, dilation=1 | NCHW cross-correlation axes, bounds and padding. These are explicit example specifications, not automatic defaults of today's registered API |
+| Semantic resource owner | layer L17, weight Rw@v7, bias Rb@v3, binding epoch; immutable snapshot or ordered-read obligation | Symbolic references, not values. Unknown version/sharing/effects stay Opaque or guarded |
+| Numeric/error contract | float32 storage, explicit accumulator/rounding/fold order, bias then ReLU, empty/fill and first-error obligations | Dtype alone licenses neither reassociation nor FMA. The example specifies c,r,s order; a final RustJ extension contract still needs independent acceptance |
+| Consumer demand | n=[0,1), o=[0,16), y=[10,18), x=[10,18) | An 8×8 final-output tile. Absent demand means full output; small demand does not license dropping original errors/effects |
+| Downstream planner | Actual target capabilities, layout, 8 KiB patch-scratch limit, empirical cost information | Physical conditions checked **after** VirtualExpansion, outside source meaning and FunctionEntity identity |
+
+~~~text
+ExpansionRequest (proposed):
+  original_call=L17; operation=StructuredConv; input_value=Vx
+  geometry=(Cin=3,Cout=16,k=3x3,stride=1,pad=1,groups=1,dilation=1)
+  state=(ParameterRef(Rw,v7),BiasRef(Rb,v3))
+  facts=(XShape,YShape,WShape,Rank,NumericContract,Checks,Effects)
+  demand=Y[0:1,0:16,10:18,10:18]
+  limits=(node_budget,time_budget); required_provenance=(source,binding)
+
+ExpansionResult (proposed):
+  original_call=L17                -- authoritative Graph is retained
+  free_axes=(n,o,y,x); bound_axes=(c,r,s)
+  X_access=(n,c,y-1+r,x-1+s); W_access=(o,c,r,s)
+  predicates=(0<=c<3,0<=r,s<3,valid_X_or_zero_padding)
+  fold=ordered(c,r,s); post_ops=(bias,ReLU)
+  parameter_versions=(Rw@v7,Rb@v3)
+  demand_pullback + witnesses + unknowns + proof_obligations
+~~~
+
+The result is an index relation combining Vx and symbolic parameters, ordered reduction, and provenance back to the original call. It contains neither weight values nor a patch array. Out-of-bounds coordinates denote the specified zero-fill, not illegal memory loads. Output-shape validation, empty-cell checks and ordered state reads remain obligations separate from data demand.
+
+**B. Conv→ReLU on an 8×8 output tile: the optimization record.** Preserve bias addition followed by ReLU.
+
+~~~text
+Z[n,o,y,x] = OrderedSum_(c,r,s)
+    X_or_zero[n,c,y-1+r,x-1+s] * ParameterRef(Rw@v7)[o,c,r,s]
+    + BiasRef(Rb@v3)[o]
+Y[n,o,y,x] = ReLU(Z[n,o,y,x])
+
+Demand(Y): [0:1,0:16,10:18,10:18]
+Pullback(X): [0:1,0:3,9:19,9:19]        -- 300 atoms
+Pullback(W): [0:16,0:3,0:3,0:3]        -- 432 atoms
+Pullback(bias): [0:16]                 -- 16 atoms
+~~~
+
+This interior tile avoids image boundaries and has unit stride/dilation, so its exact spatial input union is 10×10. Other geometries require separating the exact index set from a rectangular cover. The required value region does not prove that all original errors/effects may be omitted.
+
+| Quantity | Full output | Requested tile | Interpretation |
+|---|---|---|---|
+| Conv output atoms | 16×64×64=65,536 | 16×8×8=1,024 | Count bias/ReLU arithmetic separately |
+| Multiply-accumulate pairs | 65,536×27=1,769,472 | 1,024×27=27,648 | Neither implementation FLOPs nor measured latency |
+| Conceptual patch matrix | 4,096×27=110,592 float32, **432 KiB** | 64×27=1,728 float32, **6.75 KiB** | Allocation only if packing is selected; the analysis relation has zero patch-storage bytes |
+| Intermediate Z storage | 65,536×4=256 KiB | 1,024×4=4 KiB | Candidate elimination for sole-consumer Conv→ReLU fusion; fanout requires renewed liveness/consumer proof |
+
+The 8 KiB limit covers **patch scratch only**, not total peak memory including input/weights/output, accumulators, shared/register staging and leases. Fewer temporary bytes are not a measured latency improvement.
+
+| Candidate / derivation | Semantic gate | Physical gate and example conclusion |
+|---|---|---|
+| Original StructuredConv | Preserve source, state and checks | Baseline only if a real original route exists; otherwise UnsupportedRoute |
+| Full im2col→GEMM / virtual-window matrix relation | Fold order, FMA, padding/type/error equivalence | 432 KiB exceeds 8 KiB patch scratch: reject for resource infeasibility, not merely high cost |
+| Tiled pack→GEMM / restrict demand to 64 rows | Demand/check/numeric witnesses | 6.75 KiB passes that limit alone; independently verify other resources, kernel availability and semantics |
+| Direct tiled Conv→ReLU / preserve fold and post-op | No other Z consumer; same rounding/errors/effects; safe alias/lease behavior | No full patch. Select only with a real supported direct/fused route and passed gates |
+| Implicit GEMM / generate virtual-patch addresses | Evidence for GEMM accumulation and target numeric policy | No full global patch, but staging/layout conversion costs remain. Without CUDA, it is not an executable alternative to CPU direct Conv |
+
+The illustrative ledger reads `full_pack: Reject(Resource)`, `tile_pack: Needs(NumericWitness,Kernel)`, `direct_fused: Needs(Effect/NumericWitness,Kernel)`, `implicit_gemm: Reject(NoTargetRoute)`. **Today's unimplemented RustJ Conv routes make the actual execution verdict UnsupportedRoute/UNRUN.** A future verified CPU direct_fused route could be selected if its measured cost also wins. Candidate generation, legality, resource checks and extraction remain separate decisions.
+
+**C. A reproducible value example versus analysis without values.** Independently reproduce §7.10.9 E1/E2 using Python arithmetic. W is a **documentation-check fixture**, not evidence that RustJ's user surface or analysis request requires a W noun.
+
+~~~python
+X = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+W = [[1, 0], [0, -1]]
+patches = [[X[y+r][x+s] for r in range(2) for s in range(2)]
+           for y in range(2) for x in range(2)]
+flat_w = [W[r][s] for r in range(2) for s in range(2)]
+direct = [[sum(X[y+r][x+s] * W[r][s]
+               for r in range(2) for s in range(2))
+           for x in range(2)] for y in range(2)]
+via_patch = [sum(a*b for a, b in zip(row, flat_w)) for row in patches]
+assert direct == [[-4, -4], [-4, -4]]
+assert via_patch == [-4, -4, -4, -4]
+~~~
+
+Python allocates patches here solely to check an independent answer. VirtualExpansion stores the **coordinate map** of those rows while a,b,c,d remain symbolic. Passing this integer fixture proves neither general float32 GEMM reassociation/FMA legality nor J error equivalence.
+
+**D. Two 1×1 Convs: a concrete candidate and rejection input.** With configuration 1→2→1, no bias, identical spatial domains and resources W1@v3=(a,b), W2@v8=(c,d), propose `(c*a+d*b)*x` for `c*(a*x)+d*(b*x)`. At x=2,a=3,b=4,c=5,d=6, the original is 5×6+6×8=78 and the candidate has k=39, k×2=78. This small integer case illustrates a mathematical candidate.
+
+But binary64 inputs `a=1e308,b=1e308,c=1,d=-1,x=2` give +Inf for both initial products, followed by `Inf + -Inf = NaN`; the candidate gives k=0 and 0×2=0. **The same symbolic candidate therefore fails Exact-J admission.** This Python/IEEE counterexample checks the reassociation hazard; it is not a claimed pinned J-C execution result. A weight write changing v3→v4, another Z consumer or required per-layer gradients can independently fail state/fanout/adjoint gates. Rejection preserves the original graph; without an executable original route, report UnsupportedRoute.
+
+**E. How would other systems handle these inputs?** Apply §7.10.10's sources to this request. The RustJ column is **proposed design**, not a library performance ranking.
+
+| System / primary source | Input and actual role | Correspondence / independent RustJ obligation |
+|---|---|---|
+| [SPORES, PVLDB 2020](https://www.vldb.org/pvldb/vol13/p1919-wang.pdf) | Linear-algebra expressions converted to relational algebra, equality saturation and extraction back to LA plans | Reference for IndexJoin/aggregate candidate exploration; does not automatically recognize opaque Conv or prove J state/IEEE/effect semantics |
+| [Glenside, MAPS 2021](https://ztatlock.net/pubs/2021-maps-glenside/) | Pure-tensor access-pattern representation/rewriting, including im2col exploration | Reference for virtual-patch indices and layout candidates; J NAME/resource versions and errors need separate witnesses |
+| [CUTLASS implicit GEMM](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md) | Actual activation/filter tensors and CUDA kernel configuration; forms convolution-matrix tiles during loads | Physical implicit_gemm candidate in B, distinct from analysis-only projection; shared/register staging remains. Adapters must also check this example's NCHW cross-correlation against CUTLASS example layout/filter orientation |
+| [Halide bounds inference](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp) | Infer required function regions from pipeline call indices | Reference for 8×8 demand→10×10 halo, not authorization to rewrite ordered aggregation or union e-classes |
+| [SciPy LinearOperator](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html) | Shape/dtype plus matvec and optional adjoint callables; matrix-free application/lazy composition | Analogous to input-linear Conv and explicit adjoint with a fixed W snapshot. A callable does not expose sum-product internals; this is not automatic e-graph search |
+
+The proposed RustJ connection is **original FunctionEntity/StructuredConv ↔ analysis relation with source/state versions ↔ witnessed candidate ↔ actual supported Logical/Physical route**. The user supplies layer configuration and X; the compiler exposes coordinates and parameter identity for analysis; runtime reads actual parameters on the chosen route. These are separate moments, distinguishing value-free expansion from executable optimization.
+
+**Evidence and remaining work.** Independently check the integer fixture, IEEE counterexample, tile/patch-byte and MAC-pair arithmetic, and document links. Connect exporter roundtrip/demand to `conv_virtual_export_roundtrip`/`conv_region_halo`, floating negatives to `conv_virtual_legality_extract`, version/fanout to `conv_parameter_identity`, and resource/route/cost to `conv_virtual_budget_cost`. Existing executable acceptance items remain [ ] UNRUN. Document checks or existing J-suite CI passes do not accept new Conv execution.
 
 
 ##### 8. RustJ placement, experimental design and falsification criteria
