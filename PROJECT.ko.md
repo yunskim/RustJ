@@ -66,6 +66,7 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 - [본문 4/5 — P2 — 하나의 9-row reduction engine으로 전환](./docs/project/chapters/11-roadmap-checklists-p04.ko.md)
 - [§7.10.7 — JAXA Convolution adverb의 인자와 SPORES 가상 전개 설계](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion)
 - [§7.10.8 — Virtual Expansion 실제 계산·SPORES 최적화 예제집](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-examples)
+- [§7.10.9 — Virtual Expansion 관련 연구·차별성·검증 체크리스트](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-related-work)
 - [본문 5/5 — A1.5.2 JAXA의 static-memory claim을 RustJ에서 해석하는 방식](./docs/project/chapters/11-roadmap-checklists-p05.ko.md)
 
 ### 11. 검증 정책
