@@ -1,6 +1,6 @@
 # 문서 체계 인덱스
 
-공통 역할 체계: [commonplace의 문서 체계 v1](https://github.com/yunskim/commonplace/blob/main/docs/DOCUMENT_SYSTEM.md) (Private; 접근 권한 필요).
+공통 문서 역할: specification(명세), decisions(결정), plans(계획), verification(검증).
 
 | 역할 | 현재 정본 / 경로 |
 | --- | --- |
