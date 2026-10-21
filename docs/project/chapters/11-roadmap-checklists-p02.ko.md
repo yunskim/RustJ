@@ -548,3 +548,10 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 `runtime::Engine::visible_function_binding`을 추가했다. 직접 지정된 locale의 함수 NAME은 `direct_read_binding`을 통해 해당 locale→`z` fallback으로 조회하며, base locative는 base→`z` 순서다. 일반 NAME은 기존 `visible_binding`으로 처리한다. `resolve_function_entity` 및 verb indirection 경로에 연결했고, 최종 함수 NAME 존재 검사도 같은 조회로 맞췄다. **호출 시점 재조회**를 수행하므로 파서의 POS 관찰 결과를 고정된 함수 identity로 사용하지 않는다.
 
 **미완료:** indirect locative 함수, modifier 적용 경로 전체, locale 함수 할당, path 일반화, 동적 바인딩 오류/순서 oracle 검증. 특히 `visible_function_binding`은 indirect locative를 `None`으로 돌려 현재 실행을 명시적으로 허용하지 않는다. 이 변경은 실제 Rust 테스트를 실행하지 않았으며 통과를 주장하지 않는다.
+
+
+### 구현 기록: 함수 간접 참조 및 modifier 조회 경로 확장 (2026-10-21)
+
+`runtime.rs`의 기존 `visible_function_binding`을 다음 함수 NAME 조회 경로로 확장했다: explicit operator probe, primitive witness, composite function call, parser host의 `stacked_modifier`. 각 경로는 direct/base locative의 own-locale→z 검색을 사용하고 일반 NAME은 기존 조회로 처리한다. `function_name_ranks`는 여전히 locative를 보수적으로 unknown 처리하며, `fork_cap_binding`과 gerund lookup 등은 별도 의미론 감사가 필요하다.
+
+**범위 주의:** 이 변경은 lookup 통일이지 모든 modifier/locale 호출의 완성 선언이 아니다. locale 함수 할당과 indirect function lookup은 여전히 지원하지 않는다. 컴파일·테스트·jsource oracle은 실행하지 않았다.
