@@ -68,6 +68,43 @@ pub enum Logical {
     Multiply,
     ReduceSumKernel,
 }
+
+/// An opt-in adapter between the *actual* RustJ IR identity types and the
+/// Conv1D semantic registry. It does not mutate either production IR.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphViewRequest {
+    pub origin: crate::j_graph_ir::ValueId,
+    pub input: crate::j_graph_ir::ValueId,
+    pub weight: crate::j_graph_ir::ValueId,
+    pub spec: Conv1dSpec,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogicalViewPlan {
+    pub origin: crate::j_graph_ir::ValueId,
+    pub input: crate::j_graph_ir::ValueId,
+    pub weight: crate::j_graph_ir::ValueId,
+    pub expr: Expr,
+    pub steps: Vec<Logical>,
+}
+/// The same registered expression is preserved in the lowering request.
+/// Actual A3 operations are not emitted until shape, effects, and provenance
+/// constraints can be checked against a real j_graph_ir::Plan.
+pub fn prepare_logical_view(request: &GraphViewRequest) -> Option<LogicalViewPlan> {
+    let definition = view(ViewMode::Forward, request.spec)?;
+    let (stride, padding, dilation) = forward_contraction(&definition.expr)?;
+    Some(LogicalViewPlan {
+        origin: request.origin,
+        input: request.input,
+        weight: request.weight,
+        expr: definition.expr,
+        steps: vec![
+            Logical::IndexMapWindow { stride, padding, dilation },
+            Logical::Multiply,
+            Logical::ReduceSumKernel,
+        ],
+    })
+}
+
 pub fn lower(node: &Graph) -> Option<Vec<Logical>> {
     let Graph::Conv1d { spec, .. } = node else { return None };
     let definition = view(ViewMode::Forward, *spec)?;
