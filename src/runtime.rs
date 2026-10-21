@@ -681,7 +681,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
     }
 
     fn fork_cap_binding(&self, name: &str) -> Result<Option<(bool, crate::semantic::NameVersion)>> {
-        Ok(self.engine.visible_binding(name).map(|binding| (
+        Ok(self.engine.visible_function_binding(name).map(|binding| (
             matches!(&binding.value, JEntity::Function(function)
                 if matches!(function.head, FunctionHead::PrimitiveVerb(crate::primitive::PrimitiveId::Cap))),
             binding.version)))
@@ -776,6 +776,18 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         Ok(self.engine.parser_name_binding(name))
     }
     fn gerund_binding(&self, name: &str) -> Result<Option<crate::parser::ParserNameBinding>> {
+        // Preserve the existing ordinary-NAME extension fallback. A direct/base
+        // locative is an explicit namespace lookup, never an extension alias.
+        if named_direct_address(name).is_some() || base_locative_key(name).is_some() {
+            return Ok(self.engine.visible_function_binding(name).map(|binding| {
+                match &binding.value {
+                    JEntity::Noun(value) => crate::parser::ParserNameBinding::Noun(value.clone()),
+                    JEntity::Function(function) => {
+                        crate::parser::ParserNameBinding::Function(function.result_pos)
+                    }
+                }
+            }));
+        }
         Ok(self.engine.parser_name_binding(name))
     }
     fn version(&self, name: &str) -> Option<crate::semantic::NameVersion> {
