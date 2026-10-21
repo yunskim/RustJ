@@ -106,6 +106,34 @@ pub fn resolved_conv1d_handle_view(
     resolved_conv1d_view(identity, mode, spec)
 }
 
+
+/// Binding evidence is explicit: a NAME spelling alone is never authoritative.
+/// This sidecar can be attached at the parser/name-binding boundary without
+/// modifying FunctionEntity layout or changing normal J name resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindingEvidence {
+    /// A resolved extension binding survived the applicable NAME lookup.
+    ResolvedExtension(crate::primitive::PrimitiveHandle),
+    /// User binding, shadowed extension, or unresolved/dynamic name.
+    NotProven,
+}
+pub fn function_entity_view(
+    function: &crate::semantic::FunctionEntity,
+    evidence: BindingEvidence,
+    mode: ViewMode,
+    spec: Conv1dSpec,
+) -> Option<AlgebraicView> {
+    let crate::semantic::FunctionHead::NameRef(name) = &function.head else {
+        return None;
+    };
+    // This is a consistency guard, not the basis of identity.
+    if name != "conv1d" { return None; }
+    let BindingEvidence::ResolvedExtension(handle) = evidence else {
+        return None;
+    };
+    resolved_conv1d_handle_view(handle, mode, spec)
+}
+
 /// An opt-in adapter between the *actual* RustJ IR identity types and the
 /// Conv1D semantic registry. It does not mutate either production IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
