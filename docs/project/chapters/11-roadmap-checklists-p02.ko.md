@@ -520,7 +520,8 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 - [x] direct/base locative 경로 조사: runtime parser host는 noun lookup을 지원하나 함수 참조는 명시적으로 Unsupported 처리한다.
 - [x] `direct_read_binding`은 대상 locale 조회 후 `z` fallback을 시도한다. 이름의 출처·검색 경로를 별도 증거로 남겨야 한다.
 - [ ] J locale 조회·함수 호출·동적 재바인딩의 원문 의미론과 기존 jsource oracle fixture를 대조하여 허용 범위 확정
-- [ ] parser host의 direct/base locative **function lookup** 지원: noun과 동일한 scope 탐색, 단 실행 시점 바인딩/효과 순서 유지
+- [x] parser host의 direct/base locative **function POS 조회** 지원: noun과 동일한 scope 탐색으로 함수 품사 분류 (2026-10-21, 실행 호출 미지원)
+- [ ] direct/base locative 함수의 **실제 실행 시점 바인딩·호출** 구현: 재바인딩·효과 순서·z fallback 검증
 - [ ] indirect locative의 noun/function 분기와 locale 생성/오류 순서 계약 확정
 - [ ] local/global/base/named/z fallback에서 POS 및 NAME version/provenance 전달
 - [ ] Graph IR `RequiresSpecialization` 해제 조건과 실행 가드·fallback 계약 확정
@@ -536,3 +537,6 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 - [ ] 누적 테스트 일괄 실행, 실패 수정 및 검증 결과 기록
 
 **실행 정책:** 사용자 요청에 따라 지금은 테스트를 실행하지 않고, 변경 사항과 검증 대상을 누적한다.
+
+### 구현 기록: direct/base 함수 POS 조회 (2026-10-21)
+`runtime.rs`의 parser host `lookup`에서 direct/base locative의 기존 함수 Unsupported 분기를 `ParserNameBinding::Function(function.result_pos)`로 변경했다. `direct_read_binding`의 기존 대상 locale→z fallback을 사용하며, noun 복사/lookup 경로는 그대로 유지한다. **이 변경은 파서 품사 판별만 허용한다.** 실제 `resolve_function_entity`는 여전히 `visible_binding` 경로를 사용하므로 locative 함수 호출의 의미론적 실행까지 완료됐다고 볼 수 없다. 테스트는 일괄 실행 시점까지 보류한다.
