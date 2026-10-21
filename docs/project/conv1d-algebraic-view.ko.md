@@ -206,3 +206,31 @@ Graph 재작성과 Logical lowering 모두 동일한 `forward_contraction(&view(
 **주의:** `BindingEvidence::ResolvedExtension`은 현재 호출자가 제공하는 값이다. 실제 파서의 NAME 효과 처리와 바인딩 확인으로부터 생성되는 경로는 아직 구현되지 않았다. 따라서 이름 섀도잉 문제를 해결했다고 주장하지 않는다. 다음 작업은 기존 NAME resolution 시점과 효과 순서를 추적하여 증거를 언제 확정할 수 있는지 조사하고, 검증 가능한 provenance를 Graph IR까지 전달하는 것이다.
 
 테스트는 모아서 진행한다는 사용자 요청에 따라 실행하지 않았다.
+
+## 17. NAME 의미론 선행 정리 — Conv1D 특수화 보류 (2026-10-21)
+
+기존 코드 검토 결과:
+- `semantic::FunctionHead::NameRef(String)`은 해석되지 않은/동적 이름 참조이며 확장 primitive identity가 아니다.
+- `semantic::NameVersion`은 한 Engine 내 성공한 쓰기 버전이다. `NameRankSnapshot`, `ModifierSnapshot`은 프런트엔드 관찰이며 실행 가드가 아니다.
+- `semantic::BoundProgram::verb_references`는 동적 함수 참조를 기록하며 특정 noun 할당 버전에 고정되지 않는다.
+- `j_graph_ir::analyzability_for`는 `FunctionHead::NameRef`를 `RequiresSpecialization`으로 분류한다.
+- `name_effect_ir::NameObservation`은 이름 전이의 관찰 기록이며 세대/버전을 실행 가드로 재사용할 권한을 주지 않는다.
+- `PrimitiveContext::resolve_extension_binding`은 *등록된 후보*를 반환하지만 사용자 정의 NAME에 대한 우선권을 보증하지 않는다.
+
+### 확정해야 할 불변식
+
+1. **Lexical NAME ≠ Binding ≠ Semantic Identity.** 소스 철자 `conv1d` 또는 등록된 확장 후보만으로 Graph IR 노드를 Conv1D로 확정하지 않는다.
+2. **바인딩 확정의 소유자는 NAME 해석/효과 처리 계층**이다. 같은 이름에 대한 쓰기·삭제·재정의 및 네임스페이스 규칙을 반영한 결과여야 한다.
+3. **정적 특수화에는 실행 시점의 유효성 증거가 필요**하다. 관찰 버전·스냅샷만으로는 불충분하다. 적절한 실행 가드/불변 바인딩/명시적 고정 의미가 없는 경우 `RequiresSpecialization`을 유지한다.
+4. **PrimitiveHandle은 식별자이지 바인딩 증명서가 아니다.** `BindingEvidence::ResolvedExtension(handle)`은 호출자 주장이므로 독립적인 정당화로 사용해서는 안 된다.
+5. **Graph 최적화는 특수화된 Conv1D에만 적용**하고, 재작성 가능성은 shape, effects, error ordering, floating-point 정책을 별도로 검증한다.
+
+### 작업 순서 변경
+
+- [ ] NAME 해석/효과/네임스페이스의 실제 실행 경로와 확장 후보 우선순위를 추적
+- [ ] 정적 확정, 가드된 특수화, 동적 fallback의 세 경우를 분리하여 계약화
+- [ ] `BindingEvidence`를 실제 NAME 해석 결과에서만 생성할 수 있도록 변경하거나 폐기
+- [ ] 그 후에만 `FunctionEntity` → Graph IR Conv1D 식별 경로 구현
+- [ ] Graph IR → Logical IR 연결 및 재작성 합법성 검증
+
+**상태:** 현재 `function_entity_view`는 호출자가 제공한 증거에 의존하는 프로토타입이다. 실제 NAME 해석을 통과한 경로가 아니므로 프로덕션 최적화에 사용 금지. 사용자의 요청에 따라 테스트는 모아서 실행한다.
