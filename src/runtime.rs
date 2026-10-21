@@ -743,9 +743,12 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
                     value: JEntity::Noun(value),
                     ..
                 }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
-                Some(_) => Err(Error::Unsupported(
-                    "direct-locative function reference".into(),
-                )),
+                Some(Binding {
+                    value: JEntity::Function(function),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Function(
+                    function.result_pos,
+                ))),
                 None => Err(Error::Unsupported(
                     "direct-locative path/future reference".into(),
                 )),
@@ -759,9 +762,12 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
                     value: JEntity::Noun(value),
                     ..
                 }) => Ok(Some(crate::parser::ParserNameBinding::Noun(value.clone()))),
-                Some(_) => Err(Error::Unsupported(
-                    "base-locative function reference".into(),
-                )),
+                Some(Binding {
+                    value: JEntity::Function(function),
+                    ..
+                }) => Ok(Some(crate::parser::ParserNameBinding::Function(
+                    function.result_pos,
+                ))),
                 None => Err(Error::Unsupported(
                     "unbound base-locative future reference".into(),
                 )),
