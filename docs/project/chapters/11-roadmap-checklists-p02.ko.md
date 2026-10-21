@@ -602,3 +602,18 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] 위 회귀를 jsource oracle과 대조하고 일괄 테스트 실행
 
 주의: `local_declarations`는 literal simple-name 대입을 다루며 computed/noun assignment target 전체를 증명하지 않는다. 미바인딩 지역 이름의 global fallback과 호출 프레임의 시점별 조회는 별도 검증 대상이다. 테스트는 아직 실행하지 않았다.
+
+
+### Direct definition NAME scope 추가 검증: 기존 oracle 기록 재감사 (2026-10-21)
+
+`reports/definition-name-scopes-windows.json`의 과거 Windows differential 기록을 확인했다. `fixture_set=name-scopes`, 10개 사례 × 4개 관측 = 40건이며 기록된 `counts.matched=40`이다. 사례: `explicit_local_fallback`, `direct_local_fallback`, `explicit_local_function_escape`, `direct_local_function_escape`, `explicit_global_write`, `direct_global_write`, `explicit_local_global_collision`, `direct_local_global_collision`, `top_level_local_copula_is_global`, `callee_does_not_capture_caller_local`. 관측은 당시 binary/source revision에 한정된다. **현재 HEAD 테스트를 실행하거나 재검증한 것이 아니다.**
+
+추가 코드 감사: `definition_code::DefinitionScopePlan`이 literal `=.` 선언을 수집하고, `runtime::invoke_definition_body`가 valence별 선언 및 `x/y/u/v/m/n`을 새 `LocalFrame`에 설치한다. `store_binding`은 function과 noun을 모두 저장한다. 따라서 지역 함수 저장·읽기·전역 충돌에 대한 기본 실행 경로는 존재한다. 그러나 direct/base locative 함수 할당을 최근 허용한 변경과의 상호작용, 재귀/중첩 scope 및 재정의 후 POS 변경은 과거 보고서만으로 보증할 수 없다.
+
+- [x] 과거 direct definition 지역변수·충돌·함수 escape differential 기록 확인 (과거 40/40, 현 HEAD 미검증)
+- [ ] 현 HEAD에서 과거 10개 fixture 재실행
+- [ ] 지역 함수 verb→noun 및 noun→verb 재정의 회귀 추가
+- [ ] 지역 함수와 `f__`/`f_loc_` 충돌 및 `z` fallback 회귀 추가
+- [ ] 중첩·재귀 direct definition의 지역 프레임 격리 및 오류 복구 회귀 추가
+
+테스트 실행은 사용자 지정 일괄 테스트 단계까지 보류한다.
