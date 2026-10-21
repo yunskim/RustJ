@@ -10,6 +10,10 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 - [Agent 작업·문서 규약](AGENTS.md) · [프로젝트 README](README.ko.md)
 - [라이선스](LICENSE) · [기여자 계약](CLA.ko.md)
 
+## 신규 설계 초안
+
+- [Conv1D blackbox · Algebraic View · SPORES · Adjoint · Logical IR lowering (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 설계 제안, 미구현
+
 ## 상세 문서
 
 ### 처음 읽는 사람을 위한 소개 — RustJ를 어떻게 이해하면 되는가
