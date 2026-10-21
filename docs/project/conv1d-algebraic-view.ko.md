@@ -156,3 +156,13 @@ Graph IR SPORES의 조회와 Logical IR lowering은 **같은 정식 의미 정�
 **실행 환경 제약:** 현재 실행 컨테이너에는 `cargo`와 `rustc`가 없고 GitHub raw 파일 네트워크 접근도 불가능하여 Rust 테스트를 실행하지 못했다. 따라서 Rust 컴파일 성공, 테스트 통과, 실제 RustJ IR 연결을 주장하지 않는다. 로컬/Work 환경에서 `cargo test conv1d_algebraic_view`를 실행해야 한다.
 
 **현재의 중요한 기술적 한계:** `AlgebraicView`는 mode/spec을 보유하지만 인덱스·축약을 표현하는 공통 symbolic AST는 아니다. Graph rewrite는 하드코딩된 패턴, Logical lowering은 표식 벡터에 의존한다. 따라서 지금 단계는 *공통 레지스트리 조회의 배선(prototype)*만 보여 주며, **동일한 대수 의미식에서 최적화와 lowering을 파생한다는 핵심 설계는 아직 검증되지 않았다**. 다음 작업은 인덱스/축약 AST와 재구성 계약을 도입한 뒤 두 경로가 실제로 해당 AST를 소비하도록 변경하는 것이다.
+
+## 12. 공통 symbolic AST 도입 (2026-10-21)
+
+`src/conv1d_algebraic_view.rs`의 `AlgebraicView`를 단순 mode/spec 저장 구조에서 `Expr` AST로 변경했다. AST는 `Read(Operand, Index)`, `Mul`, `Sum`, `ScatterSum`을 가지며, `Axis`와 `OutputPlusKernel` 인덱스 맵을 명시한다. `view(Forward)`는 `Sum_K(Input[p+k] * Weight[k])` 형태를 실제 AST로 등록한다. `view(InputAdjoint)`는 scatter-sum, `view(WeightAdjoint)`는 output 축 합산을 등록한다.
+
+Graph 재작성과 Logical lowering 모두 동일한 `forward_contraction(&view(...).expr)` 패턴 인식기를 사용하도록 변경했다. 따라서 이제는 **공통 symbolic 표현을 읽는 최소 프로토타입**이다. 단, 재작성 자체는 여전히 수동으로 작성한 분배 규칙 하나이며, Logical IR은 실제 RustJ IR이 아닌 프로토타입 표식이다. Adjoint oracle은 view의 AST 종류를 확인하지만 AST를 일반적으로 평가하지는 않는다.
+
+**실행 상태:** 저장소에 코드 변경을 커밋했으나 현재 실행 환경에 cargo/rustc가 없어 Rust 컴파일 및 테스트는 미실행이다. `cargo test conv1d_algebraic_view`가 필수다. 기존 실제 Graph IR/Logical IR/SPORES와의 통합도 아직 미완료다.
+
+**후속 검증:** symbolic AST의 alpha-equivalence, 축 범위 및 shape 제약, reconstruction의 피연산자 캡슐화, floating-point 재작성 합법성, 실제 IR 변환 및 실행 검증.
