@@ -691,7 +691,7 @@ impl crate::parser::RuntimeParserHost for EngineParserHost<'_> {
         &self,
         name: &str,
     ) -> Option<(std::sync::Arc<FunctionEntity>, crate::semantic::NameVersion)> {
-        let binding = self.engine.visible_binding(name)?;
+        let binding = self.engine.visible_function_binding(name)?;
         let JEntity::Function(function) = &binding.value else {
             return None;
         };
@@ -1812,7 +1812,7 @@ impl Engine {
             if let FunctionHead::NameRef(name) = &current.head {
                 // Ordinary lookup failures keep the established resolver's
                 // name/error context; this probe only recognizes operator calls.
-                let Some(binding) = self.visible_binding(name) else {
+                let Some(binding) = self.visible_function_binding(name) else {
                     return Ok(None);
                 };
                 let JEntity::Function(target) = &binding.value else {
@@ -1976,7 +1976,7 @@ impl Engine {
             FunctionHead::PrimitiveVerb(id) => Ok(Some(*id)),
             FunctionHead::NameRef(name) => {
                 let binding = self
-                    .visible_binding(name)
+                    .visible_function_binding(name)
                     .ok_or_else(|| Error::Value(name.clone()))?;
                 let JEntity::Function(target) = &binding.value else {
                     return Err(Error::Domain);
@@ -2034,7 +2034,7 @@ impl Engine {
                 let Some(Binding {
                     value: JEntity::Function(target),
                     ..
-                }) = self.visible_binding(name)
+                }) = self.visible_function_binding(name)
                 else {
                     return Err(Error::Unsupported("composite name resolution".into()));
                 };
