@@ -617,3 +617,10 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] 중첩·재귀 direct definition의 지역 프레임 격리 및 오류 복구 회귀 추가
 
 테스트 실행은 사용자 지정 일괄 테스트 단계까지 보류한다.
+
+
+### 누적 NAME 회귀 코드 추가 (2026-10-21)
+
+`src/runtime.rs::name_locale_regression_tests`에 실행 보류 상태의 테스트 3개를 추가했다: (1) direct locale 함수 쓰기·z fallback·own noun shadow·함수 재정의, (2) base locative가 local frame을 우회하고 재정의 후 noun으로 바뀌는지, (3) direct definition `{{ ... }}`의 `local=.`이 호출 이후 전역 값을 바꾸지 않는지. **테스트 작성은 검증 통과가 아니다.** 현 HEAD 컴파일 및 테스트는 실행하지 않았다.
+
+잔여: 과거 name-scopes 10개 fixture 재실행, direct definition 지역 함수 POS 변화, nested/recursive 프레임, locale modifier, 실제 호출 시점 오류 순서 및 jsource oracle.
