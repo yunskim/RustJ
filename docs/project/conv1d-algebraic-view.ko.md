@@ -139,3 +139,12 @@ Graph IR SPORES의 조회와 Logical IR lowering은 **같은 정식 의미 정�
 - 무작위 1,000개: `dot(conv(X,W),dY) ≈ dot(X,adj_input(dY,W)) ≈ dot(W,adj_weight(X,dY))`, `conv(X,W1)+conv(X,W2) ≈ conv(X,W1+W2)`.
 - **미검증:** RustJ Graph IR의 opaque 노드 유지, 실제 SPORES/e-graph 조회·재작성·reconstruction, 동일 view를 사용하는 Logical IR lowering, private weight 캡슐화, native kernel 비교, 일반 stride/padding/dilation/groups 및 복소수.
 - **판정:** 수학적 contract의 제한된 부분은 검증됨. IR 통합 설계 전체가 검증된 것은 아님. IEEE 754에서 재작성은 일반적으로 비트 동일하지 않으며, J 비교 허용 오차만으로 모든 재작성의 안전성을 증명할 수 없다.
+
+## 10. Rust 최소 통합 프로토타입 (2026-10-21)
+
+- 구현: [src/conv1d_algebraic_view.rs](../../src/conv1d_algebraic_view.rs); `src/lib.rs`에 모듈 등록.
+- `view(ViewMode::Forward, spec)`를 Graph IR 유사 표현의 `rewrite_sum_of_convs`와 Logical IR 유사 표현의 `lower`가 **공유**한다.
+- 단일 규칙 `Conv1D(X,W1)+Conv1D(X,W2) -> Conv1D(X,W1+W2)` 및 기본 예제 결과 `[14,24,34]`에 대한 Rust unit test 2개 작성.
+- **중요 제한:** 독립된 프로토타입 타입이다. 기존 `j_graph_ir`, `logical_ir`, SPORES/egg와 연결되지 않았다. `Logical::IndexMapWindow/Multiply/ReduceSumKernel`는 lowering 형태를 나타내는 표식이며 실제 Logical IR 실행 의미를 갖추지 않았다. 내부 가중치를 외부에 공개하지 않는 정식 캡슐화도 미구현이다.
+- **검증 상태:** 코드와 테스트는 커밋했지만 Rust 빌드·단위 테스트는 이 작업에서 실행하지 못했다. 컴파일 통과나 IR 통합 완료로 간주하지 않는다.
+- **다음 순서:** (1) `cargo test conv1d_algebraic_view` 실행 및 오류 수정 (2) 실제 Graph IR 타입에 opaque Conv1D 노드 연결 (3) 실제 Logical IR lowering 연결 (4) algebraic view 기반 reconstruction/legality (5) adjoint view 연결 (6) FP 정책 검증.
