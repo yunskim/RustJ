@@ -521,7 +521,8 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 - [x] `direct_read_binding`은 대상 locale 조회 후 `z` fallback을 시도한다. 이름의 출처·검색 경로를 별도 증거로 남겨야 한다.
 - [ ] J locale 조회·함수 호출·동적 재바인딩의 원문 의미론과 기존 jsource oracle fixture를 대조하여 허용 범위 확정
 - [x] parser host의 direct/base locative **function POS 조회** 지원: noun과 동일한 scope 탐색으로 함수 품사 분류 (2026-10-21, 실행 호출 미지원)
-- [ ] direct/base locative 함수의 **실제 실행 시점 바인딩·호출** 구현: 재바인딩·효과 순서·z fallback 검증
+- [x] direct/base locative verb NAME의 **실행 시점 조회**를 `resolve_function_entity`와 verb indirection에 연결 (테스트 미실행)
+- [ ] direct/base 함수 호출의 재바인딩·효과 순서·z fallback 및 modifier 경로 검증
 - [ ] indirect locative의 noun/function 분기와 locale 생성/오류 순서 계약 확정
 - [ ] local/global/base/named/z fallback에서 POS 및 NAME version/provenance 전달
 - [ ] Graph IR `RequiresSpecialization` 해제 조건과 실행 가드·fallback 계약 확정
@@ -540,3 +541,10 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 
 ### 구현 기록: direct/base 함수 POS 조회 (2026-10-21)
 `runtime.rs`의 parser host `lookup`에서 direct/base locative의 기존 함수 Unsupported 분기를 `ParserNameBinding::Function(function.result_pos)`로 변경했다. `direct_read_binding`의 기존 대상 locale→z fallback을 사용하며, noun 복사/lookup 경로는 그대로 유지한다. **이 변경은 파서 품사 판별만 허용한다.** 실제 `resolve_function_entity`는 여전히 `visible_binding` 경로를 사용하므로 locative 함수 호출의 의미론적 실행까지 완료됐다고 볼 수 없다. 테스트는 일괄 실행 시점까지 보류한다.
+
+
+### 구현 기록: direct/base locative verb 실행 조회 (2026-10-21)
+
+`runtime::Engine::visible_function_binding`을 추가했다. 직접 지정된 locale의 함수 NAME은 `direct_read_binding`을 통해 해당 locale→`z` fallback으로 조회하며, base locative는 base→`z` 순서다. 일반 NAME은 기존 `visible_binding`으로 처리한다. `resolve_function_entity` 및 verb indirection 경로에 연결했고, 최종 함수 NAME 존재 검사도 같은 조회로 맞췄다. **호출 시점 재조회**를 수행하므로 파서의 POS 관찰 결과를 고정된 함수 identity로 사용하지 않는다.
+
+**미완료:** indirect locative 함수, modifier 적용 경로 전체, locale 함수 할당, path 일반화, 동적 바인딩 오류/순서 oracle 검증. 특히 `visible_function_binding`은 indirect locative를 `None`으로 돌려 현재 실행을 명시적으로 허용하지 않는다. 이 변경은 실제 Rust 테스트를 실행하지 않았으며 통과를 주장하지 않는다.
