@@ -14,6 +14,7 @@ pub mod admission;
 pub mod analysis;
 pub mod bit_storage;
 pub mod compilation;
+pub mod conv1d_algebraic_view;
 pub mod contracts;
 pub mod definition_code;
 pub mod definition_control;
