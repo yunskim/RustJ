@@ -176,3 +176,13 @@ Graph 재작성과 Logical lowering 모두 동일한 `forward_contraction(&view(
 `GraphViewRequest`는 실제 `j_graph_ir::ValueId`로 origin/input/weight를 받으며, `prepare_logical_view`는 **같은 symbolic Expr**와 provenance를 유지한 `LogicalViewPlan`을 반환하도록 추가했다. 이는 실제 RustJ 타입과 접하는 *준비 단계*이지, 정식 Graph IR → A3 Logical IR lowering이 아니다.
 
 다음 단계는 Conv1D를 어떤 `FunctionEntity`/extended primitive ID로 인식할지 계약을 확정하고, shape/type/error/effect 순서를 보존하는 A3 표현을 설계하는 것이다. 검증은 사용자의 요청에 따라 모아서 실행하며, 이번 변경에서는 테스트를 실행하지 않았다.
+
+## 14. NN Extension 식별 계약 (2026-10-21)
+
+`nn_extensions.rs`에서 `conv1d`는 `NN-08`, semantic identity `nn.conv1d`, PyTorch 대응 `torch.nn.functional.conv1d`로 이미 등록되어 있다. 하지만 이 카탈로그는 **frontend preview**이며 실행 가능한 primitive나 IR lowering의 증거가 아니다. 또한 J의 NAME은 재바인딩/섀도잉될 수 있으므로 문자열 `conv1d`만 보고 호출을 식별하면 안 된다.
+
+프로토타입에 `resolved_conv1d_view(semantic_identity, mode, spec)`를 추가해 NN 카탈로그의 semantic identity·family·frontend preview를 확인하도록 했다. `GraphViewRequest`는 raw 이름 대신 **프런트엔드가 해석한 semantic identity**를 전달해야 하며 `prepare_logical_view`는 이 조건을 통과해야 의미식을 제공한다. 이는 메타데이터 검증일 뿐 실제 `FunctionEntity`에서 ID를 추출하는 연결은 아직 없다.
+
+**정식 A3 Logical IR 변환 전제:** (1) frontend에서 확장 함수 바인딩을 안정된 ID로 확정 (2) conv 피연산자와 속성의 shape/type/rank 검증 (3) effect/error ordering과 `j_origin` 보존 (4) `IndexMapWindow`, `Multiply`, `ReduceSum`에 대응하는 A3 연산 계약 마련 (5) 재구성 및 FP 수치 정책을 확인. 이를 만족하기 전에는 실제 A3 `OpKind`를 추가하거나 기존 실행 경로를 바꾸지 않는다.
+
+사용자 요청에 따라 테스트는 모아서 수행하며 이번 단계에서도 실행하지 않았다.
