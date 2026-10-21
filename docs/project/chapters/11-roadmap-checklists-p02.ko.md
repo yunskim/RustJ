@@ -588,3 +588,17 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 | indirect locative 함수 할당 | 아직 Unsupported 유지; 지원 범위 확정 전 성공으로 처리하지 않음 | 미구현 |
 
 **검증 정책:** 위 항목은 테스트를 실행하지 않은 코드 감사 결과에서 도출한 예상 계약이다. J 정답(특히 POS 변화와 locale 생성 순서)은 jsource oracle과 대조하여 확정한다. 실패 또는 차이가 발견되면 기존 구현을 재검토한다. Conv1D Graph specialization은 이 검증을 통과할 때까지 보류한다.
+
+
+### Direct definition 지역변수 구현 확인 (2026-10-21)
+
+`src/definition_input.rs`는 `DefinitionForm::Direct` (`{{ ... }}`)를 별도로 인식한다. `src/definition_code.rs`는 direct body를 공통 definition code로 정규화하고 `DefinitionScopePlan.local_declarations`에 선택 valence의 literal simple-name `=.` 대입 대상을 기록한다. `src/runtime.rs::invoke_definition_body`는 호출마다 새 `LocalFrame`을 생성하고 해당 선언을 `declared`에 반영하며, `x/y` 및 modifier operand `u/v/m/n`을 호출 프레임에 바인딩한다. 즉 **direct definition의 기본 지역변수 지원은 이미 구현**되어 있다.
+
+- [x] Direct definition과 explicit definition의 공통 지역변수 실행 경로 코드 감사
+- [ ] `{{ t=.y+1 [ t }}` 등 direct definition 지역 대입·읽기·호출 격리 회귀 작성
+- [ ] Direct definition 안의 지역 함수 NAME 재정의 및 전역 함수 shadowing 검사
+- [ ] Direct definition 안의 `f__`/`f_loc_`가 지역 프레임을 우회하는지 검사
+- [ ] 재귀·중첩 direct definition 및 monad/dyad 선택 시 scope lifetime 검사
+- [ ] 위 회귀를 jsource oracle과 대조하고 일괄 테스트 실행
+
+주의: `local_declarations`는 literal simple-name 대입을 다루며 computed/noun assignment target 전체를 증명하지 않는다. 미바인딩 지역 이름의 global fallback과 호출 프레임의 시점별 조회는 별도 검증 대상이다. 테스트는 아직 실행하지 않았다.
