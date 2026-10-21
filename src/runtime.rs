@@ -3954,3 +3954,71 @@ mod entity_binding_tests {
         );
     }
 }
+
+
+#[cfg(test)]
+mod name_locale_regression_tests {
+    use super::*;
+    use crate::primitive::PrimitiveId;
+
+    fn verb(id: PrimitiveId) -> JEntity {
+        JEntity::Function(FunctionEntity::primitive(id, 0..1))
+    }
+
+    #[test]
+    fn direct_locale_function_write_is_own_scope_and_shadows_z() {
+        let mut engine = Engine::new();
+        engine.commit_runtime_binding("f_z_", verb(PrimitiveId::Plus)).unwrap();
+        assert!(matches!(
+            &engine.visible_function_binding("f_lab_").unwrap().value,
+            JEntity::Function(_)
+        ));
+        engine.commit_runtime_binding("f_lab_", JEntity::Noun(Value::scalar_int(7))).unwrap();
+        assert!(matches!(
+            &engine.visible_function_binding("f_lab_").unwrap().value,
+            JEntity::Noun(_)
+        ));
+        assert!(matches!(
+            &engine.direct_binding("f", "z").unwrap().value,
+            JEntity::Function(_)
+        ));
+        engine.commit_runtime_binding("f_lab_", verb(PrimitiveId::Minus)).unwrap();
+        assert!(matches!(
+            &engine.visible_function_binding("f_lab_").unwrap().value,
+            JEntity::Function(_)
+        ));
+    }
+
+    #[test]
+    fn base_locative_bypasses_local_shadow_and_rebinds_dynamically() {
+        let mut engine = Engine::new();
+        engine.commit_runtime_binding("f__", verb(PrimitiveId::Plus)).unwrap();
+        engine.local_frames.push(LocalFrame {
+            instance: crate::frontend_context::ScopeInstanceId::fresh(),
+            names: HashMap::new(),
+            declared: HashSet::new(),
+        });
+        store_binding(
+            &mut engine.local_frames.last_mut().unwrap().names,
+            &mut engine.pool,
+            "f".into(),
+            JEntity::Noun(Value::scalar_int(5)),
+        ).unwrap();
+        assert!(matches!(&engine.visible_binding("f").unwrap().value, JEntity::Noun(_)));
+        assert!(matches!(&engine.visible_function_binding("f__").unwrap().value, JEntity::Function(_)));
+        engine.commit_runtime_binding("f__", JEntity::Noun(Value::scalar_int(9))).unwrap();
+        assert!(matches!(&engine.visible_function_binding("f__").unwrap().value, JEntity::Noun(_)));
+    }
+
+    #[test]
+    fn direct_definition_local_assignment_does_not_escape_call() {
+        let mut engine = Engine::new();
+        engine.eval("local=:99").unwrap();
+        engine.eval("f=:{{\nlocal=.y+1\nlocal\n}}").unwrap();
+        let result = engine.eval("f 4").unwrap().unwrap();
+        assert_eq!(result.int_at(0).unwrap(), 5);
+        let global = engine.eval("local").unwrap().unwrap();
+        assert_eq!(global.int_at(0).unwrap(), 99);
+        assert!(engine.local_frames.is_empty());
+    }
+}
