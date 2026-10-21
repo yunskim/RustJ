@@ -130,3 +130,12 @@ Graph IR SPORES의 조회와 Logical IR lowering은 **같은 정식 의미 정�
 - [ ] 복소수·groups·경계 인덱스 명세 확대
 
 이 문서는 우선 Conv1D만 다룬다. 다른 primitive로의 일반화는 위 검증 이후 결정한다.
+
+## 9. 초기 검증 결과 (2026-10-21)
+
+**범위:** stride=1, padding=0, dilation=1, 단일 채널 실수 Conv1D의 수학적 의미 검증. Python/NumPy 독립 실행으로 기본 예제와 시드 고정 무작위 1,000개 사례에서 forward의 필터 선형성 및 두 부분 adjoint 내적 항등식이 통과했다. 별도의 표준 라이브러리 재현 테스트를 [tests/conv1d_algebraic_view_contract.py](../../tests/conv1d_algebraic_view_contract.py)에 추가했다. 이 저장소 테스트 파일은 이번 작업에서 **커밋만 했고 실행하지 않았다**.
+
+- 기본 예제: forward `[8,13,18]`, input adjoint `[2,7,12,9]`, weight adjoint `[14,20]`; 내적은 모두 `88`.
+- 무작위 1,000개: `dot(conv(X,W),dY) ≈ dot(X,adj_input(dY,W)) ≈ dot(W,adj_weight(X,dY))`, `conv(X,W1)+conv(X,W2) ≈ conv(X,W1+W2)`.
+- **미검증:** RustJ Graph IR의 opaque 노드 유지, 실제 SPORES/e-graph 조회·재작성·reconstruction, 동일 view를 사용하는 Logical IR lowering, private weight 캡슐화, native kernel 비교, 일반 stride/padding/dilation/groups 및 복소수.
+- **판정:** 수학적 contract의 제한된 부분은 검증됨. IR 통합 설계 전체가 검증된 것은 아님. IEEE 754에서 재작성은 일반적으로 비트 동일하지 않으며, J 비교 허용 오차만으로 모든 재작성의 안전성을 증명할 수 없다.
