@@ -148,3 +148,11 @@ Graph IR SPORES의 조회와 Logical IR lowering은 **같은 정식 의미 정�
 - **중요 제한:** 독립된 프로토타입 타입이다. 기존 `j_graph_ir`, `logical_ir`, SPORES/egg와 연결되지 않았다. `Logical::IndexMapWindow/Multiply/ReduceSumKernel`는 lowering 형태를 나타내는 표식이며 실제 Logical IR 실행 의미를 갖추지 않았다. 내부 가중치를 외부에 공개하지 않는 정식 캡슐화도 미구현이다.
 - **검증 상태:** 코드와 테스트는 커밋했지만 Rust 빌드·단위 테스트는 이 작업에서 실행하지 못했다. 컴파일 통과나 IR 통합 완료로 간주하지 않는다.
 - **다음 순서:** (1) `cargo test conv1d_algebraic_view` 실행 및 오류 수정 (2) 실제 Graph IR 타입에 opaque Conv1D 노드 연결 (3) 실제 Logical IR lowering 연결 (4) algebraic view 기반 reconstruction/legality (5) adjoint view 연결 (6) FP 정책 검증.
+
+## 11. 후속 검증 단계 (2026-10-21)
+
+`src/conv1d_algebraic_view.rs`에 `eval_adjoint`를 추가해 동일한 `view(mode,spec)` 등록 계약을 Forward, InputAdjoint, WeightAdjoint 모두가 사용하도록 했다. 내적 항등식 및 잘못된 shape/모드 거부를 검사하는 세 번째 Rust 단위 테스트를 추가했다.
+
+**실행 환경 제약:** 현재 실행 컨테이너에는 `cargo`와 `rustc`가 없고 GitHub raw 파일 네트워크 접근도 불가능하여 Rust 테스트를 실행하지 못했다. 따라서 Rust 컴파일 성공, 테스트 통과, 실제 RustJ IR 연결을 주장하지 않는다. 로컬/Work 환경에서 `cargo test conv1d_algebraic_view`를 실행해야 한다.
+
+**현재의 중요한 기술적 한계:** `AlgebraicView`는 mode/spec을 보유하지만 인덱스·축약을 표현하는 공통 symbolic AST는 아니다. Graph rewrite는 하드코딩된 패턴, Logical lowering은 표식 벡터에 의존한다. 따라서 지금 단계는 *공통 레지스트리 조회의 배선(prototype)*만 보여 주며, **동일한 대수 의미식에서 최적화와 lowering을 파생한다는 핵심 설계는 아직 검증되지 않았다**. 다음 작업은 인덱스/축약 AST와 재구성 계약을 도입한 뒤 두 경로가 실제로 해당 AST를 소비하도록 변경하는 것이다.
