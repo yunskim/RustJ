@@ -555,3 +555,12 @@ FrontendContext
 
 **실행 검증 (2026-10-07, Windows native):** default와 portable 각각 **560 passed / 17 ignored / 0 failed**. 신규 frontend 통합 회귀 15개와 library 전체 68개를 포함한다. `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings` 통과. Python audit 분류·전달 회귀 8개와 oracle protocol 회귀 9개 통과. C j64/AVX2 × Rust direct/semantic-reference 비교에서 explicit/direct NAME scope 10 fixture의 **40 observation 모두 일치** (`reports/name-scope-handoff-windows.json`); 기존 NAME 26 fixture는 **64 일치 / 40 미지원**, semantic boundary 10 fixture는 **36 일치 / 4 미지원**. 각 observation은 setup/error 후 read를 포함하는 문장 sequence이며 C 내부 event trace나 compiled route 검증이 아니다. 여러 줄 explicit block setup만 C script 입력으로 전달하고 양쪽 원문은 동일하게 보존한다. 보고서는 binary/DLL hash와 source/asset revision 차이를 기록한다. 미지원 locale·execute 등은 통과로 계산하지 않는다. GPU/Linux/remote CI 검증은 실행하지 않았다.
 
+
+
+## NAME/locale 현재 구현 경계 감사 (2026-10-21; 테스트 미실행)
+
+`parser::ParserNameBinding`은 noun, abstract noun, function POS, analysis-only known verb/modifier를 구별한다. `runtime`의 parser host는 direct/base locative에서 `direct_read_binding`을 사용해 noun을 반환하지만 function에 대해서는 각각 `direct-locative function reference`, `base-locative function reference` Unsupported를 반환한다. `direct_read_binding`은 선택 locale 자체의 바인딩을 먼저 찾고 없으면 `z` locale을 탐색한다. `frontend_context::LocativeNounGuard`는 noun에 한정된다.
+
+따라서 locale 문법 인식, noun lookup, function lookup, NAME 실행 가드, Graph specialization은 **서로 다른 완료 단계**이다. 등록된 NN Extension의 철자/핸들만으로는 J 이름 재정의 및 locale 검색 결과를 대체할 수 없다. 후속 구현에서는 runtime의 실제 scope/POS/버전/효과 순서를 유지하며 함수 참조를 단계적으로 지원하고, 그 전에는 Graph의 `RequiresSpecialization`을 유지한다.
+
+검증 fixture: named locale 자체에서 찾은 함수, `z` fallback 함수, base 직접 지정, 같은 철자의 noun shadowing, 함수 재정의 및 삭제, indirect locative 오류, lookup 중 locale 생성/실패 순서. 테스트는 일괄 실행 시 검증한다.
