@@ -196,3 +196,13 @@ Graph 재작성과 Logical lowering 모두 동일한 `forward_contraction(&view(
 이것은 프런트엔드의 **해석된 핸들 → 대수 뷰**에 대한 안전한 입구다. 다만 현재 `FunctionEntity`가 핸들을 보존하지 않으므로 Graph IR `Apply`에서 이 핸들을 회수하는 경로는 아직 없다. 다음 단계는 일반적인 확장 primitive provenance를 `FunctionEntity`/Graph IR에 전달하는 설계를 검토하되, NN 전용 분기를 넣지 않는 것이다.
 
 테스트는 사용자 요청에 따라 누적하며 실행하지 않았다.
+
+## 16. FunctionEntity 바인딩 증거 경계 (2026-10-21)
+
+`semantic::FunctionEntity::name_ref`는 `FunctionHead::NameRef(name)`를 만들 뿐 확장 `PrimitiveHandle`을 보유하지 않는다. `primitive::PrimitiveContext::resolve_extension_binding(name)`는 프로파일에 등록된 확장 핸들을 찾지만, 이것만으로 사용자 NAME 바인딩보다 확장이 우선한다는 사실이 증명되지 않는다. `semantic.rs`의 NAME 참조 수집 역시 이름과 span을 보존한다.
+
+이번 단계에서는 기존 의미론을 침범하지 않는 `BindingEvidence` 보조 계약과 `function_entity_view(function, evidence, mode, spec)`를 추가했다. `ResolvedExtension(handle)`이라는 **외부 바인딩 확정 증거**가 있고, `FunctionEntity`가 예상 NAME이며, 핸들의 extension 출처/품사/semantic identity/registry version/lowering key가 모두 맞는 경우에만 뷰를 반환한다. `NotProven`은 무조건 거부한다.
+
+**주의:** `BindingEvidence::ResolvedExtension`은 현재 호출자가 제공하는 값이다. 실제 파서의 NAME 효과 처리와 바인딩 확인으로부터 생성되는 경로는 아직 구현되지 않았다. 따라서 이름 섀도잉 문제를 해결했다고 주장하지 않는다. 다음 작업은 기존 NAME resolution 시점과 효과 순서를 추적하여 증거를 언제 확정할 수 있는지 조사하고, 검증 가능한 provenance를 Graph IR까지 전달하는 것이다.
+
+테스트는 모아서 진행한다는 사용자 요청에 따라 실행하지 않았다.
