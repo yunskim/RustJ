@@ -12,7 +12,7 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 
 ## 신규 설계 초안
 
-- [Conv1D blackbox · Algebraic View · SPORES · Adjoint · Logical IR lowering (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 설계 제안, 미구현
+- [Conv1D blackbox · Algebraic View · SPORES · Adjoint · Logical IR lowering (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 제한적 프로토타입 구현, 정식 IR 통합 보류(NAME/locale 선행)
 
 ## 상세 문서
 
