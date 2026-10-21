@@ -62,6 +62,43 @@ pub fn eval(node: &Graph) -> Option<Vec<f64>> {
         }
     }
 }
+/// Execute a registered adjoint view for the restricted single-channel prototype.
+/// This is an independent oracle, not production Logical IR execution.
+pub fn eval_adjoint(
+    mode: ViewMode,
+    fixed: &[f64],
+    cotangent: &[f64],
+    target_len: usize,
+    spec: Conv1dSpec,
+) -> Option<Vec<f64>> {
+    let registered = view(mode, spec)?;
+    match registered.mode {
+        ViewMode::Forward => None,
+        ViewMode::InputAdjoint => {
+            if fixed.is_empty() || target_len < fixed.len()
+                || cotangent.len() != target_len - fixed.len() + 1 {
+                return None;
+            }
+            let mut dx = vec![0.; target_len];
+            for (p, &dy) in cotangent.iter().enumerate() {
+                for (k, &w) in fixed.iter().enumerate() {
+                    dx[p + k] += dy * w;
+                }
+            }
+            Some(dx)
+        }
+        ViewMode::WeightAdjoint => {
+            if target_len == 0 || fixed.len() < target_len
+                || cotangent.len() != fixed.len() - target_len + 1 {
+                return None;
+            }
+            Some((0..target_len).map(|k| {
+                cotangent.iter().enumerate().map(|(p, &dy)| fixed[p + k] * dy).sum()
+            }).collect())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,6 +114,28 @@ mod tests {
         assert_eq!(lower(&optimized),Some(vec![
             Logical::IndexMapWindow{stride:1,padding:0,dilation:1},Logical::Multiply,Logical::ReduceSumKernel]));
     }
+    #[test]
+    fn adjoint_views_share_contract() {
+        let x = [1., 2., 3., 4.];
+        let w = [2., 3.];
+        let dy = [1., 2., 3.];
+        let dx = eval_adjoint(ViewMode::InputAdjoint, &w, &dy, x.len(), Conv1dSpec::VALID).unwrap();
+        let dw = eval_adjoint(ViewMode::WeightAdjoint, &x, &dy, w.len(), Conv1dSpec::VALID).unwrap();
+        assert_eq!(dx, vec![2., 7., 12., 9.]);
+        assert_eq!(dw, vec![14., 20.]);
+        let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(x,y)| x*y).sum::<f64>();
+        let y = eval(&Graph::Conv1d {
+            input: Box::new(Graph::Input(x.to_vec())),
+            weight: Box::new(Graph::Weight(w.to_vec())),
+            spec: Conv1dSpec::VALID,
+        }).unwrap();
+        assert_eq!(dot(&y, &dy), 88.);
+        assert_eq!(dot(&x, &dx), 88.);
+        assert_eq!(dot(&w, &dw), 88.);
+        assert!(eval_adjoint(ViewMode::InputAdjoint, &w, &dy, 3, Conv1dSpec::VALID).is_none());
+        assert!(eval_adjoint(ViewMode::Forward, &w, &dy, 4, Conv1dSpec::VALID).is_none());
+    }
+
     #[test]
     fn reject_incompatible_or_private_weights() {
         let x=Graph::Input(vec![1.,2.,3.]);
