@@ -569,3 +569,22 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 `runtime::Engine::commit_runtime_binding`에서 direct/base locative의 함수 할당을 막던 `JEntity::Noun` 제한을 제거했다. 기존 `store_binding`은 `JEntity`를 저장하므로 noun/function 모두 동일한 저장 경로를 사용한다. `f_loc_`은 지정 locale 자체에 기록하고, `f__`은 base에 기록한다. 읽기에서만 적용하는 `z` fallback을 쓰기에는 적용하지 않는다. 간접 locative의 함수 할당은 아직 허용하지 않는다.
 
 **검증 전제:** locale 생성 시점, J parser assignment transport, adverb/conjunction RHS, 재정의 후 POS 변경, `z` shadowing, 오류 순서 및 jsource oracle과의 일치를 검증하기 전에는 완성으로 간주하지 않는다. 테스트·컴파일은 사용자 요청에 따라 실행하지 않았다.
+
+
+### NAME 재정의·shadowing 감사 및 누적 검증 행렬 (2026-10-21)
+
+코드 확인: `store_binding`은 동일 locale 심벌 테이블의 이전 바인딩 버전을 증가시키고, 새 `BindingGeneration`을 생성하며, noun→function 또는 function→noun 변경을 같은 `JEntity` 저장 경로로 처리한다. `direct_read_binding`은 **own binding 우선**이므로 own noun이 있으면 `z` function으로 재검색하지 않는다. `visible_function_binding`은 direct/base에 대해 local frame을 우회하며, 일반 NAME에 대해서만 기존 `visible_binding`을 사용한다. 현재 `visible_binding`의 일반 NAME `z` fallback은 noun으로 제한되므로 이를 locative 함수 조회의 정책과 혼동하지 않는다.
+
+| 검증 항목 | 기대 계약 | 상태 |
+| --- | --- | --- |
+| `f_loc_`에 verb 할당 후 호출 | locale own 함수로 조회, 실제 호출 경로까지 확인 | 미검증 |
+| 같은 locale에서 verb→noun 변경 | `z` verb로 fallback하지 않고 POS/domain 경계 유지 | 미검증 |
+| 같은 locale에서 noun→verb 변경 | 재파싱/재호출 시 새 POS 및 generation 반영 | 미검증 |
+| `z` verb만 존재하는 `f_loc_` | 대상 locale에 own이 없을 때만 fallback | 미검증 |
+| `f__`과 일반 `f`의 local shadowing | base locative는 local frame을 우회 | 미검증 |
+| explicit definition·derived modifier 안의 재바인딩 | 실행 시점 NAME 재조회, effect/error 순서 유지 | 미검증 |
+| `f_loc_` 할당에서 대상 locale 미존재 | locale 생성과 오류 순서가 jsource와 일치 | 미검증 |
+| direct/base modifier 할당 | adverb/conjunction RHS의 parser transport와 runtime 적용 확인 | 미검증 |
+| indirect locative 함수 할당 | 아직 Unsupported 유지; 지원 범위 확정 전 성공으로 처리하지 않음 | 미구현 |
+
+**검증 정책:** 위 항목은 테스트를 실행하지 않은 코드 감사 결과에서 도출한 예상 계약이다. J 정답(특히 POS 변화와 locale 생성 순서)은 jsource oracle과 대조하여 확정한다. 실패 또는 차이가 발견되면 기존 구현을 재검토한다. Conv1D Graph specialization은 이 검증을 통과할 때까지 보류한다.
