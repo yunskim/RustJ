@@ -562,3 +562,10 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `visible_function_binding`으로 분류하도록 연결했다. 일반 NAME은 기존 `parser_name_binding`을 유지하여 extension 후보 처리 정책을 바꾸지 않는다. `fork_cap_binding` 역시 locale-aware 함수 조회를 사용한다. 이 변경은 **lookup/POS 전달 범위**이며 gerund의 locative 실행·abandon·path 일반화를 보증하지 않는다.
 
 **중요한 미해결 설계:** `commit_runtime_binding`은 direct/base/indirect locative에서 함수 할당을 명시적으로 거부한다. 이를 단순히 허용하도록 변경하기 전에 parser assignment transport, `JEntity` 소유권, `z` fallback의 쓰기 금지, locale 생성 순서, dynamic NAME resolution, jsource oracle을 함께 확인해야 한다. 현재는 의도적으로 기존 Unsupported를 유지한다. 테스트는 일괄 실행까지 보류한다.
+
+
+### 구현 기록: direct/base locative 함수 할당 허용 (2026-10-21)
+
+`runtime::Engine::commit_runtime_binding`에서 direct/base locative의 함수 할당을 막던 `JEntity::Noun` 제한을 제거했다. 기존 `store_binding`은 `JEntity`를 저장하므로 noun/function 모두 동일한 저장 경로를 사용한다. `f_loc_`은 지정 locale 자체에 기록하고, `f__`은 base에 기록한다. 읽기에서만 적용하는 `z` fallback을 쓰기에는 적용하지 않는다. 간접 locative의 함수 할당은 아직 허용하지 않는다.
+
+**검증 전제:** locale 생성 시점, J parser assignment transport, adverb/conjunction RHS, 재정의 후 POS 변경, `z` shadowing, 오류 순서 및 jsource oracle과의 일치를 검증하기 전에는 완성으로 간주하지 않는다. 테스트·컴파일은 사용자 요청에 따라 실행하지 않았다.
