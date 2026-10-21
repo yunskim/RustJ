@@ -2890,11 +2890,6 @@ impl Engine {
             );
         }
         if let Some((key, locale)) = named_direct_address(name) {
-            if !matches!(value, JEntity::Noun(_)) {
-                return Err(Error::Unsupported(
-                    "direct-locative function assignment".into(),
-                ));
-            }
             self.ensure_named_locale(locale)?;
             if locale == "base" {
                 return self.commit_binding(key.to_owned(), value);
@@ -2911,11 +2906,6 @@ impl Engine {
             );
         }
         if let Some(key) = base_locative_key(name) {
-            if !matches!(value, JEntity::Noun(_)) {
-                return Err(Error::Unsupported(
-                    "base-locative function assignment".into(),
-                ));
-            }
             return self.commit_binding(key.to_owned(), value);
         }
         self.commit_binding(name.to_owned(), value)
