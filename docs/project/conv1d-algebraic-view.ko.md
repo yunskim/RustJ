@@ -166,3 +166,13 @@ Graph 재작성과 Logical lowering 모두 동일한 `forward_contraction(&view(
 **실행 상태:** 저장소에 코드 변경을 커밋했으나 현재 실행 환경에 cargo/rustc가 없어 Rust 컴파일 및 테스트는 미실행이다. `cargo test conv1d_algebraic_view`가 필수다. 기존 실제 Graph IR/Logical IR/SPORES와의 통합도 아직 미완료다.
 
 **후속 검증:** symbolic AST의 alpha-equivalence, 축 범위 및 shape 제약, reconstruction의 피연산자 캡슐화, floating-point 재작성 합법성, 실제 IR 변환 및 실행 검증.
+
+## 13. 실제 IR 경계 조사와 비침습적 어댑터 (2026-10-21)
+
+실제 RustJ 소스 확인:
+- `j_graph_ir::Plan`은 `nodes: Vec<Node>`, `result: Option<ValueId>`를 가지며 `NodeKind::Apply`는 `function`, `contract`, `left/right` 및 provenance를 포함한다. 현재 Conv1D 전용 `NodeKind`는 확인되지 않았으므로 기존 Apply 표현을 임의로 변형하지 않는다.
+- `logical_ir::Plan`은 `operations: Vec<Operation>`와 `values: Vec<ValueData>`를 보유하고, `OpKind::Basis`/`SemanticCall`은 실행 의미 계약을 포함한다. 여기에도 프로토타입의 `IndexMapWindow`와 일대일 대응하는 정식 OpKind가 아직 없다.
+
+`GraphViewRequest`는 실제 `j_graph_ir::ValueId`로 origin/input/weight를 받으며, `prepare_logical_view`는 **같은 symbolic Expr**와 provenance를 유지한 `LogicalViewPlan`을 반환하도록 추가했다. 이는 실제 RustJ 타입과 접하는 *준비 단계*이지, 정식 Graph IR → A3 Logical IR lowering이 아니다.
+
+다음 단계는 Conv1D를 어떤 `FunctionEntity`/extended primitive ID로 인식할지 계약을 확정하고, shape/type/error/effect 순서를 보존하는 A3 표현을 설계하는 것이다. 검증은 사용자의 요청에 따라 모아서 실행하며, 이번 변경에서는 테스트를 실행하지 않았다.
