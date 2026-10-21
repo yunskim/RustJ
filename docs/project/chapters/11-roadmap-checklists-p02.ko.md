@@ -509,3 +509,30 @@ capture: v2 = Apply(+, a_read, v1)      parser: actual noun result + origin(v2)
 4. **Captured graph reuse:** trace 한 번으로 모든 입력/branch가 표현되었다고 주장하지 않는다. observed shape·data-dependent constructor/POS·binding/environment assumptions를 constants/input dependencies/guards로 구분한다. reuse 전에 검증하거나 재capture/semantic execution으로 되돌린다. 재capture는 이미 일부 effects를 실행한 지점에서 문장 처음부터 다시 시작하는 방식으로 구현하지 않는다. v0 capture는 inspection에 한정하고 재사용 실행을 기본 제공하지 않는다.
 5. **효율:** execute-and-capture는 첫 실행의 array 계산 비용을 없애지 않는다. v0는 trace arena + shared function references + small facts를 기본으로 하여 capture 때문에 모든 temporary가 살아남지 않게 한다. pure-array region reuse/JIT/fusion이 subsequent execution의 성능 단계다. CUDA 구현은 계속 유예한다.
 
+
+
+## NAME/locale 선행 작업과 Conv1D 보류 체크리스트 (2026-10-21)
+
+**우선순위 변경:** Conv1D/SPORES/adjoint Graph IR 통합은 NAME·locale 의미론이 정리될 때까지 보류한다. 기존 Conv1D symbolic AST 및 독립 프로토타입은 유지하되 실제 최적화 경로에 연결하지 않는다.
+
+### NAME/locale — 선행
+- [x] 실제 parser/runtime 경계 조사: `ParserNameBinding`에 `Noun`, `AbstractNoun`, `Function`, `KnownVerb`, `KnownModifier`가 존재한다.
+- [x] direct/base locative 경로 조사: runtime parser host는 noun lookup을 지원하나 함수 참조는 명시적으로 Unsupported 처리한다.
+- [x] `direct_read_binding`은 대상 locale 조회 후 `z` fallback을 시도한다. 이름의 출처·검색 경로를 별도 증거로 남겨야 한다.
+- [ ] J locale 조회·함수 호출·동적 재바인딩의 원문 의미론과 기존 jsource oracle fixture를 대조하여 허용 범위 확정
+- [ ] parser host의 direct/base locative **function lookup** 지원: noun과 동일한 scope 탐색, 단 실행 시점 바인딩/효과 순서 유지
+- [ ] indirect locative의 noun/function 분기와 locale 생성/오류 순서 계약 확정
+- [ ] local/global/base/named/z fallback에서 POS 및 NAME version/provenance 전달
+- [ ] Graph IR `RequiresSpecialization` 해제 조건과 실행 가드·fallback 계약 확정
+- [ ] 오류/순서/재바인딩 회귀 fixture 추가 (실행은 묶음 테스트 시)
+- [ ] frontend → Graph → Logical IR 통합 검증 (실행은 묶음 테스트 시)
+
+### Conv1D — NAME 완료 이후
+- [x] NN-08 semantic identity 및 symbolic forward/input-adjoint/weight-adjoint view 프로토타입
+- [x] Graph `ValueId`를 담는 비침습적 logical-view 준비 인터페이스
+- [ ] NAME/locale에서 검증된 확장 primitive 바인딩 증거를 Graph에 보존
+- [ ] shape/rank/effect/error/floating-point 합법성 및 재구성 조건
+- [ ] 정식 Graph IR rewrite/SPORES와 A3 Logical IR lowering 연결
+- [ ] 누적 테스트 일괄 실행, 실패 수정 및 검증 결과 기록
+
+**실행 정책:** 사용자 요청에 따라 지금은 테스트를 실행하지 않고, 변경 사항과 검증 대상을 누적한다.
