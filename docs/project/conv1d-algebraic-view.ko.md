@@ -186,3 +186,13 @@ Graph 재작성과 Logical lowering 모두 동일한 `forward_contraction(&view(
 **정식 A3 Logical IR 변환 전제:** (1) frontend에서 확장 함수 바인딩을 안정된 ID로 확정 (2) conv 피연산자와 속성의 shape/type/rank 검증 (3) effect/error ordering과 `j_origin` 보존 (4) `IndexMapWindow`, `Multiply`, `ReduceSum`에 대응하는 A3 연산 계약 마련 (5) 재구성 및 FP 수치 정책을 확인. 이를 만족하기 전에는 실제 A3 `OpKind`를 추가하거나 기존 실행 경로를 바꾸지 않는다.
 
 사용자 요청에 따라 테스트는 모아서 수행하며 이번 단계에서도 실행하지 않았다.
+
+## 15. FunctionEntity/PrimitiveHandle 경계 확인 (2026-10-21)
+
+실제 소스 조사 결과, `semantic::FunctionHead`는 `PrimitiveVerb`, `PrimitiveAdverb`, `PrimitiveConjunction`, `NameRef` 등을 갖지만 **Extension semantic ID를 직접 보유하는 변형이 없다**. 따라서 `FunctionEntity`의 `NameRef("conv1d")`만으로는 NN-08 의미를 안전하게 식별할 수 없다. 이 지점에서 이름을 강제 해석하거나 임의로 `FunctionHead`를 변경하는 것은 보류한다.
+
+한편 `primitive::PrimitiveHandle`은 `semantic_id: PrimitiveSemanticId::Extension("nn.conv1d")`, `source_origin`, `result_pos`, `semantic_info.registry_version`, `lowering_key`를 포함한다. `nn_extensions::frontend_preview_context()`가 실제로 이 핸들을 생성한다. 이에 `resolved_conv1d_handle_view(handle, mode, spec)`를 추가해 **Extension 출처, Adverb 품사, 일치하는 lowering key, registry version**을 확인한 후 기존 symbolic AST를 반환하게 했다.
+
+이것은 프런트엔드의 **해석된 핸들 → 대수 뷰**에 대한 안전한 입구다. 다만 현재 `FunctionEntity`가 핸들을 보존하지 않으므로 Graph IR `Apply`에서 이 핸들을 회수하는 경로는 아직 없다. 다음 단계는 일반적인 확장 primitive provenance를 `FunctionEntity`/Graph IR에 전달하는 설계를 검토하되, NN 전용 분기를 넣지 않는 것이다.
+
+테스트는 사용자 요청에 따라 누적하며 실행하지 않았다.
