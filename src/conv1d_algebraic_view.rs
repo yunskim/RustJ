@@ -69,6 +69,24 @@ pub enum Logical {
     ReduceSumKernel,
 }
 
+
+/// Only a resolved NN-extension semantic identity may opt into this view.
+/// Do not dispatch by source spelling: J names can be shadowed or rebound.
+/// This is metadata recognition, not frontend or production IR lowering.
+pub fn resolved_conv1d_view(
+    semantic_identity: &str,
+    mode: ViewMode,
+    spec: Conv1dSpec,
+) -> Option<AlgebraicView> {
+    let registered = crate::nn_extensions::NAMES.iter().find(|entry| {
+        entry.semantic_identity == semantic_identity
+            && entry.spelling == "conv1d"
+            && entry.family_id == "NN-08"
+    })?;
+    if !registered.frontend_preview { return None; }
+    view(mode, spec)
+}
+
 /// An opt-in adapter between the *actual* RustJ IR identity types and the
 /// Conv1D semantic registry. It does not mutate either production IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +95,8 @@ pub struct GraphViewRequest {
     pub input: crate::j_graph_ir::ValueId,
     pub weight: crate::j_graph_ir::ValueId,
     pub spec: Conv1dSpec,
+    /// Resolved semantic ID from frontend, never raw source text.
+    pub semantic_identity: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogicalViewPlan {
@@ -90,7 +110,7 @@ pub struct LogicalViewPlan {
 /// Actual A3 operations are not emitted until shape, effects, and provenance
 /// constraints can be checked against a real j_graph_ir::Plan.
 pub fn prepare_logical_view(request: &GraphViewRequest) -> Option<LogicalViewPlan> {
-    let definition = view(ViewMode::Forward, request.spec)?;
+    let definition = resolved_conv1d_view(&request.semantic_identity, ViewMode::Forward, request.spec)?;
     let (stride, padding, dilation) = forward_contraction(&definition.expr)?;
     Some(LogicalViewPlan {
         origin: request.origin,
