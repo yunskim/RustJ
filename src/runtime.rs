@@ -1855,7 +1855,7 @@ impl Engine {
                     let Some(Binding {
                         value: JEntity::Function(target),
                         ..
-                    }) = self.visible_binding(name)
+                    }) = self.visible_function_binding(name)
                     else {
                         return Ok(None);
                     };
