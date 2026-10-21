@@ -2913,6 +2913,21 @@ impl Engine {
         store_binding(&mut self.names, &mut self.pool, name, value)
     }
 
+    /// Resolve a function NAME at call time, preserving direct/base locale
+    /// selection and its z fallback. Indirect locatives remain unsupported here.
+    fn visible_function_binding(&self, name: &str) -> Option<&Binding> {
+        if let Some((key, locale)) = named_direct_address(name) {
+            return self.direct_read_binding(key, locale);
+        }
+        if let Some(key) = base_locative_key(name) {
+            return self.direct_read_binding(key, "base");
+        }
+        if name.contains("__") {
+            return None;
+        }
+        self.visible_binding(name)
+    }
+
     fn visible_binding(&self, name: &str) -> Option<&Binding> {
         self.local_frames
             .last()
@@ -3547,7 +3562,7 @@ impl Engine {
                 rank: None,
             }),
             FunctionHead::NameRef(name) => {
-                let binding = self.visible_binding(name).ok_or_else(|| {
+                let binding = self.visible_function_binding(name).ok_or_else(|| {
                     Error::Value(name.clone()).with_context(
                         ErrorContext::phase(DiagnosticPhase::Runtime)
                             .with_current_name(name.clone()),
