@@ -87,6 +87,25 @@ pub fn resolved_conv1d_view(
     view(mode, spec)
 }
 
+
+/// Admission boundary for a resolver-produced handle, not a source NAME.
+/// A FunctionEntity::NameRef alone is insufficient: it may be rebound.
+pub fn resolved_conv1d_handle_view(
+    handle: crate::primitive::PrimitiveHandle,
+    mode: ViewMode,
+    spec: Conv1dSpec,
+) -> Option<AlgebraicView> {
+    use crate::primitive::{LoweringKey, PrimitivePartOfSpeech, PrimitiveSemanticId, PrimitiveSourceOrigin};
+    let PrimitiveSemanticId::Extension(identity) = handle.semantic_id else { return None };
+    if handle.source_origin != PrimitiveSourceOrigin::Extension
+        || handle.result_pos != PrimitivePartOfSpeech::Adverb
+        || handle.lowering_key != LoweringKey::Extension(identity)
+        || handle.semantic_info.registry_version != crate::primitive::REGISTRY_VERSION {
+        return None;
+    }
+    resolved_conv1d_view(identity, mode, spec)
+}
+
 /// An opt-in adapter between the *actual* RustJ IR identity types and the
 /// Conv1D semantic registry. It does not mutate either production IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
