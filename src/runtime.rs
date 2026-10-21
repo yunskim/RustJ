@@ -3973,7 +3973,7 @@ mod name_locale_regression_tests {
             &engine.visible_function_binding("f_lab_").unwrap().value,
             JEntity::Function(_)
         ));
-        engine.commit_runtime_binding("f_lab_", JEntity::Noun(Value::scalar_int(7))).unwrap();
+        engine.commit_runtime_binding("f_lab_", JEntity::Noun(Value::scalar(7))).unwrap();
         assert!(matches!(
             &engine.visible_function_binding("f_lab_").unwrap().value,
             JEntity::Noun(_)
@@ -4002,11 +4002,11 @@ mod name_locale_regression_tests {
             &mut engine.local_frames.last_mut().unwrap().names,
             &mut engine.pool,
             "f".into(),
-            JEntity::Noun(Value::scalar_int(5)),
+            JEntity::Noun(Value::scalar(5)),
         ).unwrap();
         assert!(matches!(&engine.visible_binding("f").unwrap().value, JEntity::Noun(_)));
         assert!(matches!(&engine.visible_function_binding("f__").unwrap().value, JEntity::Function(_)));
-        engine.commit_runtime_binding("f__", JEntity::Noun(Value::scalar_int(9))).unwrap();
+        engine.commit_runtime_binding("f__", JEntity::Noun(Value::scalar(9))).unwrap();
         assert!(matches!(&engine.visible_function_binding("f__").unwrap().value, JEntity::Noun(_)));
     }
 
