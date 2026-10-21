@@ -3515,7 +3515,7 @@ impl Engine {
                     // during parsing, but C reports its missing binding when
                     // the sentence result is requested. Do not call the verb.
                     if let FunctionHead::NameRef(name) = &function.head
-                        && self.visible_binding(name).is_none()
+                        && self.visible_function_binding(name).is_none()
                         && self.primitives.resolve_extension_binding(name).is_none()
                     {
                         return Err(Error::Value(name.clone()).at(function.span.clone()));
