@@ -2855,7 +2855,7 @@ impl Engine {
         }
     }
 
-    /// A bounded named-locale noun path. Writes continue to use direct_binding.
+    /// Named-locale reads may fall back to z; writes always target the named locale.
     fn direct_read_binding(&self, key: &str, locale: &str) -> Option<&Binding> {
         self.direct_binding(key, locale).or_else(|| {
             if locale == "z" {
