@@ -212,10 +212,11 @@ fn direct_local_function_does_not_shadow_base_or_named_locale_functions() {
         &mut e,
         "f=:{{\nop=.-\nlocal=.op y\nbase=.op__ y\nnamed=.op_zone_ y\nlocal+base+named\n}}",
     );
-    expect(&mut e, "f 4", "1");
-    expect(&mut e, "f 7", "1");
+    // -1 + 2 produces an Int scalar, unlike the Boolean literal 1.
+    expect(&mut e, "f 4", "_1+2");
+    expect(&mut e, "f 7", "_1+2");
     expect(&mut e, "op 4", "4");
-    expect(&mut e, "op_zone_ 4", "1");
+    expect(&mut e, "op_zone_ 4", "_1+2");
 }
 
 #[test]
