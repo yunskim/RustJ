@@ -676,3 +676,18 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] **컴파일러 gate:** 이러한 NAME/effect/error 조건을 Graph specialization에 사용하려면 generation·locale provenance·effect boundary가 실행 시 검증되는 추가 증거 필요
 
 **주의:** 새 단언은 결과의 **예상 계약**이지 검증 결과가 아니다. 지금은 코드를 추가했을 뿐, 현 HEAD 및 C oracle 결과의 성공 건수는 갱신하지 않는다.
+
+
+### NAME 동일 문장 POS 변경·locale 조회 생성/오류 순서 (2026-10-22)
+
+**이번 범위:** 이미 정의된 verb NAME을 RHS가 noun으로 바꾸거나 다시 verb로 되돌릴 때, J 파서의 품사 인지 시점과 런타임 함수 조회 시점이 달라져도 오류 우선순위·바인딩 보존이 일치해야 한다. 이름의 단순 문자 유사성이나 Graph 정규화 결과만으로 함수 identity를 고정하지 않는다.
+
+- [x] `tests/base_locative.rs::named_function_pos_rebinding_observes_right_to_left_call_order` 작성: `call 4 + nounify 0`, `call 4 + restore 0`, `restore 0 + call 4`에서 RHS 변경·호출 시점·첫 오류를 분리한다.
+- [x] `src/runtime.rs::name_locale_regression_tests::named_locale_creation_occurs_at_lookup_or_successful_commit_not_failing_rhs` 작성: 실패한 named 조회의 locale 생성과, 우측 RHS 오류로 앞의 조회·할당에 도달하지 않았을 때 locale 미생성을 분리한다.
+- [x] `tests/named_locale.rs::malformed_indirect_holder_error_follows_successful_rhs_only` 작성: 유효하지 않은 boxed holder의 해석 오류보다 실패한 RHS가 먼저인지, 정상 RHS로 도달했을 때 목적지 기존 바인딩이 유지되는지 검사한다.
+- [x] `tools/name_compatibility_audit.py`의 SCOPE 2개·ASSIGNMENT 1개 J differential fixture 추가. fixture는 J-C 기대 출력의 사전 결정이 아니라 실행 때 **차이를 관측**하는 용도다.
+- [ ] 현재 HEAD에서 새 Rust 회귀의 실제 컴파일·실행 및 J-C oracle 대조.
+- [ ] J-C 첫 오류가 `domain/length/ill-formed name` 등의 기대와 다른 경우, 테스트를 임의로 완화하지 말고 NAME 파싱·resolution 시점과 J oracle의 출처를 비교해 원인 규명.
+- [ ] 성공적 함수 재정의 뒤의 parser POS, modifier POS 변경, locale 초기 생성·local/path/holder 재검색을 포함한 실행 가드와 Graph specialization 증거 확정.
+
+**실행 상태:** 이번 항목의 `cargo fmt`, `clippy`, Rust default/portable, Python audit, J-C differential은 **UNRUN**이다(사용자 요청에 따른 일괄 테스트 보류). 소스·보고서의 과거 PASS를 새 HEAD의 PASS로 옮기지 않는다. `main` push에서 자동 시작되는 원격 워크플로가 있더라도 수동 테스트 실행이나 결과 확인과 구별한다. 이 체크리스트의 체크([x])는 **테스트 코드/fixture 작성만 완료**된 뜻이다.
