@@ -582,10 +582,9 @@ mod tests {
         graph.nodes[index].facts.dtype = TypeFact::Exact(DType::Char);
         let error = lower_graph(graph, &|_| Facts::default()).unwrap_err();
 
-        let rejection =
-            Admission::<Plan>::inspected(Stage::Logical, Err(error))
-                .into_result()
-                .unwrap_err();
+        let rejection = Admission::<Plan>::inspected(Stage::Logical, Err(error))
+            .into_result()
+            .unwrap_err();
         assert_eq!(rejection.stage(), Stage::Logical);
         assert_eq!(rejection.category(), FailureCategory::VerifierDefect);
         assert!(!rejection.may_inspect_another_route());
