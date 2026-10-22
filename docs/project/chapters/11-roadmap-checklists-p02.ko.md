@@ -624,3 +624,19 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 `src/runtime.rs::name_locale_regression_tests`에 실행 보류 상태의 테스트 3개를 추가했다: (1) direct locale 함수 쓰기·z fallback·own noun shadow·함수 재정의, (2) base locative가 local frame을 우회하고 재정의 후 noun으로 바뀌는지, (3) direct definition `{{ ... }}`의 `local=.`이 호출 이후 전역 값을 바꾸지 않는지. **테스트 작성은 검증 통과가 아니다.** 현 HEAD 컴파일 및 테스트는 실행하지 않았다.
 
 잔여: 과거 name-scopes 10개 fixture 재실행, direct definition 지역 함수 POS 변화, nested/recursive 프레임, locale modifier, 실제 호출 시점 오류 순서 및 jsource oracle.
+
+
+### 추가 회귀 대기열: 중첩·재귀 direct definition 및 지역 함수 POS (2026-10-22)
+
+`tests/definition_acceptance.rs`에 기존 `define/expect` 검증 패턴을 재사용하여 아래 세 가지 **정적 기대 결과**를 가진 회귀 테스트를 추가했다. 현재 HEAD에서 컴파일·실행·jsource 대조는 하지 않았으며 성공으로 집계하지 않는다.
+
+- [x] **중첩 direct definition 호출 프레임:** 바깥/안쪽 모두 `slot=.`을 쓰되, 안쪽 호출 후 바깥 `slot`과 전역 `slot`이 보존되는지 확인하는 테스트 작성; 중첩 정의의 지역 함수 `inner`가 호출 후 밖으로 노출되지 않는지도 확인
+- [x] **재귀 direct definition 호출 프레임:** 각 재귀 깊이에서 `keep=.`을 바인딩하고 복귀 후 caller의 값 및 전역 `keep`이 보존되는지 확인하는 테스트 작성
+- [x] **동일 지역 함수의 품사 재정의:** `verb→noun` 및 `noun→verb`를 별도의 direct definition에서 확인하고 전역 함수가 변경되지 않는지 확인하는 테스트 작성
+- [x] `tools/name_compatibility_audit.py`의 SCOPE/NESTED fixture 그룹에 위 4개 J-vs-Rust 비교 사례 추가 (두 POS 방향을 별도 fixture로 분리)
+- [ ] 현재 HEAD에서 Rust 테스트 및 J oracle을 실행하고 각 기대 결과 검증
+- [ ] 중첩 호출의 오류/예외 복구에서 caller 지역변수 생존과 frame pop 순서 확인
+- [ ] 지역 함수와 direct/base/named locale NAME 충돌·수정 시점·재귀 재바인딩 오류 순서 검사
+- [ ] direct definition의 monad/dyad 및 modifier `u/v/m/n`과 지역 이름의 shadowing 확장 검사
+
+**주의:** 이 시점에는 테스트 준비와 검증 실행을 분리한다. 과거 oracle 결과와 신규 테스트의 결과를 합산하거나, 재귀·중첩 및 POS 변경의 호환성이 증명되었다고 표현하지 않는다.
