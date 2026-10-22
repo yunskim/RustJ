@@ -112,6 +112,31 @@ fn operand_frames_preserve_aliases_and_escape_function_identity() {
 }
 
 #[test]
+fn direct_modifier_operands_shadow_globals_without_leaking_aliases() {
+    let mut engine = Engine::new();
+    for source in [
+        "u=:100",
+        "m=:200",
+        "v=:300",
+        "n=:400",
+        "local_adverb=:{{ u+m }}",
+        "local_conjunction=:{{ u+v+m+n }}",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    let before = ["u", "m", "v", "n"].map(|name| engine.binding_version(name));
+    scalar(&mut engine, "3 local_adverb", 6);
+    scalar(&mut engine, "2 local_conjunction 4", 12);
+    assert_eq!(
+        before,
+        ["u", "m", "v", "n"].map(|name| engine.binding_version(name))
+    );
+    for (name, value) in [("u", 100), ("m", 200), ("v", 300), ("n", 400)] {
+        scalar(&mut engine, name, value);
+    }
+}
+
+#[test]
 fn failed_and_unsupported_bodies_preserve_targets_and_restore_invocation_depth() {
     let mut engine = Engine::new();
     for source in [
