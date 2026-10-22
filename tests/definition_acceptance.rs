@@ -171,6 +171,22 @@ fn recursive_direct_calls_restore_each_callers_local_value() {
 }
 
 #[test]
+fn failing_nested_direct_call_restores_local_scope_before_next_sentence() {
+    let mut e = Engine::new();
+    define(&mut e, "slot=:100");
+    define(
+        &mut e,
+        "outer_bad=:{{\nslot=.y+10\ninner=.{{\nslot=.y+1\n1 2+1 2 3\n}}\ninner y\n}}",
+    );
+    assert_eq!(e.eval("outer_bad 3").unwrap_err().kind(), "length error");
+    expect(&mut e, "slot", "100");
+    assert!(e.binding_version("inner").is_none());
+    define(&mut e, "ok=:{{\nslot=.y+20\nslot\n}}");
+    expect(&mut e, "ok 4", "24");
+    expect(&mut e, "slot", "100");
+}
+
+#[test]
 fn direct_local_function_can_rebind_across_verb_and_noun_classes() {
     let mut e = Engine::new();
     define(&mut e, "innerop=:+");
