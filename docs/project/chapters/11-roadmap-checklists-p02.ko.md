@@ -633,9 +633,10 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [x] **중첩 direct definition 호출 프레임:** 바깥/안쪽 모두 `slot=.`을 쓰되, 안쪽 호출 후 바깥 `slot`과 전역 `slot`이 보존되는지 확인하는 테스트 작성; 중첩 정의의 지역 함수 `inner`가 호출 후 밖으로 노출되지 않는지도 확인
 - [x] **재귀 direct definition 호출 프레임:** 각 재귀 깊이에서 `keep=.`을 바인딩하고 복귀 후 caller의 값 및 전역 `keep`이 보존되는지 확인하는 테스트 작성
 - [x] **동일 지역 함수의 품사 재정의:** `verb→noun` 및 `noun→verb`를 별도의 direct definition에서 확인하고 전역 함수가 변경되지 않는지 확인하는 테스트 작성
-- [x] `tools/name_compatibility_audit.py`의 SCOPE/NESTED fixture 그룹에 위 4개 J-vs-Rust 비교 사례 추가 (두 POS 방향을 별도 fixture로 분리)
+- [x] `tools/name_compatibility_audit.py`의 SCOPE/NESTED fixture 그룹에 총 5개 J-vs-Rust 비교 사례 추가 (두 POS 방향 분리, 중첩 오류 복구 포함)
 - [ ] 현재 HEAD에서 Rust 테스트 및 J oracle을 실행하고 각 기대 결과 검증
-- [ ] 중첩 호출의 오류/예외 복구에서 caller 지역변수 생존과 frame pop 순서 확인
+- [x] 중첩 호출 오류 후 전역 조회·지역 함수 비누출·후속 호출을 검사하는 회귀 및 oracle fixture 작성 (실행 보류)
+- [ ] 오류/예외 복구 시 caller 지역변수 생존과 frame pop 순서의 실제 테스트·jsource 일치 확인
 - [ ] 지역 함수와 direct/base/named locale NAME 충돌·수정 시점·재귀 재바인딩 오류 순서 검사
 - [ ] direct definition의 monad/dyad 및 modifier `u/v/m/n`과 지역 이름의 shadowing 확장 검사
 
