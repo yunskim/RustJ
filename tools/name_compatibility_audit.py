@@ -188,6 +188,11 @@ ASSIGNMENT_FIXTURES = [
     ("string_chained", ["'a b'=:c=:3 4", "a", "b", "c"]),
     ("string_readonly_partial", ["f=:{{for_i. i.1 do. try. 'a i_index'=.3 4 catch. a return. end. end.}}", "f 0"]),
     ("string_boxed_rows", ["'a b'=:2 2$<7 8", "a", "b"]),
+    ("indirect_holder_invalid_after_rhs", [
+        "a_probe_=:9", "holder=:<'bad_name'",
+        "a__holder=:1 2+1 2 3", "a_probe_",
+        "a__holder=:7", "a_probe_",
+        "holder=:<'probe'", "a__holder=:11", "a_probe_"]),
 ]
 
 # Both definition spellings must preserve the same NAME timing and scope rules.
