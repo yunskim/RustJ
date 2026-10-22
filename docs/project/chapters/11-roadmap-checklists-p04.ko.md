@@ -248,7 +248,7 @@ P8은 **parser migration 선행 게이트가 아니다.** P0–P7에서 얻은 c
 <a id="j-graph-implementation-checklist"></a>
 
 <a id="a15--j-graph-ir--jaxa-array-operation-graph-ir"></a>
-### A1.5 — J Graph IR / JAXA Array Operation Graph IR
+### A1.5 — J Graph IR (과거 JAXA Array Operation Graph 연구의 계승)
 
 **목표:** JAXA의 핵심 연구 표면을 first-class compiler IR로 만든다. parser가 만든 immutable FunctionEntity를 actual noun application과 결합하여, J 문법 자체가 제공하는 graph topology와 optimization hint를 잃지 않는 applied operation graph를 만든다.
 
@@ -1617,4 +1617,84 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [ ] graph rewrite candidate를 source/replacement의 동일 logical-atom + symbolic-state resource domain에서 평가하고 rewrite-local GraphFacts를 보존한다. existing `LoweringRegistry + TargetCapabilities`로 replacement GraphBasis를 execution basis에 투영해 target-only feasibility도 질의한다. unknown cost는 `Incomparable`, call-dependent legality는 `RequiresCallFacts`로 남긴다. `RewritePlanningReport`가 resource + target readiness를 합쳐 `TargetUnsupported / NeedsCallFacts / NeedsResourceFacts / ReadyForCosting`까지만 판정하며 후보 선택은 하지 않는다. 현재 `E.` candidate는 CPU에서 standalone WindowView 없이도 whole-rule `ReferenceRewriteComposite`로 target-feasible하다. 다만 candidate-local Window extent/traffic이 아직 unknown이라 planning state는 `NeedsResourceFacts`이고, GPU/standalone WindowView route는 Unsupported다. 남은 일은 rewrite-specific Window shape/resource 식, 일반 WindowView lowering, full TargetProfile/ResourceEstimate/CostProfile과 연결하는 것이다.
 
 **완료 조건:** 대표 J expressions(`@:`, Hook, Fork, Reduce, Rank, 이후 Window/Contract/Key/Power)가 generic execution DAG를 만들기 전에 J Graph IR에서 구조적으로 식별되고, graph optimizer가 source reparsing이나 execution-DAG pattern recovery 없이 fusion/lifetime/parallel/rewrite 후보를 만들 수 있다.
+
+<a id="fgx-frontend-graph-logical-경계-검증-체크리스트-2026-10-22"></a>
+### FGX — Frontend → J Graph IR → Logical IR 경계 검증 체크리스트 (2026-10-22)
+
+**설계 정본:** [§2.1.2 Frontend/J Graph/Logical 경계 감사](./03-architecture-p01.ko.md#212-frontend-j-graph-logical-handoff-검증-계약). 이 목록은 A0.6 Frontend, A1/J Graph, A3 Logical 간 **검증 누락과 단계 선택 상태**만 담당한다. 기존 J Graph feature inventory나 [A3 본 체크리스트](./11-roadmap-checklists-p05.ko.md#a3--logical-execution-ir-core-verification-scheduling-boundary)를 복제하지 않는다.
+
+**코드 감사 기준:** `main` `d1aa45065ce9e5ed50dbc725873f2bf8a1873b07`. 이 버전에서 `analyze_compilation_diagnostic`은 `parse_analysis → semantic::bind → from_bound_with_graph_facts → graph.verify → lower_graph(original.clone()) → A3.verify`를 거친다. `VerifiedFrontend::from_program`의 full handoff 대조는 주 경로에 **별도 호출되지 않으며**, `GraphRewriteCandidate`는 lowering되지 않는다. 확인한 것은 **코드 흐름**이고 수동 테스트 결과가 아니다.
+
+#### FGX-00 — Baseline과 범위 확정 (감사 완료, 실행 검증 대기)
+
+- [x] Frontend(`JEntity`/`FunctionEntity` + context), J Graph(적용된 topology), Logical(실행 operation/check/effect/error) 세 단계의 **서로 다른 소유권**을 확인했다. 세 IR을 하나로 합치지 않는다.
+- [x] `j_graph_ir::Plan::verify`가 context 자체, source, parser origin을 검증하지만 `VerifiedFrontend::from_program`의 root·assignment·occurrence 교차 검증과 동일한지 보장할 수 없음을 확인했다.
+- [x] Graph rewrite/resource 후보 분석과 원본 graph의 lowering을 분리해 기록했다. rewrite 자동 적용, CFG 지원, 전체 J 최적화 완료로 표기하지 않는다.
+- [x] 한국어/영어 README 상세 pipeline 모두 **J Graph IR을 명시함**을 대조했다. README의 Graph 단계 전면 누락이라는 과거 지적은 정정한다.
+- [ ] 변경 이후 `main` SHA와 정확한 CI 증거 및 unsupported/ignored 범위를 다시 확인한다. 본 항목의 코드 감사만으로 PASS라고 쓰지 않는다.
+
+#### FGX-01 — P0: Graph/Execution fact drift를 verifier defect로 분류
+
+**수정 대상:** `src/analysis.rs::lower_graph`의 `GraphFacts::agrees_with(...)` 실패는 현재 `Error::Unsupported("J Graph/Execution fact drift ...")`를 반환한다. `Error::Verification`으로 변경하고 diagnostic provenance는 유지한다. 진짜 기능 미지원과 모순된 compiler-owned fact를 혼동하지 않는다.
+
+- [ ] 오류 반환값을 `Error::Verification`으로 변경하고 `Error::category() == VerifierDefect`, `kind() == "verifier failure"` 확인.
+- [ ] **부정 회귀:** 정상 생성된 graph의 node fact를 의도적으로 모순되게 변조하고 `lower_graph`가 해당 origin/index에서 verifier defect를 반환하는지 검사(실제 J 실행 오류가 아님).
+- [ ] **Admission 회귀:** `admit_logical` 또는 동일 분류 경로에서 `Rejection::may_inspect_another_route() == false`를 보장. 실제 capability miss(`Unsupported`)는 다른 읽기 전용 분석 가능성을 유지한다.
+- [ ] 합법적 GraphFacts/ExecutionFacts가 일치하는 기존 lowering 사례와 provenance·오류 순서에 회귀가 없는지 확인.
+- [ ] **승인 조건:** verifier 오류와 Unsupported 오류의 범주가 테스트로 구분되고 default/portable + fmt/clippy + 해당 구조·부정 테스트를 통과한다.
+
+#### FGX-02 — P1: Compiler 주 경로의 VerifiedFrontend 검증 경계
+
+**문제:** `prepare_semantic_diagnostic`은 `parse_analysis`와 `semantic::bind`를 직접 사용한다. `Graph::verify()`는 parser context를 검사하지만 Semantic Program의 root, assignment metadata, expression/occurrence edge를 `VerifiedFrontend::from_program`만큼 검사한다는 보장은 없다.
+
+- [ ] `VerifiedFrontend::from_program`과 `j_graph_ir::Plan::verify`의 검사 항목을 **항목별 matrix**로 대조하고 주 경로에서 실제로 빠지는 invariant를 명시한다. 겹치는 검사를 "누락"으로 중복 계산하지 않는다.
+- [ ] 주 컴파일 경로에 검증된 handoff를 전달하거나 **동등성까지 입증된** 별도 선행 검사를 배치한다. 선택한 API 경계·지원 범위·실패 category를 기록한다. `from_capture`와 context 없는 합법적 batch graph 생성자에 무조건 `VerifiedFrontend` 타입을 강제하지 않는다.
+- [ ] **정상 회귀:** 리터럴, monad/dyad, hook/fork/rank, direct assignment, 허용된 noun assignment의 source/root/parser provenance가 frontend → J Graph → Logical에서 유지되는지 확인.
+- [ ] **부정 회귀:** Program root, assignment span/source/copula, semantic occurrence edge를 각각 조작했을 때 검증이 거부하는지 확인. 지원되지 않는 동적 NAME/effect는 `Unsupported`로 보류하고 verifier 결함으로 오분류하지 않는다.
+- [ ] **승인 조건:** 주 경로의 root/assignment/occurrence handoff 동등성 또는 명시적 좁은 적용 범위가 검증되고, 독립 graph 생성의 합법적 subset을 깨지 않는다.
+
+#### FGX-03 — P1: `from_bound`와 `from_capture`의 제한된 동등성 검사
+
+- [x] 정적 `from_bound`는 `j_graph_ir::Plan`, 실행 관측 기반 `from_capture`는 `CapturedGraph`를 생성한다. 반환 타입과 observation 부가정보가 달라 **전체 객체 동일성은 올바른 계약이 아님**을 기록했다.
+- [ ] 실행 전후 효과가 없는 정적 J 표현의 공통 수용 교집합을 먼저 선정한다(예: literals, elementary dyadic expression, 구조가 양 경로에서 실제 승인된 hook/fork). 지원 여부가 불확실한 표현은 검사 범위로 확정하지 않는다.
+- [ ] Graph의 공통 node/region, 적용 구조, producer-consumer dependency, source span 및 `j_origin` 대응을 비교한다. 실행 관측 값·constructor witness·name guard는 공통 구조 비교와 분리한다.
+- [ ] **부정 회귀:** 실패 capture, 동적 name/locative, effect가 있는 문장을 자의적으로 정적 동등성 증거로 승격하지 않는지 검증한다.
+- [ ] **승인 조건:** 선택된 순수 subset에서 graph 의미·구조가 일치하고, 서로 다른 관측 메타데이터를 부당하게 동일시하지 않는다.
+
+#### FGX-04 — P2: 문서/컴포넌트 명칭 정합성
+
+- [x] 현행 이름 `J Graph IR / Graph Analyzer`와 과거 **JAXA 연구명**의 구분을 아키텍처 정본에 반영했다. 그래프 단계의 존재 여부에 관한 README 오판을 정정했다.
+- [ ] `docs/project`의 나머지 현행 stage 표제·설명과 축약 다이어그램을 검토하고, 역사적 JAXA 언급은 문맥을 남기되 현행 컴파일러 컴포넌트로 오해될 표현만 정리한다. 문서 anchor는 보존한다.
+- [ ] 모듈 영어 미러 `03-architecture-p01.md`, `11-roadmap-checklists-p04.md`는 현재 **존재하지 않는다**. 프로젝트 문서 이관/미러 계획에 따라 전체 문서의 정합성을 보장할 방법을 정하고 후속 동기화한다. 불완전한 부분 파일을 대칭 미러인 것처럼 만들지 않는다.
+- [ ] **승인 조건:** 한국어 정본·인덱스 링크·영어 미러 상태가 일관되고, README 상세 pipeline이 현재 Graph IR을 올바르게 기술한다.
+
+#### FGX-05 — 이후: Selected J Graph → lowering / SPORES·E-Graph 연결
+
+- [x] 현재 `analyze_compilation_diagnostic`의 rewrite 발견/자원 평가는 **analysis-only**, lowering 입력은 **원본 `j_graph.clone()`**임을 확인했다. 이는 의도된 비선택 상태이지 lowering이 rewrite를 잘못 적용하는 버그가 아니다.
+- [ ] `source candidate → equivalence witness / Exact-J legality → guard/effect/error 조건 → target/resource/cost → selected graph → lowering`을 **서로 다른 상태**로 정의한다. `ReadyForCosting`이나 target feasibility만으로 선택·실행을 허가하지 않는다.
+- [ ] Graph 후보를 실제 lowering 대상으로 전달할 때 proof provenance, error-first ordering, NAME/binding-effect witness, shape/rank/fill/numeric semantics와 실패 fallback을 검증한다. 미승인 후보는 원본 graph를 유지한다.
+- [ ] SPORES/egg 기반 동등성 포화는 이 계약 위에 선택적으로 구성하며, 유사 수치 결과나 구현 용이성을 Exact-J 증명으로 간주하지 않는다.
+- [ ] **승인 조건:** 정당한 후보 하나의 end-to-end 선택/재검증/Logical IR 생성과, 오류·효과 반례에 대한 선택 거부가 각각 테스트된다. candidate discovery만으로 완료 표시하지 않는다.
+
+#### FGX-06 — 이후: A3-v0 single-block에서 explicit-definition CFG로 확장
+
+- [x] `logical_ir::Plan::verify()`는 A3-v0에 function/region/block 각 1개와 Return 종결을 요구한다. 이는 **의도된 straight-line 실행 IR 범위**다.
+- [ ] CFG 확장 전 function/region/block/terminator/block argument, SSA dominance, name/effect frontier, J first-error ordering, source provenance의 새 verifier 계약을 수립한다.
+- [ ] explicit-definition interpreter의 제어 흐름 실행과 compiled CFG lowering 지원은 별도 판정한다. 미지원 body graph를 임의의 단일 block에 평탄화하지 않는다.
+- [ ] **승인 조건:** 대표 if/while/for/try 중 선택한 작은 기능의 CFG가 올바르게 구성·검증되고, 잘못된 branch/SSA/effect 순서가 거부된다.
+
+#### FGX-07 — 실행 증거/판정표 (이번 문서 작업 시점)
+
+| 검사·증거 | 현재 상태 | 완료 기록 시 요구 사항 |
+|---|---|---|
+| 코드 구조 및 책임 경계 감사 | **확인(정적 감사)** | 감사 기준 `main` SHA `d1aa4506`를 유지 |
+| 이번 변경의 fmt/clippy, 문서 검사 | **UNRUN** | 정확한 PR HEAD 자동 CI 또는 수동 결과·링크 |
+| Rust default/portable 및 Python harness | **UNRUN** | 정확한 HEAD와 실행된 테스트명·ignored 별도 명시 |
+| Frontend handoff 부정 verifier 테스트 | **UNRUN** | 변조 root/assignment/occurrence별 실패 category |
+| Graph fact drift 분류 테스트 | **UNRUN** | `VerifierDefect`, no retry; Unsupported 대비 |
+| 정적/관측 Graph 교집합 비교 | **UNRUN** | 공통 승인 subset/불일치 내역 기록 |
+| J-C pinned j64/j64avx2 differential | **UNRUN(본 변경은 문서 전용)** | 향후 의미론 변경 시 해당 fixture 실제 관측 |
+| Graph 선택 최적화 / compiled CFG | **BLOCKED(미구현)** | 개별 FGX-05/06 gate 충족 |
+
+**진행 규칙:** P0(fact drift 오류 분류) → P1(handoff 완전성/두 graph 생성 경로의 의미 계약) → P2(문서 명칭) 순서로 작은 PR과 테스트 하나씩 처리한다. Graph rewrite 선택과 CFG는 **이후 독립 게이트**이며 P0/P1을 위해 선행 구현하지 않는다. 사용자 요청대로 이번 문서화 과정에서 수동 테스트·CI 재실행을 하지 않았으며, 기존 기록의 PASS를 새 코드의 PASS로 복사하지 않는다. 현행 [NAME 간접 함수 쓰기 draft PR #109](https://github.com/yunskim/RustJ/pull/109)는 별도의 J-C 검증 게이트에 의해 계속 보류되며 이 문서가 병합 승인을 제공하지 않는다.
 
