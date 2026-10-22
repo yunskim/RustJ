@@ -164,7 +164,7 @@ fn indirect_locative_function_assignment_preserves_rhs_first_error_and_target() 
     for semantic in [false, true] {
         let mut e = Engine::new();
         e.eval("holder=:<'probe'").unwrap();
-        e.eval("fn_probe_=:*").unwrap();
+        e.eval("fn_probe_=:+").unwrap();
         let eval = |e: &mut Engine, source: &str| {
             if semantic {
                 e.eval_semantic_reference(source)
@@ -179,14 +179,14 @@ fn indirect_locative_function_assignment_preserves_rhs_first_error_and_target() 
                 .kind(),
             "length error"
         );
-        scalar(&mut e, "fn_probe_ 4", 1);
+        scalar(&mut e, "fn_probe_ 4", 4);
 
         e.eval("holder=:<'bad_name'").unwrap();
         assert_eq!(
             eval(&mut e, "fn__holder=:-").unwrap_err().kind(),
             "ill-formed name"
         );
-        scalar(&mut e, "fn_probe_ 4", 1);
+        scalar(&mut e, "fn_probe_ 4", 4);
 
         e.eval("holder=:<'probe'").unwrap();
         eval(&mut e, "fn__holder=:-").unwrap();
