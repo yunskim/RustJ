@@ -166,7 +166,7 @@ fn right_hand_pos_restoration_allows_later_left_hand_direct_call() {
     for source in [
         "op_probe_=:+",
         "call=:{{op_probe_ y}}",
-        "restore=:{{\\nop_probe_=:+\\n0\\n}}",
+        "restore=:{{\nop_probe_=:+\n0\n}}",
     ] {
         engine.eval(source).unwrap();
     }
