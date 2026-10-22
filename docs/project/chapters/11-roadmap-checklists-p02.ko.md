@@ -649,7 +649,7 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 
 - [x] `tests/definition_acceptance.rs`: direct definition 내부의 local `op=.-`와 base `op__` 및 named `op_zone_` 함수가 독립적으로 조회되는지 검사하는 테스트 추가. 함수 정의 바깥에서 base/named 함수가 변경되지 않는지도 검사
 - [x] `tests/definition_acceptance.rs`: 재귀 호출 안쪽에서 local `op`가 plus로 재바인딩되어도 바깥 프레임의 minus 및 global plus가 보존되는지 검사하는 테스트 추가
-- [x] `tests/explicit_modifier.rs`: direct adverb `{{u+m}}` 및 direct conjunction `{{u+v+m+n}}`의 implicit operand/alias가 전역 `u/m/v/n`을 가리지 않고 값을 변경하지 않는지 검사하는 테스트 추가
+- [x] `tests/explicit_modifier.rs`: direct adverb `{{u+m}}` 및 direct conjunction `{{u+v+m+n}}`의 implicit operand/alias가 전역 `u/m/v/n`보다 우선하여 조회되지만 전역 바인딩의 값·버전은 변경하지 않는지 검사하는 테스트 추가
 - [x] `tests/base_locative.rs`: 과거 function locative assignment를 무조건 Unsupported로 기대한 테스트를 런타임 write/call 및 정적 분석 제한으로 분리하여 최신 코드 계약에 맞춤
 - [x] `tests/base_locative.rs`: named function의 `z` fallback→own noun shadow→own verb 재정의 동작을 parser 호출 경로에서 확인하는 테스트 추가
 - [x] `tools/name_compatibility_audit.py`의 SCOPE fixture에 위 기능과 연관된 J-vs-Rust 비교 사례 4개 추가
