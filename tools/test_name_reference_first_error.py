@@ -221,8 +221,10 @@ class ReferenceConsensusTests(unittest.TestCase):
     def test_setup_failure_blocks_target_even_if_target_variants_agree(self):
         records = self.build_records()
         for record in records:
+            record["reference"][0] = {"error": "value error"}
             record["focused_probe"]["wrapped_errors_before"] = [
-                {"index": 0, "error": "value error"}]
+                {"index": 0, "source": record["sources"][0],
+                 "error": "value error"}]
         outcome = self.assess(records)
         self.assertFalse(outcome["complete"])
         self.assertTrue(any("earlier setup sentence failed" in reason
