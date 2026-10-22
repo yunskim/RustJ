@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 
 from name_compatibility_audit import (SCRIPT_SETUPS, compare_trace, reference_trace,
-                                      reference_inputs, select_named_fixtures, SCOPE_FIXTURES, PIN)
+                                      reference_inputs, select_named_fixtures,
+                                      strict_gate_status, SCOPE_FIXTURES, PIN)
 
 
 class ReferenceSelection(unittest.TestCase):
@@ -86,6 +87,43 @@ class NamedFixtureSelection(unittest.TestCase):
         source = dict(selected)["named_function_pos_rebinding_first_error"]
         self.assertIn("call 4 + nounify 0", source)
         self.assertIn("restore 0 + call 4", source)
+
+
+
+class StrictGateClassification(unittest.TestCase):
+    def test_gate_accepts_only_complete_matching_records(self):
+        records = [
+            {"status": "matched", "variant": "j64", "route": "direct"},
+            {"status": "matched", "variant": "j64avx2", "route": "semantic-reference"},
+        ]
+        outcome = strict_gate_status(records, {"unrun_reference_variants": []})
+        self.assertEqual(outcome, {"passed": True, "reasons": []})
+
+    def test_gate_rejects_missing_variant_even_if_every_observation_matches(self):
+        records = [{"status": "matched", "variant": "j64", "route": "direct"}]
+        outcome = strict_gate_status(
+            records, {"unrun_reference_variants": ["j64avx2"]})
+        self.assertFalse(outcome["passed"])
+        self.assertIn("j64avx2", outcome["reasons"][0])
+
+    def test_gate_does_not_count_unsupported_or_semantic_mismatch_as_pass(self):
+        records = [
+            {"status": "matched"},
+            {"status": "unsupported_gap"},
+            {"status": "semantic_mismatch"},
+            {"status": "observation_gap"},
+        ]
+        outcome = strict_gate_status(records, {"unrun_reference_variants": []})
+        self.assertFalse(outcome["passed"])
+        self.assertTrue(any("unsupported_gap" in reason for reason in outcome["reasons"]))
+        self.assertTrue(any("semantic_mismatch" in reason for reason in outcome["reasons"]))
+        self.assertTrue(any("observation_gap" in reason for reason in outcome["reasons"]))
+
+    def test_gate_rejects_empty_observations(self):
+        outcome = strict_gate_status([], {"unrun_reference_variants": []})
+        self.assertEqual(outcome["passed"], False)
+        self.assertIn("no observations", outcome["reasons"])
+
 
 
 
