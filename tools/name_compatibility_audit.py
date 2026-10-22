@@ -237,6 +237,17 @@ SCOPE_FIXTURES = [
         "fails=:{{\ncount=:count+1\n1 2+1 2 3\n}}",
         "op_probe_=:1 2+1 2 3", "count", "op_probe_ 4",
         "op_probe_=:fails 0", "count", "op_probe_ 4"]),
+    ("named_function_pos_rebinding_first_error", [
+        "op_probe_=:+", "call=:{{op_probe_ y}}",
+        "nounify=:{{\nop_probe_=:7\n0\n}}",
+        "restore=:{{\nop_probe_=:+\n0\n}}",
+        "call 4", "call 4 + nounify 0", "op_probe_",
+        "call 4 + restore 0", "op_probe_ 4",
+        "op_probe_=:7", "restore 0 + call 4", "op_probe_"]),
+    ("named_locale_missing_vs_rhs_error", [
+        "missing_readmiss_", "pending_writefail_=:1 2+1 2 3",
+        "missing_readfail_+(1 2+1 2 3)",
+        "pending_writefail_=:8", "pending_writefail_"]),
 ]
 
 # Only these assignment setup blocks need script input (JDo has no interactive
