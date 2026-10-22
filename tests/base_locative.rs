@@ -130,6 +130,38 @@ fn named_function_rebinding_obeys_right_to_left_sentence_effects() {
 }
 
 #[test]
+fn named_function_pos_rebinding_observes_right_to_left_call_order() {
+    let mut engine = Engine::new();
+    for source in [
+        "op_probe_=:+",
+        "call=:{{op_probe_ y}}",
+        "nounify=:{{\nop_probe_=:7\n0\n}}",
+        "restore=:{{\nop_probe_=:+\n0\n}}",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    scalar(&mut engine, "call 4", 4);
+
+    // RHS changes the verb to a noun before the LHS's late-bound call.
+    assert_eq!(
+        engine.eval("call 4 + nounify 0").unwrap_err().kind(),
+        "domain error"
+    );
+    scalar(&mut engine, "op_probe_", 7);
+    // RHS restores the function before the LHS call.
+    scalar(&mut engine, "call 4 + restore 0", 4);
+    scalar(&mut engine, "op_probe_ 4", 4);
+
+    engine.eval("op_probe_=:7").unwrap();
+    // The RHS call fails first; restore does not execute on the left.
+    assert_eq!(
+        engine.eval("restore 0 + call 4").unwrap_err().kind(),
+        "domain error"
+    );
+    scalar(&mut engine, "op_probe_", 7);
+}
+
+#[test]
 fn failed_named_function_rhs_preserves_binding_but_not_prior_effects() {
     let mut engine = Engine::new();
     engine.eval("op_probe_=:-").unwrap();
