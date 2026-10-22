@@ -211,6 +211,19 @@ SCOPE_FIXTURES = [
     ("direct_local_pos_noun_to_verb", ["innerop=:+",
                                        "to_verb=:{{\ninnerop=.y+10\ninnerop=.-\ninnerop y\n}}",
                                        "to_verb 4", "innerop 4"]),
+    ("direct_local_vs_base_and_named_function", [
+        "op=:+", "op_zone_=:*",
+        "f=:{{\nop=.-\nlocal=.op y\nbase=.op__ y\nnamed=.op_zone_ y\nlocal+base+named\n}}",
+        "f 4", "f 7", "op 4", "op_zone_ 4"]),
+    ("recursive_direct_local_function_rebinding", [
+        "op=:+",
+        "recur_op=:{{\nop=.-\nif. y=0 do.\nop=.+\nelse.\nignored=.recur_op y-1\nend.\nop y\n}}",
+        "recur_op 0", "recur_op 3", "recur_op 5", "op 4", "ignored+0"]),
+    ("direct_modifier_operands_shadow_globals", [
+        "u=:100", "m=:200", "v=:300", "n=:400",
+        "local_adverb=:{{ u+m }}",
+        "local_conjunction=:{{ u+v+m+n }}",
+        "3 local_adverb", "2 local_conjunction 4", "u", "m", "v", "n"]),
 ]
 
 # Only these assignment setup blocks need script input (JDo has no interactive
