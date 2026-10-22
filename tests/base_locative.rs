@@ -161,6 +161,26 @@ fn direct_definition_reparses_named_locative_after_pos_restoration() {
 }
 
 #[test]
+fn right_hand_pos_restoration_allows_later_left_hand_direct_call() {
+    let mut engine = Engine::new();
+    for source in [
+        "op_probe_=:+",
+        "call=:{{op_probe_ y}}",
+        "restore=:{{\\nop_probe_=:+\\n0\\n}}",
+    ] {
+        engine.eval(source).unwrap();
+    }
+    engine.eval("op_probe_=:7").unwrap();
+    scalar(&mut engine, "op_probe_", 7);
+    // J evaluates the RHS first, restoring the verb before the direct body
+    // performs a fresh name lookup. This positive path does not classify the
+    // disputed syntax-vs-domain error when the noun remains bound.
+    scalar(&mut engine, "call 4 + restore 0", 4);
+    scalar(&mut engine, "op_probe_ 4", 4);
+    scalar(&mut engine, "call 5", 5);
+}
+
+#[test]
 #[ignore = "pending pinned J oracle for POS-change error precedence (RustJ: syntax error, expected domain error)"]
 fn named_function_pos_rebinding_observes_right_to_left_call_order() {
     let mut engine = Engine::new();
