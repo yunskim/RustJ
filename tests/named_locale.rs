@@ -174,9 +174,7 @@ fn indirect_locative_function_assignment_preserves_rhs_first_error_and_target() 
         };
 
         assert_eq!(
-            eval(&mut e, "fn__holder=:1 2+1 2 3")
-                .unwrap_err()
-                .kind(),
+            eval(&mut e, "fn__holder=:1 2+1 2 3").unwrap_err().kind(),
             "length error"
         );
         scalar(&mut e, "fn_probe_ 4", 4);
