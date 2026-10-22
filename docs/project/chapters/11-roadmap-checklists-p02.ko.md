@@ -745,3 +745,32 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] `named_function_pos_rebinding_observes_right_to_left_call_order`의 J 원본 `syntax/domain` 첫 오류 oracle 확인 후 ignore 해제 여부 결정
 
 **주의:** 이전 run의 실제 format 실패를 해결하기 위한 **코드 변경**이지, 새 HEAD에서 format PASS를 관측했다는 뜻이 아니다. Push로 자동 CI가 시작되더라도 수동 재실행과 구분하여 정확한 SHA의 결과만 집계한다.
+
+
+### NAME 첫 오류 진단용 fixture 선택 및 격리 범위 축소 (2026-10-22)
+
+**확인된 과거 CI:** `2434d2e7f78077a6611a62db35e456def4bc4b71`의 push-triggered [Basis compile probe 39732789489](https://github.com/yunskim/RustJ/actions/runs/39732789489)는 성공. 같은 SHA의 [Linux milestone 39732789571](https://github.com/yunskim/RustJ/actions/runs/39732789571)은 확인 당시 `check` 및 4개 reference matrix job이 모두 성공한 것으로 관측되었다. 다만 이 workflow의 reference matrix는 일반 conformance/rank/file-I/O 계열로, `tools/name_compatibility_audit.py`의 신규 NAME scope differential을 실행하는 증거가 **아니다**.
+
+- [x] `tools/name_compatibility_audit.py`에 **반복 가능한 `--case NAME` 선택 기능** 추가: 기존 `--scope-fixtures-only` 등 그룹 범위 안에서 요청한 실제 fixture만 실행, 고정된 원래 순서 유지, 중복 요청 중복 실행 방지, 이름 미존재·중복 정의 시 즉시 오류
+- [x] 진단 부분집합의 JSON 보고서/표준출력에 `selection.partial=true` 및 선택한 case 목록 기록. 선택 없이 실행하는 기존 전체 그룹의 결과·형식은 유지. 부분집합 성공을 전체 범위 PASS로 집계하지 않는다
+- [x] `tools/test_name_compatibility_audit.py`에 선택/그룹 순서/중복/알 수 없는 이름 거부 및 격리된 NAME fixture 선택 여부 회귀 코드 작성
+- [x] `tests/base_locative.rs::right_hand_pos_restoration_allows_later_left_hand_direct_call`의 **오른쪽 함수 restore → 왼쪽 direct body 정상 호출** 경로를 무시된 첫 오류 테스트에서 분리하여 활성 회귀로 추가
+- [ ] 아래 세 개의 direct/alias fixture를 고정 J j64/j64avx2와 RustJ 양 경로에서 대조하고, 실제 `domain/syntax` 오류 및 후속 함수 상태의 결과를 확인
+- [ ] 일치한 정확한 오류 종류를 근거로 `named_function_pos_rebinding_observes_right_to_left_call_order`의 ignore 해제 또는 parser/runtime 수정·새 실패 회귀 보강
+- [ ] Python unit, Rust 기본/portable 및 NAME differential은 **수동 실행 보류(UNRUN)**. 푸시에 따른 CI 자동 실행 결과는 해당 SHA에 대해서만 별도로 보고
+
+일괄 검사 시 **해당 fixture만 고르는 명령 예시** (Linux, pinned source build가 `.reference`에 준비돼 있고 `target/debug/rustj` 실행 파일이 존재할 때):
+
+```sh
+python3 tools/name_compatibility_audit.py \
+  --reference-root .reference \
+  --binary target/debug/rustj \
+  --rust-revision "$(git rev-parse HEAD)" \
+  --report reports/name-pos-targeted.json \
+  --scope-fixtures-only \
+  --case named_locative_alias_pos_mismatch \
+  --case named_direct_definition_reparse_after_pos_restore \
+  --case named_function_pos_rebinding_first_error
+```
+
+이 명령은 **제안된 미래 실행 방법**이며 이번 대화에서 실행하지 않았다. 특히 기존 C 자료의 alias POS mismatch가 domain error라는 결과는 direct body 문장에 대한 실제 C 결과를 대신하지 않는다.
