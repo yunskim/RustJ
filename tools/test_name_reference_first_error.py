@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 
 from name_reference_first_error import (
-    TARGET_CASES, observe_reference_cases, require_complete_reference_pair,
+    TARGET_CASES, observe_reference_cases, raw_reference_trace,
+    require_complete_reference_pair,
 )
 from name_compatibility_audit import SCOPE_FIXTURES, select_named_fixtures
 
@@ -41,6 +42,11 @@ class ReferenceOnlyProbe(unittest.TestCase):
                 observed.append(("script", source))
                 return None
 
+            def run(self, source):
+                observed.append(("raw", source))
+                return ({"error": "domain error"} if source == "call 4 + nounify 0"
+                        else None)
+
             def close(self):
                 observed.append(("close", None))
 
@@ -58,10 +64,38 @@ class ReferenceOnlyProbe(unittest.TestCase):
             "index": 1, "source": "call 4 + nounify 0", "error": "syntax error"})
         self.assertEqual(record["error_steps"], [record["first_error"]])
         self.assertEqual(record["reference"][2], {"data": [7]})
+        self.assertEqual(record["raw_first_error"], {
+            "index": 1, "source": "call 4 + nounify 0", "error": "domain error"})
+        self.assertEqual(record["transport_error_disagreements"], [{
+            "index": 1, "source": "call 4 + nounify 0",
+            "wrapped_error": "syntax error", "raw_error": "domain error"}])
+        self.assertEqual(record["raw_reference_transport"], ["raw-sentence"] * 3)
         self.assertEqual(
             [entry for entry in observed if entry[0] == "eval"],
             [("eval", x) for x in fixtures[0][1]])
-        self.assertEqual(len([x for x in observed if x[0] == "close"]), 1)
+        self.assertEqual(
+            [entry for entry in observed if entry[0] == "raw"],
+            [("raw", x) for x in fixtures[0][1]])
+        self.assertEqual(len([x for x in observed if x[0] == "close"]), 2)
+
+    def test_raw_transport_uses_true_script_for_existing_script_setups(self):
+        from name_compatibility_audit import SCRIPT_SETUPS
+        script = sorted(SCRIPT_SETUPS)[0]
+        class FakeOracle:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, source):
+                self.calls.append(("raw", source))
+
+            def run_script(self, source):
+                self.calls.append(("script", source))
+
+        oracle = FakeOracle()
+        results, transports = raw_reference_trace(oracle, [script, "a"])
+        self.assertEqual(results, [{"silent": True}, {"silent": True}])
+        self.assertEqual(transports, ["script", "raw-sentence"])
+        self.assertEqual(oracle.calls, [("script", script), ("raw", "a")])
 
     def test_reference_only_always_closes_oracle_on_failure(self):
         closed = []
