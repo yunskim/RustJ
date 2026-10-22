@@ -115,9 +115,7 @@ fn named_function_locative_falls_back_to_z_until_own_binding_shadows_it() {
 fn named_function_rebinding_obeys_right_to_left_sentence_effects() {
     let mut engine = Engine::new();
     engine.eval("op_probe_=:-").unwrap();
-    engine
-        .eval("change=:{{\nop_probe_=:*\ny\n}}")
-        .unwrap();
+    engine.eval("change=:{{\nop_probe_=:*\ny\n}}").unwrap();
 
     // The rightmost call mutates the named function before the left verb is used.
     scalar(&mut engine, "op_probe_ 4 + change 0", 1);

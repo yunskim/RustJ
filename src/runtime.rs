@@ -3955,7 +3955,6 @@ mod entity_binding_tests {
     }
 }
 
-
 #[cfg(test)]
 mod name_locale_regression_tests {
     use super::*;
@@ -3968,12 +3967,16 @@ mod name_locale_regression_tests {
     #[test]
     fn direct_locale_function_write_is_own_scope_and_shadows_z() {
         let mut engine = Engine::new();
-        engine.commit_runtime_binding("f_z_", verb(PrimitiveId::Plus)).unwrap();
+        engine
+            .commit_runtime_binding("f_z_", verb(PrimitiveId::Plus))
+            .unwrap();
         assert!(matches!(
             &engine.visible_function_binding("f_lab_").unwrap().value,
             JEntity::Function(_)
         ));
-        engine.commit_runtime_binding("f_lab_", JEntity::Noun(Value::scalar(7))).unwrap();
+        engine
+            .commit_runtime_binding("f_lab_", JEntity::Noun(Value::scalar(7)))
+            .unwrap();
         assert!(matches!(
             &engine.visible_function_binding("f_lab_").unwrap().value,
             JEntity::Noun(_)
@@ -3982,7 +3985,9 @@ mod name_locale_regression_tests {
             &engine.direct_binding("f", "z").unwrap().value,
             JEntity::Function(_)
         ));
-        engine.commit_runtime_binding("f_lab_", verb(PrimitiveId::Minus)).unwrap();
+        engine
+            .commit_runtime_binding("f_lab_", verb(PrimitiveId::Minus))
+            .unwrap();
         assert!(matches!(
             &engine.visible_function_binding("f_lab_").unwrap().value,
             JEntity::Function(_)
@@ -3992,7 +3997,9 @@ mod name_locale_regression_tests {
     #[test]
     fn base_locative_bypasses_local_shadow_and_rebinds_dynamically() {
         let mut engine = Engine::new();
-        engine.commit_runtime_binding("f__", verb(PrimitiveId::Plus)).unwrap();
+        engine
+            .commit_runtime_binding("f__", verb(PrimitiveId::Plus))
+            .unwrap();
         engine.local_frames.push(LocalFrame {
             instance: crate::frontend_context::ScopeInstanceId::fresh(),
             names: HashMap::new(),
@@ -4003,11 +4010,23 @@ mod name_locale_regression_tests {
             &mut engine.pool,
             "f".into(),
             JEntity::Noun(Value::scalar(5)),
-        ).unwrap();
-        assert!(matches!(&engine.visible_binding("f").unwrap().value, JEntity::Noun(_)));
-        assert!(matches!(&engine.visible_function_binding("f__").unwrap().value, JEntity::Function(_)));
-        engine.commit_runtime_binding("f__", JEntity::Noun(Value::scalar(9))).unwrap();
-        assert!(matches!(&engine.visible_function_binding("f__").unwrap().value, JEntity::Noun(_)));
+        )
+        .unwrap();
+        assert!(matches!(
+            &engine.visible_binding("f").unwrap().value,
+            JEntity::Noun(_)
+        ));
+        assert!(matches!(
+            &engine.visible_function_binding("f__").unwrap().value,
+            JEntity::Function(_)
+        ));
+        engine
+            .commit_runtime_binding("f__", JEntity::Noun(Value::scalar(9)))
+            .unwrap();
+        assert!(matches!(
+            &engine.visible_function_binding("f__").unwrap().value,
+            JEntity::Noun(_)
+        ));
     }
 
     #[test]
@@ -4023,7 +4042,10 @@ mod name_locale_regression_tests {
 
         assert!(!engine.named_locales.contains_key("writefail"));
         assert_eq!(
-            engine.eval("pending_writefail_=:1 2+1 2 3").unwrap_err().kind(),
+            engine
+                .eval("pending_writefail_=:1 2+1 2 3")
+                .unwrap_err()
+                .kind(),
             "length error"
         );
         assert!(
@@ -4033,7 +4055,8 @@ mod name_locale_regression_tests {
 
         assert!(!engine.named_locales.contains_key("readfail"));
         assert_eq!(
-            engine.eval("missing_readfail_+(1 2+1 2 3)")
+            engine
+                .eval("missing_readfail_+(1 2+1 2 3)")
                 .unwrap_err()
                 .kind(),
             "length error"

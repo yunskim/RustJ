@@ -733,3 +733,15 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 
 **관측된 별도 baseline 장애:** push-triggered `Linux milestone` [run 39731149300](https://github.com/yunskim/RustJ/actions/runs/39731149300)의 `check` job은 `cargo fmt --check`에서 FAIL이었다. 로그에 `src/conv1d_algebraic_view.rs` 및 `tests/base_locative.rs` 등의 포맷 차이가 보고되었다. 이 실패는 **Rust 수치/NAME 테스트 결과와 별도**이며, 현 HEAD의 fmt PASS를 보장하지 않는다. 사용자 지시상 이 세션에서는 formatter·테스트·CI를 재실행하지 않았고, fmt 수정도 별도 일괄 정비 대상으로 남긴다.
 
+
+
+### CI rustfmt 차이의 비실행 적용 (2026-10-22)
+
+자동 push-triggered [Linux milestone run 39732129543](https://github.com/yunskim/RustJ/actions/runs/39732129543)의 `check` job이 `cargo fmt --check`에서 실패했고, 로그의 **35개 diff 구간**을 해당 리비전 `20c5a2a`의 파일 원문과 문자 단위로 대조했다. 변경 대상은 `src/conv1d_algebraic_view.rs`, `src/lib.rs`, `src/runtime.rs`, `tests/base_locative.rs`이다. 각 구간은 파일 내용에서 **정확히 한 번 일치**하고 구간끼리 겹치지 않아, CI가 제시한 rustfmt 변경만 소스에 반영했다. 연산 의미나 이름 조회 로직은 이 변경에서 수정하지 않는다.
+
+- [x] CI 로그에 기록된 4개 파일의 서식 차이 35개 구간 적용 및 한국어 정본 체크리스트 동기화
+- [ ] 현 HEAD `cargo fmt --check` 확인 — **UNRUN/자동 CI 결과 대기**
+- [ ] 현 HEAD Rust default/portable, clippy, Python, pinned J differential 확인 — **수동 실행 보류**
+- [ ] `named_function_pos_rebinding_observes_right_to_left_call_order`의 J 원본 `syntax/domain` 첫 오류 oracle 확인 후 ignore 해제 여부 결정
+
+**주의:** 이전 run의 실제 format 실패를 해결하기 위한 **코드 변경**이지, 새 HEAD에서 format PASS를 관측했다는 뜻이 아니다. Push로 자동 CI가 시작되더라도 수동 재실행과 구분하여 정확한 SHA의 결과만 집계한다.
