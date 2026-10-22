@@ -91,39 +91,84 @@ class NamedFixtureSelection(unittest.TestCase):
 
 
 class StrictGateClassification(unittest.TestCase):
-    def test_gate_accepts_only_complete_matching_records(self):
-        records = [
-            {"status": "matched", "variant": "j64", "route": "direct"},
-            {"status": "matched", "variant": "j64avx2", "route": "semantic-reference"},
+    VARIANTS = ("j64", "j64avx2")
+    ROUTES = ("direct", "semantic-reference")
+
+    def observations(self, cases=("scope",), variants=None):
+        if variants is None:
+            variants = self.VARIANTS
+        return [
+            {"case": case, "variant": variant, "route": route,
+             "status": "matched", "differences": [], "unobserved_suffix": []}
+            for variant in variants for case in cases for route in self.ROUTES
         ]
-        outcome = strict_gate_status(records, {"unrun_reference_variants": []})
+
+    def gate(self, records, cases=("scope",), variants=None, missing=()):
+        if variants is None:
+            variants = self.VARIANTS
+        return strict_gate_status(
+            records, {"unrun_reference_variants": list(missing)},
+            cases, variants, self.ROUTES)
+
+    def test_gate_accepts_only_complete_matching_records(self):
+        records = self.observations(cases=("alpha", "beta"))
+        outcome = self.gate(records, cases=("alpha", "beta"))
         self.assertEqual(outcome, {"passed": True, "reasons": []})
 
-    def test_gate_rejects_missing_variant_even_if_every_observation_matches(self):
-        records = [{"status": "matched", "variant": "j64", "route": "direct"}]
-        outcome = strict_gate_status(
-            records, {"unrun_reference_variants": ["j64avx2"]})
+    def test_gate_rejects_missing_pinned_variant_even_if_records_match(self):
+        records = self.observations(variants=("j64",))
+        outcome = self.gate(records, variants=("j64",), missing=("j64avx2",))
         self.assertFalse(outcome["passed"])
         self.assertIn("j64avx2", outcome["reasons"][0])
 
     def test_gate_does_not_count_unsupported_or_semantic_mismatch_as_pass(self):
-        records = [
-            {"status": "matched"},
-            {"status": "unsupported_gap"},
-            {"status": "semantic_mismatch"},
-            {"status": "observation_gap"},
-        ]
-        outcome = strict_gate_status(records, {"unrun_reference_variants": []})
-        self.assertFalse(outcome["passed"])
-        self.assertTrue(any("unsupported_gap" in reason for reason in outcome["reasons"]))
-        self.assertTrue(any("semantic_mismatch" in reason for reason in outcome["reasons"]))
-        self.assertTrue(any("observation_gap" in reason for reason in outcome["reasons"]))
+        for status in ("unsupported_gap", "semantic_mismatch", "observation_gap"):
+            with self.subTest(status=status):
+                records = self.observations()
+                records[0]["status"] = status
+                outcome = self.gate(records)
+                self.assertFalse(outcome["passed"])
+                self.assertTrue(
+                    any(status in reason for reason in outcome["reasons"]))
 
     def test_gate_rejects_empty_observations(self):
-        outcome = strict_gate_status([], {"unrun_reference_variants": []})
-        self.assertEqual(outcome["passed"], False)
+        outcome = self.gate([])
+        self.assertFalse(outcome["passed"])
         self.assertIn("no observations", outcome["reasons"])
 
+    def test_gate_rejects_missing_route_despite_all_remaining_records_matching(self):
+        records = self.observations()
+        records.pop()
+        outcome = self.gate(records)
+        self.assertFalse(outcome["passed"])
+        self.assertTrue(any("missing expected observations" in reason
+                            for reason in outcome["reasons"]))
+
+    def test_gate_rejects_missing_fixture_despite_other_fixture_passes(self):
+        records = self.observations(cases=("alpha",))
+        outcome = self.gate(records, cases=("alpha", "beta"))
+        self.assertFalse(outcome["passed"])
+        self.assertTrue(any("'beta'" in reason for reason in outcome["reasons"]))
+
+    def test_gate_rejects_duplicate_and_unexpected_observations(self):
+        records = self.observations()
+        records.append(records[0].copy())
+        records.append({**records[0], "case": "unknown"})
+        outcome = self.gate(records)
+        self.assertFalse(outcome["passed"])
+        self.assertTrue(any("duplicate observations" in reason
+                            for reason in outcome["reasons"]))
+        self.assertTrue(any("unexpected observations" in reason
+                            for reason in outcome["reasons"]))
+
+    def test_gate_rejects_bad_expected_dimensions_and_inconsistent_match(self):
+        records = self.observations()
+        self.assertFalse(self.gate(records, cases=("scope", "scope"))["passed"])
+        records[0]["differences"] = [{"index": 0}]
+        outcome = self.gate(records)
+        self.assertFalse(outcome["passed"])
+        self.assertTrue(any("matched observation contains differences" in reason
+                            for reason in outcome["reasons"]))
 
 
 
