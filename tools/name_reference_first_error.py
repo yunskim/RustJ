@@ -169,7 +169,7 @@ def reference_error_kind(outcome):
     if not isinstance(outcome, dict):
         raise ValueError("J observation is not a dictionary")
     error = outcome.get("error")
-    if error is not None and (not isinstance(error, str) or not error):
+    if "error" in outcome and (not isinstance(error, str) or not error):
         raise ValueError("J observation has an invalid error kind")
     return error
 
@@ -199,7 +199,7 @@ def assess_reference_probe_consensus(records, fixture_names, variants):
             "reasons": ["fixture dimension contains duplicate names"],
         })
     for case in fixture_names:
-        reasons = []
+        reasons = ["no expected reference variants"] if not variants else []
         raw_kinds, wrapped_kinds = [], []
         for variant in variants:
             count = observed[(case, variant)]
@@ -225,8 +225,10 @@ def assess_reference_probe_consensus(records, fixture_names, variants):
             if (probe.get("index") != index or probe.get("source") != sources[index]):
                 reasons.append(f"{variant}: focused probe points to the wrong sentence")
                 continue
-            if (len(record.get("reference", [])) != len(sources)
-                    or len(record.get("raw_reference", [])) != len(sources)):
+            if (not isinstance(record.get("reference"), list)
+                    or not isinstance(record.get("raw_reference"), list)
+                    or len(record["reference"]) != len(sources)
+                    or len(record["raw_reference"]) != len(sources)):
                 reasons.append(f"{variant}: incomplete sentence trace")
                 continue
             if (probe.get("wrapped_errors_before") is None
