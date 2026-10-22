@@ -20,8 +20,21 @@ from oracle import Oracle
 TARGET_CASES = (
     "named_locative_alias_pos_mismatch",
     "named_direct_definition_reparse_after_pos_restore",
+    "named_direct_body_noun_before_call",
+    "named_direct_body_rhs_nounifies_before_call",
     "named_function_pos_rebinding_first_error",
 )
+
+# Identify the exact diagnostic sentence (including its occurrence count), not
+# merely the earliest error in a multi-sentence fixture. Setup can fail first,
+# and the same source may be evaluated on both sides of a POS redefinition.
+PROBE_LOCATORS = {
+    "named_locative_alias_pos_mismatch": ("alias 4", 2),
+    "named_direct_definition_reparse_after_pos_restore": ("call 4", 2),
+    "named_direct_body_noun_before_call": ("call 4", 2),
+    "named_direct_body_rhs_nounifies_before_call": ("call 4 + nounify 0", 1),
+    "named_function_pos_rebinding_first_error": ("call 4 + nounify 0", 1),
+}
 
 
 def require_complete_reference_pair(libraries, metadata):
@@ -58,6 +71,35 @@ def error_steps(sources, outcomes):
         for index, (source, outcome) in enumerate(zip(sources, outcomes))
         if isinstance(outcome, dict) and "error" in outcome
     ]
+
+
+
+def select_probe_index(case, sources):
+    """Return the unambiguous chosen source occurrence, or None for other cases."""
+    if case not in PROBE_LOCATORS:
+        return None
+    source, occurrence = PROBE_LOCATORS[case]
+    indexes = [i for i, candidate in enumerate(sources) if candidate == source]
+    if len(indexes) < occurrence:
+        raise ValueError(
+            f"Probe source occurrence missing: {case}: {source!r} #{occurrence}"
+        )
+    return indexes[occurrence - 1]
+
+
+def focused_probe_step(case, sources, wrapped, raw):
+    """Preserve an exact probe's outcomes and errors preceding that probe."""
+    index = select_probe_index(case, sources)
+    if index is None:
+        return None
+    return {
+        "index": index,
+        "source": sources[index],
+        "wrapped": wrapped[index],
+        "raw": raw[index],
+        "wrapped_errors_before": error_steps(sources[:index], wrapped[:index]),
+        "raw_errors_before": error_steps(sources[:index], raw[:index]),
+    }
 
 
 
@@ -109,6 +151,8 @@ def observe_reference_cases(libraries, fixtures, oracle_factory=Oracle):
                     "raw_first_error": raw_errors[0] if raw_errors else None,
                     "raw_error_steps": raw_errors,
                     "transport_error_disagreements": disagree,
+                    "focused_probe": focused_probe_step(
+                        name, sources, outcomes, raw_outcomes),
                 })
     return records
 
@@ -157,6 +201,7 @@ def main():
             {"variant": item["variant"], "case": item["case"],
              "first_error": item["first_error"],
              "raw_first_error": item["raw_first_error"],
+             "focused_probe": item["focused_probe"],
              "transport_error_disagreements":
                  item["transport_error_disagreements"]}
             for item in records
