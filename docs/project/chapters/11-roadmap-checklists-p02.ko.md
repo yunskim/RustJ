@@ -805,3 +805,19 @@ python3 tools/name_compatibility_audit.py \
 ```
 
 **보류 상태:** 이번 변경에서는 수동 Rust/Python 검증, 고정 J-C 실행, CI 트리거를 하지 않았다. 코드는 작성했지만 J 오류 종류의 정확한 판정은 미완료. `--gate`가 켜지면 정확한 관측·원본 변형이 모두 갖춰지지 않는 한 PASS라고 주장하지 않는다.
+
+
+### NAME strict oracle gate: fixture × C 변형 × Rust 실행 경로 완전성 (2026-10-22)
+
+이전 `--gate`는 수집된 `records`의 `status`가 전부 `matched`인지 검증했지만, **의도한 조합 자체가 누락되었는지**를 확인하지 않았다. 예를 들어 지정된 fixture의 `semantic-reference` 경로 결과가 빠지고 `direct`만 남아도 모든 *수집 기록*이 matched라는 이유로 gate를 통과할 위험이 있었다. 이는 conformance 증거의 **완전성 오류**이며 J 언어 의미론의 변경이 아니다.
+
+- [x] `tools/name_compatibility_audit.py::strict_gate_status`에 **기대 fixture 목록, 실제 고정 J 원본 변형 목록, 필수 Rust route 목록** 전달
+- [x] 기대 조합 `fixture × variant × {direct, semantic-reference}`의 각 키가 **정확히 한 번** 관측되어야 gate를 통과하도록 변경. 빠진 키, 중복 키, 예기치 않은 키는 fail-closed
+- [x] 이전의 non-matched, 원본 변형 누락, 관측 0건 거부를 유지하며, `matched`인 레코드에 `differences`나 `unobserved_suffix`가 남은 모순도 거부
+- [x] `tools/test_name_compatibility_audit.py`에 전체 조합 정상, 변형 누락, route 누락, fixture 누락, 중복·예기치 않은 기록 및 불일치 status 회귀 사례 작성
+- [ ] 본 브랜치에서 Python unit, pinned J-C differential의 실제 실행 여부 확인. 사용자 지정 일괄 테스트 전에는 수동 실행 **UNRUN** 유지
+- [ ] 고정 J 원본의 `named_function_pos_rebinding_first_error`를 두 변형과 두 Rust route에서 비교하고 `syntax/domain` 판정 후 ignored 테스트 정리
+
+이 변경은 기존 `--gate`의 **요청 범위 내부에서만** completeness를 요구한다. `--case`가 지정된 경우 선택되지 않은 전체 NAME fixture까지 통과했다고 주장하지 않는다. 비교 절차는 기존 `--scope-fixtures-only --case ... --gate`와 동일하며, 진단 모드(게이트 미지정)는 이전처럼 관측 기록을 남기고 종료 상태를 강제하지 않는다.
+
+기존 `main` `a68223f95ab2b8397b36a8b31d8955a18807d0d5`의 [Linux milestone 39734585854](https://github.com/yunskim/RustJ/actions/runs/39734585854) 전체 작업은 성공. 단, 해당 CI는 신규 gate 완전성 코드를 포함하지 않고 별도의 NAME C differential 실행을 증명하지 않는다.
