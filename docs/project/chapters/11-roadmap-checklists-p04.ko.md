@@ -1635,13 +1635,15 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 
 #### FGX-01 — P0: Graph/Execution fact drift를 verifier defect로 분류
 
-**수정 대상:** `src/analysis.rs::lower_graph`의 `GraphFacts::agrees_with(...)` 실패는 현재 `Error::Unsupported("J Graph/Execution fact drift ...")`를 반환한다. `Error::Verification`으로 변경하고 diagnostic provenance는 유지한다. 진짜 기능 미지원과 모순된 compiler-owned fact를 혼동하지 않는다.
+**수정 대상/구현 기록:** `main` 감사 시점에는 `src/analysis.rs::lower_graph`의 `GraphFacts::agrees_with(...)` 실패가 `Error::Unsupported("J Graph/Execution fact drift ...")`를 반환했다. FGX-01 브랜치에서 `Error::Verification`으로 변경하고 기존 graph value index를 유지했다. 진짜 기능 미지원과 모순된 compiler-owned fact를 혼동하지 않는다.
 
-- [ ] 오류 반환값을 `Error::Verification`으로 변경하고 `Error::category() == VerifierDefect`, `kind() == "verifier failure"` 확인.
-- [ ] **부정 회귀:** 정상 생성된 graph의 node fact를 의도적으로 모순되게 변조하고 `lower_graph`가 해당 origin/index에서 verifier defect를 반환하는지 검사(실제 J 실행 오류가 아님).
-- [ ] **Admission 회귀:** `admit_logical` 또는 동일 분류 경로에서 `Rejection::may_inspect_another_route() == false`를 보장. 실제 capability miss(`Unsupported`)는 다른 읽기 전용 분석 가능성을 유지한다.
-- [ ] 합법적 GraphFacts/ExecutionFacts가 일치하는 기존 lowering 사례와 provenance·오류 순서에 회귀가 없는지 확인.
+- [x] **코드 작성:** 오류 반환값을 `Error::Verification`으로 변경. `Error::category() == VerifierDefect`, `kind() == "verifier failure"`의 unit assertion을 추가했다. **실행 검증은 아래 FGX-07로 별도 관리**.
+- [x] **회귀 코드 작성:** `analyze_j_graph("1")`의 정상 lowering/verify와, literal node의 dtype fact를 Char로 변조한 뒤 `graph.verify()`가 통과하더라도 `lower_graph`가 verifier defect로 거부하는 경로를 추가. J 실행 오류를 흉내 내지 않는다. **실행 검증 대기**.
+- [x] **Admission 회귀 코드 작성:** `Admission::<Plan>::inspected(Stage::Logical, Err(drift))`의 `VerifierDefect`, `may_inspect_another_route()==false`, `is_j_handler_eligible()==false`를 검증하며 `Unsupported`의 `may_inspect_another_route()==true`와 대조. **실행 검증 대기**.
+- [x] **정상 회귀 코드 작성:** 동일한 원본 literal graph를 먼저 `lower_graph`하고 Logical verifier를 실행하는 positive control을 추가. 기존 고수준 lowering/regression suite의 default·portable 실제 실행 결과는 CI에서 확인한다.
 - [ ] **승인 조건:** verifier 오류와 Unsupported 오류의 범주가 테스트로 구분되고 default/portable + fmt/clippy + 해당 구조·부정 테스트를 통과한다.
+
+**FGX-01 구현 범위 (2026-10-22):** `src/analysis.rs`의 **오류 분류와 테스트만** 변경했다. GraphFacts 추론, graph 생성/검증, 실제 J semantics, handoff admission, Graph rewrite 선택·CFG에는 변경이 없다. 변경 전 `main` 기준 SHA `3d80fffbaaf09c8082b5728cc9f3b5fbe593c77b`. PR 정확한 HEAD/CI 결과는 테스트 완료 후 별도 보고·기록한다. pinned J-C 차분 검증은 내부 verifier 오류 분류를 검사하는 이 slice의 의미론적 필수 조건이 아니며, 사용자 요청대로 수동 테스트는 보류한다.
 
 #### FGX-02 — P1: Compiler 주 경로의 VerifiedFrontend 검증 경계
 
@@ -1691,7 +1693,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 | 이번 변경의 fmt/clippy, 문서 검사 | **UNRUN** | 정확한 PR HEAD 자동 CI 또는 수동 결과·링크 |
 | Rust default/portable 및 Python harness | **UNRUN** | 정확한 HEAD와 실행된 테스트명·ignored 별도 명시 |
 | Frontend handoff 부정 verifier 테스트 | **UNRUN** | 변조 root/assignment/occurrence별 실패 category |
-| Graph fact drift 분류 테스트 | **UNRUN** | `VerifierDefect`, no retry; Unsupported 대비 |
+| Graph fact drift 분류 테스트 | **회귀 코드 작성, 실행 증거 대기** | `VerifierDefect`, no retry; Unsupported 대비; PR HEAD CI 정확히 기록 |
 | 정적/관측 Graph 교집합 비교 | **UNRUN** | 공통 승인 subset/불일치 내역 기록 |
 | J-C pinned j64/j64avx2 differential | **UNRUN(본 변경은 문서 전용)** | 향후 의미론 변경 시 해당 fixture 실제 관측 |
 | Graph 선택 최적화 / compiled CFG | **BLOCKED(미구현)** | 개별 FGX-05/06 gate 충족 |
