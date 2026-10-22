@@ -728,3 +728,8 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] 같은 문장 내 `nounify` 효과가 먼저 반영된 후 좌측 direct-body가 parse되는지 및 첫 syntax/domain error가 C와 같은지 확인. 시점이 다를 경우 별도 의미론 수정과 재발 방지 사례 필요.
 
 **실행 상태:** 이번 변경은 **추가 검증 코드 작성 및 과거 oracle 결과 분석**이며, 신규 Rust default/portable·Python·C oracle 검증은 UNRUN. 기존 alias 2종 DLL의 domain error 결과를 신규 direct-body 사례의 PASS라고 보고하지 않는다. 자동 push CI도 현 HEAD 증거를 확인한 다음에만 판단한다.
+
+**실행 경로 코드 감사:** `src/runtime.rs::invoke_definition_body`는 각 실행된 body sentence에 대해 `parser::parse_runtime_source(body_origin.slice(...), &mut frame, None)`를 호출한다. 따라서 RustJ direct definition의 본문 NAME은 외부 함수 별칭을 생성할 때처럼 모두 선행 고정되는 것이 아니라 **호출 중 해당 문장을 처리할 때 조회·POS 분류**된다. `EngineParserHost::lookup`은 direct locative의 현재 noun을 `ParserNameBinding::Noun`으로, 현재 함수를 `ParserNameBinding::Function(result_pos)`로 전달한다. `resolve_function_entity`의 동적 domain-error 확인은 이미 구성된 **FunctionEntity::NameRef**의 호출 시점 조건이다. 이 두 경로를 하나의 오류 종류 계약으로 합치지 않는다.
+
+**관측된 별도 baseline 장애:** push-triggered `Linux milestone` [run 39731149300](https://github.com/yunskim/RustJ/actions/runs/39731149300)의 `check` job은 `cargo fmt --check`에서 FAIL이었다. 로그에 `src/conv1d_algebraic_view.rs` 및 `tests/base_locative.rs` 등의 포맷 차이가 보고되었다. 이 실패는 **Rust 수치/NAME 테스트 결과와 별도**이며, 현 HEAD의 fmt PASS를 보장하지 않는다. 사용자 지시상 이 세션에서는 formatter·테스트·CI를 재실행하지 않았고, fmt 수정도 별도 일괄 정비 대상으로 남긴다.
+
