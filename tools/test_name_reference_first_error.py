@@ -7,8 +7,9 @@ import unittest
 from pathlib import Path
 
 from name_reference_first_error import (
-    TARGET_CASES, focused_probe_step, observe_reference_cases,
-    raw_reference_trace, require_complete_reference_pair, select_probe_index,
+    TARGET_CASES, assess_reference_probe_consensus, focused_probe_step,
+    observe_reference_cases, raw_reference_trace, require_complete_reference_pair,
+    select_probe_index,
 )
 from name_compatibility_audit import SCOPE_FIXTURES, select_named_fixtures
 
@@ -65,6 +66,13 @@ class ReferenceOnlyProbe(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "both J-C variants"):
             require_complete_reference_pair(libraries[:1] * 2, {
                 "unrun_reference_variants": []})
+        with self.assertRaisesRegex(ValueError, "both J-C variants"):
+            require_complete_reference_pair(
+                [("wrong", Path("wrong.so")), ("other", Path("other.so"))],
+                {"unrun_reference_variants": []})
+        require_complete_reference_pair([
+            ("j.dll", Path("j.dll")), ("javx2.dll", Path("javx2.dll"))
+        ], {"unrun_reference_variants": []})
 
     def test_reference_only_keeps_error_order_and_post_error_reads(self):
         observed = []
@@ -148,6 +156,128 @@ class ReferenceOnlyProbe(unittest.TestCase):
                 [("j64", Path("j64.so"))], [("case", ["bad"])],
                 oracle_factory=BrokenOracle)
         self.assertEqual(closed, [True])
+
+
+class ReferenceConsensusTests(unittest.TestCase):
+    CASE = "named_direct_body_rhs_nounifies_before_call"
+    VARIANTS = ("j64", "j64avx2")
+
+    def build_records(self, raw_error="syntax error",
+                      wrapped_error="syntax error"):
+        sources = dict(SCOPE_FIXTURES)[self.CASE]
+        index = select_probe_index(self.CASE, sources)
+        records = []
+        for variant in self.VARIANTS:
+            wrapped = [{"silent": True} for _ in sources]
+            raw = [{"silent": True} for _ in sources]
+            if wrapped_error is not None:
+                wrapped[index] = {"error": wrapped_error}
+            if raw_error is not None:
+                raw[index] = {"error": raw_error}
+            records.append({
+                "case": self.CASE, "variant": variant, "sources": sources,
+                "reference": wrapped, "raw_reference": raw,
+                "focused_probe": focused_probe_step(
+                    self.CASE, sources, wrapped, raw),
+            })
+        return records
+
+    def assess(self, records):
+        return assess_reference_probe_consensus(
+            records, [self.CASE], self.VARIANTS)
+
+    def test_two_variants_and_both_transports_agree_on_error_kind(self):
+        outcome = self.assess(self.build_records())
+        self.assertTrue(outcome["complete"])
+        self.assertEqual(outcome["cases"][0]["status"], "agreed_error")
+        self.assertEqual(outcome["cases"][0]["raw_error_kind"], "syntax error")
+        self.assertNotIn("RustJ passed", outcome["scope"])
+
+    def test_consensus_on_no_error_is_not_misreported_as_an_error(self):
+        outcome = self.assess(self.build_records(None, None))
+        self.assertTrue(outcome["complete"])
+        self.assertEqual(outcome["cases"][0]["status"], "agreed_no_error")
+        self.assertIsNone(outcome["cases"][0]["raw_error_kind"])
+
+    def test_reference_variant_disagreement_blocks_semantic_verdict(self):
+        records = self.build_records()
+        index = records[1]["focused_probe"]["index"]
+        records[1]["raw_reference"][index] = {"error": "domain error"}
+        records[1]["focused_probe"]["raw"] = {"error": "domain error"}
+        records[1]["reference"][index] = {"error": "domain error"}
+        records[1]["focused_probe"]["wrapped"] = {"error": "domain error"}
+        outcome = self.assess(records)
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("variants disagree" in reason
+                            for reason in outcome["cases"][0]["reasons"]))
+
+    def test_raw_and_wrapped_error_disagreement_blocks_semantic_verdict(self):
+        outcome = self.assess(self.build_records(
+            raw_error="syntax error", wrapped_error="domain error"))
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("raw JDo and wrapped" in reason
+                            for reason in outcome["cases"][0]["reasons"]))
+
+    def test_setup_failure_blocks_target_even_if_target_variants_agree(self):
+        records = self.build_records()
+        for record in records:
+            record["reference"][0] = {"error": "value error"}
+            record["focused_probe"]["wrapped_errors_before"] = [
+                {"index": 0, "source": record["sources"][0],
+                 "error": "value error"}]
+        outcome = self.assess(records)
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("earlier setup sentence failed" in reason
+                            for reason in outcome["cases"][0]["reasons"]))
+
+    def test_missing_duplicate_or_unexpected_variant_record_blocks(self):
+        records = self.build_records()
+        self.assertFalse(self.assess(records[:1])["complete"])
+        self.assertFalse(self.assess(records + [records[0]])["complete"])
+        unexpected = dict(records[0], variant="not-pinned")
+        outcome = self.assess(records + [unexpected])
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("unexpected observation keys" in reason
+                            for item in outcome["cases"]
+                            for reason in item["reasons"]))
+
+    def test_wrong_target_index_or_short_trace_cannot_be_accepted(self):
+        records = self.build_records()
+        records[0]["focused_probe"]["index"] = 0
+        self.assertFalse(self.assess(records)["complete"])
+        records = self.build_records()
+        records[0]["reference"].pop()
+        self.assertFalse(self.assess(records)["complete"])
+
+    def test_consensus_rejects_falsely_empty_setup_error_provenance(self):
+        records = self.build_records()
+        records[0]["reference"][0] = {"error": "value error"}
+        # The derived focused_probe still claims no earlier errors.
+        outcome = self.assess(records)
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("prerequisite errors disagree" in reason
+                            for reason in outcome["cases"][0]["reasons"]))
+
+    def test_consensus_rejects_empty_or_duplicated_dimensions(self):
+        records = self.build_records()
+        empty = assess_reference_probe_consensus(records, [self.CASE], [])
+        self.assertFalse(empty["complete"])
+        self.assertTrue(any("variant dimension is empty" in reason
+                            for case in empty["cases"] for reason in case["reasons"]))
+        duplicates = assess_reference_probe_consensus(
+            records, [self.CASE, self.CASE], self.VARIANTS)
+        self.assertFalse(duplicates["complete"])
+
+    def test_target_without_a_defined_locator_fails_closed(self):
+        records = self.build_records()
+        for record in records:
+            record["case"] = "unrelated_scope_case"
+        outcome = assess_reference_probe_consensus(
+            records, ["unrelated_scope_case"], self.VARIANTS)
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("no defined probe locator" in reason
+                            for reason in outcome["cases"][0]["reasons"]))
+
 
 
 if __name__ == "__main__":
