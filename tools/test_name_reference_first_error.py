@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from name_reference_first_error import (
-    TARGET_CASES, observe_reference_cases, raw_reference_trace,
-    require_complete_reference_pair,
+    TARGET_CASES, focused_probe_step, observe_reference_cases,
+    raw_reference_trace, require_complete_reference_pair, select_probe_index,
 )
 from name_compatibility_audit import SCOPE_FIXTURES, select_named_fixtures
 
@@ -19,6 +19,42 @@ class ReferenceOnlyProbe(unittest.TestCase):
         self.assertEqual([name for name, _ in selected], list(TARGET_CASES))
         self.assertIn("call 4 + nounify 0", dict(selected)[
             "named_function_pos_rebinding_first_error"])
+
+    def test_selected_probe_follows_the_pos_rebinding_not_an_earlier_call(self):
+        sources_by_case = dict(SCOPE_FIXTURES)
+        expected_indexes = {
+            "named_locative_alias_pos_mismatch": 4,
+            "named_direct_definition_reparse_after_pos_restore": 6,
+            "named_direct_body_noun_before_call": 4,
+            "named_direct_body_rhs_nounifies_before_call": 4,
+            "named_function_pos_rebinding_first_error": 5,
+        }
+        self.assertEqual(set(TARGET_CASES), set(expected_indexes))
+        for case, index in expected_indexes.items():
+            with self.subTest(case=case):
+                self.assertEqual(select_probe_index(case, sources_by_case[case]),
+                                 index)
+
+    def test_focused_probe_does_not_confuse_setup_failure_with_target_error(self):
+        sources = ["setup", "call 4 + nounify 0", "op_probe_"]
+        wrapped = [{"error": "value error"},
+                   {"error": "syntax error"}, {"data": [7]}]
+        raw = [{"error": "value error"},
+               {"error": "domain error"}, {"silent": True}]
+        probe = focused_probe_step(
+            "named_function_pos_rebinding_first_error", sources, wrapped, raw)
+        self.assertEqual(probe["index"], 1)
+        self.assertEqual(probe["wrapped"], {"error": "syntax error"})
+        self.assertEqual(probe["raw"], {"error": "domain error"})
+        self.assertEqual(probe["wrapped_errors_before"], [
+            {"index": 0, "source": "setup", "error": "value error"}])
+        self.assertEqual(probe["raw_errors_before"], [
+            {"index": 0, "source": "setup", "error": "value error"}])
+
+    def test_missing_probe_occurrence_is_not_silently_replaced(self):
+        with self.assertRaisesRegex(ValueError, "Probe source occurrence missing"):
+            select_probe_index("named_direct_body_noun_before_call", ["call 4"])
+        self.assertIsNone(select_probe_index("unselected_scope_case", ["call 4"]))
 
     def test_complete_reference_pair_is_required(self):
         libraries = [("j64", Path("j64.so")), ("j64avx2", Path("j64avx2.so"))]
@@ -64,6 +100,7 @@ class ReferenceOnlyProbe(unittest.TestCase):
             "index": 1, "source": "call 4 + nounify 0", "error": "syntax error"})
         self.assertEqual(record["error_steps"], [record["first_error"]])
         self.assertEqual(record["reference"][2], {"data": [7]})
+        self.assertIsNone(record["focused_probe"])
         self.assertEqual(record["raw_first_error"], {
             "index": 1, "source": "call 4 + nounify 0", "error": "domain error"})
         self.assertEqual(record["transport_error_disagreements"], [{
