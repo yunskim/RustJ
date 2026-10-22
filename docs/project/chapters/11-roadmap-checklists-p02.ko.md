@@ -860,3 +860,19 @@ python3 tools/name_reference_first_error.py \
 - [ ] 이어 RustJ의 기존 ignored 회귀에 대해 동일 첫 오류/후속 바인딩을 비교하며 `syntax error` 또는 `domain error` 기대를 **실증된 경우에만** 확정. NAME/Graph 최적화 합법성 인정은 별도 게이트
 
 **증거의 제한:** `focused_probe`는 **관측 지점이 어디인지 표시**할 뿐 실제 J-C 결과를 미리 주장하지 않는다. 서로 다른 원본 실행 방식(wrapped 대 raw)의 오류가 다르면 그 차이를 보존한다. 현 HEAD의 일반 Linux milestone CI 성공은 새 NAME 전용 fixture가 실제 C에서 일치했다는 증거가 아니다.
+
+
+### NAME J-C 오류 합의 판정의 증거 무결성 (2026-10-22)
+
+`tools/name_reference_first_error.py`의 결과를 읽을 때 C oracle을 두 번 실행했다는 사실만으로 direct definition 오류 의미론을 확정하면 안 된다. 기존 도구는 **원본 오류의 raw/wrapped 기록**을 남겼지만, **두 원본 변형의 대상 문장 오류가 일치하는지**를 요약 판정하거나, 준비 문장 실패·기록 누락을 자동으로 보류시키지 않았다.
+
+- [x] `require_complete_reference_pair`는 정확한 C reference 변형 쌍 `j64/j64avx2` 또는 `j.dll/javx2.dll`만 수락하도록 강화. 서로 다른 임의 이름 두 개, 중복 변형, manifest가 명시한 미실행 변형은 거부
+- [x] `assess_reference_probe_consensus`를 도입: 선택한 fixture×원본 변형당 정확히 한 관측이 있고, `focused_probe`가 실제 source의 정확한 순번·텍스트를 가리키며, raw/wrapped trace의 길이·probe 결과·**probe 이전 오류 기록**이 일관된 경우만 판단
+- [x] 대상 이전에 하나라도 오류가 발생하면 해당 fixture는 **blocked**. 준비 오류가 없는 경우에도 **두 C 변형의 대상 오류 종류가 다르거나 raw JDo와 wrapped Oracle.eval의 오류 종류가 다르면** blocked
+- [x] 대상 결과가 두 변형·두 transport에서 합치면 `agreed_error` 또는 `agreed_no_error`로 구분. `agreed_no_error`는 정상 실행의 수치값·배열 형태·후속 상태가 같음을 증명하지 않음. 보고서의 `focused_error_consensus.complete`는 오직 **선택한 원본 오류 종류에 대한 합의**이지 RustJ conformance PASS가 아님
+- [x] 누락·중복/예상 외 기록, 빈/중복 fixture·variant 정의, 거짓 준비 오류 없음 선언도 fail-closed
+- [x] `tools/test_name_reference_first_error.py`에 성공/비오류 합의, 원본 변형 및 transport 불일치, 실패한 준비 문장, 누락·중복·예상 외 record, 위치/trace 불일치에 관한 FakeOracle/합성 기록 회귀 작성
+- [ ] 신규 HEAD의 자동 CI/정확한 SHA를 검증하고 pinned J-C 대상 두 변형의 실제 `focused_error_consensus` 기록 확보. 사용자 요청대로 수동 원본 실행은 **UNRUN**
+- [ ] C 합의 오류 결과를 근거로 `named_function_pos_rebinding_observes_right_to_left_call_order`의 `syntax error` vs `domain error` 판정을 결정한 후 RustJ direct/semantic-reference 모두와 비교하고 ignore 해제 여부 결정
+
+**원칙:** `agreed_error`도 **RustJ 오류 의미론과 일치함을 뜻하지 않는다**. 이는 J 원본 실행 두 변형의 대상 오류 종류가 일치한다는 관측 결과일 뿐이며, NAME의 후속 부작용/배열 결과, Graph/Logical IR 합법성은 별도의 검증이 필요하다. 일반 Linux milestone에서 수행하는 pinned conformance는 본 NAME 전용 probe 실행으로 대체되지 않는다.
