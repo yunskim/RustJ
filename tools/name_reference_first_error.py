@@ -11,7 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from name_compatibility_audit import (
-    SCOPE_FIXTURES, reference_inputs, reference_trace, select_named_fixtures,
+    SCRIPT_SETUPS, SCOPE_FIXTURES, reference_inputs, reference_trace,
+    select_named_fixtures,
 )
 from oracle import Oracle
 
@@ -34,6 +35,32 @@ def require_complete_reference_pair(libraries, metadata):
         )
 
 
+
+def raw_reference_trace(oracle, sources):
+    """Run original J sentences once, without Oracle.eval's result assignment.
+
+    A separate fresh interpreter is essential: running a sentence twice on
+    the same interpreter could change global NAME state and error precedence.
+    Successful raw JDo sentences cannot reveal noun data; only error types.
+    """
+    outcomes, transports = [], []
+    for source in sources:
+        script = source in SCRIPT_SETUPS
+        outcome = oracle.run_script(source) if script else oracle.run(source)
+        outcomes.append(outcome or {"silent": True})
+        transports.append("script" if script else "raw-sentence")
+    return outcomes, transports
+
+
+def error_steps(sources, outcomes):
+    return [
+        {"index": index, "source": source, "error": outcome["error"]}
+        for index, (source, outcome) in enumerate(zip(sources, outcomes))
+        if isinstance(outcome, dict) and "error" in outcome
+    ]
+
+
+
 def observe_reference_cases(libraries, fixtures, oracle_factory=Oracle):
     """Retain each sentence, transport, error, and post-error read in source order."""
     records = []
@@ -47,18 +74,41 @@ def observe_reference_cases(libraries, fixtures, oracle_factory=Oracle):
                     outcomes, transports = reference_trace(oracle, sources)
                 finally:
                     oracle.close()
-                if len(outcomes) != len(sources) or len(transports) != len(sources):
+                # A second fresh interpreter observes the *unwrapped* source
+                # for syntax/domain errors. Oracle.eval prefixes a result
+                # assignment to non-assignment queries, which may affect POS
+                # parsing, so retain both error traces instead of guessing.
+                raw_oracle = oracle_factory()
+                try:
+                    raw_outcomes, raw_transports = raw_reference_trace(
+                        raw_oracle, sources)
+                finally:
+                    raw_oracle.close()
+                if (len(outcomes) != len(sources)
+                        or len(transports) != len(sources)
+                        or len(raw_outcomes) != len(sources)
+                        or len(raw_transports) != len(sources)):
                     raise RuntimeError(f"Incomplete J trace: {variant}/{name}")
-                errors = [
-                    {"index": index, "source": source, "error": outcome["error"]}
-                    for index, (source, outcome) in enumerate(zip(sources, outcomes))
-                    if isinstance(outcome, dict) and "error" in outcome
+                errors = error_steps(sources, outcomes)
+                raw_errors = error_steps(sources, raw_outcomes)
+                disagree = [
+                    {"index": i, "source": source,
+                     "wrapped_error": wrapped.get("error"),
+                     "raw_error": raw.get("error")}
+                    for i, (source, wrapped, raw)
+                    in enumerate(zip(sources, outcomes, raw_outcomes))
+                    if wrapped.get("error") != raw.get("error")
                 ]
                 records.append({
                     "variant": variant, "case": name, "sources": sources,
                     "reference": outcomes, "reference_transport": transports,
                     "first_error": errors[0] if errors else None,
                     "error_steps": errors,
+                    "raw_reference": raw_outcomes,
+                    "raw_reference_transport": raw_transports,
+                    "raw_first_error": raw_errors[0] if raw_errors else None,
+                    "raw_error_steps": raw_errors,
+                    "transport_error_disagreements": disagree,
                 })
     return records
 
@@ -105,7 +155,10 @@ def main():
         "fixtures": report["fixtures"], "observations": report["observations"],
         "first_errors": [
             {"variant": item["variant"], "case": item["case"],
-             "first_error": item["first_error"]}
+             "first_error": item["first_error"],
+             "raw_first_error": item["raw_first_error"],
+             "transport_error_disagreements":
+                 item["transport_error_disagreements"]}
             for item in records
         ],
     }))
