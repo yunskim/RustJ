@@ -205,6 +205,12 @@ SCOPE_FIXTURES = [
     ("top_level_local_copula_is_global", ["outside=.7", "outside"]),
     ("callee_does_not_capture_caller_local", ["f=:+", "inner=:1 : 'u 7'",
                                              "outer=:{{ f=.u\nf inner }}", "-outer", "f 7"]),
+    ("direct_local_pos_verb_to_noun", ["innerop=:+",
+                                       "to_noun=:{{\ninnerop=.-\nnegated=.innerop y\ninnerop=.y+10\nnegated+innerop\n}}",
+                                       "to_noun 4", "innerop 4"]),
+    ("direct_local_pos_noun_to_verb", ["innerop=:+",
+                                       "to_verb=:{{\ninnerop=.y+10\ninnerop=.-\ninnerop y\n}}",
+                                       "to_verb 4", "innerop 4"]),
 ]
 
 # Only these assignment setup blocks need script input (JDo has no interactive
@@ -266,6 +272,12 @@ NESTED_FIXTURES = [
     ("nested_anonymous", ["f=:{{ {{y+1}} y }}", "f 4"]),
     ("nested_deferred_control_error", ["f=:{{inner=.{{if. y do. y}}\ny}}", "f 1"]),
     ("nested_body_effect_timing", ["count=:0", "f=:{{inner=.{{count=:count+1\ny}}\ninner y\n}}", "count", "f 4", "count"]),
+    ("nested_same_named_local_slots", ["slot=:100",
+                                         "outer=:{{\nslot=.y+10\ninner=.{{\nslot=.y+1\nslot\n}}\nslot+inner y\n}}",
+                                         "outer 3", "outer 5", "slot", "inner 4"]),
+    ("recursive_direct_local_slots", ["keep=:777",
+                                       "recur=:{{\nkeep=.y+100\nif. y>0 do.\nrecur y-1\nend.\nkeep\n}}",
+                                       "recur 4", "recur 1", "keep"]),
 ]
 
 FOR_FIXTURES = [
