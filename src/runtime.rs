@@ -4011,6 +4011,29 @@ mod name_locale_regression_tests {
     }
 
     #[test]
+    fn failed_named_function_rhs_keeps_version_and_binding_generation() {
+        let mut engine = Engine::new();
+        engine
+            .commit_runtime_binding("op_probe_", verb(PrimitiveId::Minus))
+            .unwrap();
+        let binding = engine.direct_binding("op", "probe").unwrap();
+        let before = (binding.version, binding.generation);
+        assert_eq!(
+            engine.eval("op_probe_=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        let binding = engine.direct_binding("op", "probe").unwrap();
+        assert_eq!((binding.version, binding.generation), before);
+        assert!(matches!(binding.value, JEntity::Function(_)));
+
+        engine
+            .commit_runtime_binding("op_probe_", verb(PrimitiveId::Plus))
+            .unwrap();
+        let binding = engine.direct_binding("op", "probe").unwrap();
+        assert_ne!((binding.version, binding.generation), before);
+    }
+
+    #[test]
     fn direct_definition_local_assignment_does_not_escape_call() {
         let mut engine = Engine::new();
         engine.eval("local=:99").unwrap();
