@@ -510,22 +510,53 @@ def select_named_fixtures(fixtures, requested):
 
 
 
-def strict_gate_status(records, reference_metadata):
-    """Require complete pinned variants and exact per-case/route equality.
+def strict_gate_status(records, reference_metadata, fixture_names, variants,
+                       routes=("direct", "semantic-reference")):
+    """Require one exact matching observation for every expected fixture/variant/route.
 
-    A targeted --case subset can pass its own diagnostic gate, but its
-    selection.partial marker must not be upgraded to full conformance.
+    Matching *only* the records that happened to be produced is insufficient:
+    a lost execution route, missing fixture, or duplicated observation must
+    never silently pass a strict gate. A --case selection is still partial.
     """
     reasons = []
-    missing = reference_metadata.get("unrun_reference_variants", [])
-    if missing:
-        reasons.append("unrun reference variant(s): " + ", ".join(missing))
+    missing_variants = reference_metadata.get("unrun_reference_variants", [])
+    if missing_variants:
+        reasons.append("unrun reference variant(s): " + ", ".join(missing_variants))
+
+    dimensions = {"fixture": fixture_names, "variant": variants, "route": routes}
+    for name, values in dimensions.items():
+        if not values:
+            reasons.append("empty expected " + name + " list")
+        elif len(values) != len(set(values)):
+            reasons.append("duplicate expected " + name + " name(s)")
+
     if not records:
         reasons.append("no observations")
-    unexpected = sorted({record["status"] for record in records
-                         if record["status"] != "matched"})
-    if unexpected:
-        reasons.append("non-matching observation status(es): " + ", ".join(unexpected))
+
+    expected = {(case, variant, route)
+                for case in fixture_names for variant in variants for route in routes}
+    observed = Counter((record.get("case"), record.get("variant"),
+                        record.get("route")) for record in records)
+
+    def describe(label, keys):
+        if keys:
+            ordered = sorted(keys, key=repr)
+            sample = ", ".join(repr(key) for key in ordered[:3])
+            reasons.append(f"{label}: {len(ordered)} key(s): {sample}")
+
+    describe("missing expected observations", expected - observed.keys())
+    describe("unexpected observations", observed.keys() - expected)
+    describe("duplicate observations", {key for key, count in observed.items() if count != 1})
+
+    nonmatching = sorted({str(record.get("status"))
+                          for record in records if record.get("status") != "matched"})
+    if nonmatching:
+        reasons.append("non-matching observation status(es): " + ", ".join(nonmatching))
+    if any(record.get("status") == "matched" and
+           (record.get("differences") or record.get("unobserved_suffix"))
+           for record in records):
+        reasons.append("matched observation contains differences or an unobserved suffix")
+
     return {"passed": not reasons, "reasons": reasons}
 
 
@@ -614,7 +645,10 @@ def main():
         report["selection"] = {"partial": True, "cases": [name for name, _ in fixtures]}
     if args.gate:
         report["gate"] = {"scope": "selected-fixtures" if args.case else "selected-group",
-                          **strict_gate_status(records, reference_metadata)}
+                          **strict_gate_status(
+                              records, reference_metadata,
+                              [name for name, _ in fixtures],
+                              [name for name, _ in libraries])}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     summary = {"fixtures": len(fixtures), "observations": len(records), "counts": counts}
