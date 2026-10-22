@@ -247,6 +247,25 @@ class ReferenceConsensusTests(unittest.TestCase):
         records[0]["reference"].pop()
         self.assertFalse(self.assess(records)["complete"])
 
+    def test_consensus_rejects_falsely_empty_setup_error_provenance(self):
+        records = self.build_records()
+        records[0]["reference"][0] = {"error": "value error"}
+        # The derived focused_probe still claims no earlier errors.
+        outcome = self.assess(records)
+        self.assertFalse(outcome["complete"])
+        self.assertTrue(any("prerequisite errors disagree" in reason
+                            for reason in outcome["cases"][0]["reasons"]))
+
+    def test_consensus_rejects_empty_or_duplicated_dimensions(self):
+        records = self.build_records()
+        empty = assess_reference_probe_consensus(records, [self.CASE], [])
+        self.assertFalse(empty["complete"])
+        self.assertTrue(any("variant dimension is empty" in reason
+                            for case in empty["cases"] for reason in case["reasons"]))
+        duplicates = assess_reference_probe_consensus(
+            records, [self.CASE, self.CASE], self.VARIANTS)
+        self.assertFalse(duplicates["complete"])
+
     def test_target_without_a_defined_locator_fails_closed(self):
         records = self.build_records()
         for record in records:
