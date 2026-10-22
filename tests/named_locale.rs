@@ -123,6 +123,101 @@ fn supported_function_writes_and_unsupported_locative_paths_are_distinct() {
 }
 
 #[test]
+fn indirect_locative_function_assignment_uses_the_selected_global_locale() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("fn_z_=:+").unwrap();
+        e.eval("holder=:<'probe'").unwrap();
+        let eval = |e: &mut Engine, source: &str| {
+            if semantic {
+                e.eval_semantic_reference(source)
+            } else {
+                e.eval(source)
+            }
+        };
+
+        eval(&mut e, "fn__holder=:-").unwrap();
+        scalar(&mut e, "fn_probe_ 4", -4);
+        scalar(&mut e, "fn_z_ 4", 4);
+        // Reading/calling an indirect function is an independent capability:
+        // admitting a function write must not silently admit its read path.
+        assert_eq!(
+            eval(&mut e, "fn__holder 4").unwrap_err().kind(),
+            "unsupported"
+        );
+
+        e.eval("holder=:<'other'").unwrap();
+        eval(&mut e, "fn__holder=:-").unwrap();
+        scalar(&mut e, "fn_other_ 5", -5);
+        scalar(&mut e, "fn_probe_ 4", -4);
+        scalar(&mut e, "fn_z_ 4", 4);
+        // A holder selecting base writes through the ordinary base table.
+        e.eval("holder=:<'base'").unwrap();
+        eval(&mut e, "fn__holder=:-").unwrap();
+        scalar(&mut e, "fn 6", -6);
+        scalar(&mut e, "fn_other_ 5", -5);
+    }
+}
+
+#[test]
+fn indirect_locative_function_assignment_preserves_rhs_first_error_and_target() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("holder=:<'probe'").unwrap();
+        e.eval("fn_probe_=:*").unwrap();
+        let eval = |e: &mut Engine, source: &str| {
+            if semantic {
+                e.eval_semantic_reference(source)
+            } else {
+                e.eval(source)
+            }
+        };
+
+        assert_eq!(
+            eval(&mut e, "fn__holder=:1 2+1 2 3")
+                .unwrap_err()
+                .kind(),
+            "length error"
+        );
+        scalar(&mut e, "fn_probe_ 4", 1);
+
+        e.eval("holder=:<'bad_name'").unwrap();
+        assert_eq!(
+            eval(&mut e, "fn__holder=:-").unwrap_err().kind(),
+            "ill-formed name"
+        );
+        scalar(&mut e, "fn_probe_ 4", 1);
+
+        e.eval("holder=:<'probe'").unwrap();
+        eval(&mut e, "fn__holder=:-").unwrap();
+        scalar(&mut e, "fn_probe_ 4", -4);
+    }
+}
+
+#[test]
+fn indirect_function_locative_write_uses_explicit_callers_local_holder() {
+    for semantic in [false, true] {
+        let mut e = Engine::new();
+        e.eval("holder=:<'other'").unwrap();
+        e.eval("fn_other_=:+").unwrap();
+        e.eval("writer=:3 : 0\nholder=.<'probe'\nfn__holder=.-\ny\n)")
+            .unwrap();
+        let result = if semantic {
+            e.eval_semantic_reference("writer 9")
+        } else {
+            e.eval("writer 9")
+        };
+        assert_eq!(result.unwrap().unwrap().int_at(0).unwrap(), 9);
+        scalar(&mut e, "fn_probe_ 4", -4);
+        scalar(&mut e, "fn_other_ 4", 4);
+        assert_eq!(
+            e.eval("holder").unwrap().unwrap().json(),
+            e.eval("<'other'").unwrap().unwrap().json()
+        );
+    }
+}
+
+#[test]
 fn direct_locale_witness_cannot_swap_base_and_named_namespace_roles() {
     let mut e = Engine::new();
     e.eval("a=:7").unwrap();
