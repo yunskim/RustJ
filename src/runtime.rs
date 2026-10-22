@@ -4011,6 +4011,47 @@ mod name_locale_regression_tests {
     }
 
     #[test]
+    fn named_locale_creation_occurs_at_lookup_or_successful_commit_not_failing_rhs() {
+        let mut engine = Engine::new();
+        assert!(!engine.named_locales.contains_key("readmiss"));
+        assert_eq!(
+            engine.eval("missing_readmiss_").unwrap_err().kind(),
+            "unsupported"
+        );
+        assert!(engine.named_locales.contains_key("readmiss"));
+        assert!(engine.direct_binding("missing", "readmiss").is_none());
+
+        assert!(!engine.named_locales.contains_key("writefail"));
+        assert_eq!(
+            engine.eval("pending_writefail_=:1 2+1 2 3").unwrap_err().kind(),
+            "length error"
+        );
+        assert!(
+            !engine.named_locales.contains_key("writefail"),
+            "the failing RHS must not commit or create its target locale"
+        );
+
+        assert!(!engine.named_locales.contains_key("readfail"));
+        assert_eq!(
+            engine.eval("missing_readfail_+(1 2+1 2 3)")
+                .unwrap_err()
+                .kind(),
+            "length error"
+        );
+        assert!(
+            !engine.named_locales.contains_key("readfail"),
+            "the rightmost error must precede a left-side locale lookup"
+        );
+
+        engine.eval("pending_writefail_=:8").unwrap();
+        assert!(engine.named_locales.contains_key("writefail"));
+        assert!(matches!(
+            &engine.direct_binding("pending", "writefail").unwrap().value,
+            JEntity::Noun(_)
+        ));
+    }
+
+    #[test]
     fn failed_named_function_rhs_keeps_version_and_binding_generation() {
         let mut engine = Engine::new();
         engine
