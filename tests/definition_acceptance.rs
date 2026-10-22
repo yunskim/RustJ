@@ -204,6 +204,36 @@ fn direct_local_function_can_rebind_across_verb_and_noun_classes() {
 }
 
 #[test]
+fn direct_local_function_does_not_shadow_base_or_named_locale_functions() {
+    let mut e = Engine::new();
+    define(&mut e, "op=:+");
+    define(&mut e, "op_zone_=:*");
+    define(
+        &mut e,
+        "f=:{{\nop=.-\nlocal=.op y\nbase=.op__ y\nnamed=.op_zone_ y\nlocal+base+named\n}}",
+    );
+    expect(&mut e, "f 4", "1");
+    expect(&mut e, "f 7", "1");
+    expect(&mut e, "op 4", "4");
+    expect(&mut e, "op_zone_ 4", "1");
+}
+
+#[test]
+fn recursive_direct_local_function_rebinding_does_not_affect_caller_or_global() {
+    let mut e = Engine::new();
+    define(&mut e, "op=:+");
+    define(
+        &mut e,
+        "recur_op=:{{\nop=.-\nif. y=0 do.\nop=.+\nelse.\nignored=.recur_op y-1\nend.\nop y\n}}",
+    );
+    expect(&mut e, "recur_op 0", "0");
+    expect(&mut e, "recur_op 3", "_3");
+    expect(&mut e, "recur_op 5", "_5");
+    expect(&mut e, "op 4", "4");
+    assert!(e.binding_version("ignored").is_none());
+}
+
+#[test]
 fn local_shadowing_is_per_call_and_does_not_modify_globals() {
     let mut e = Engine::new();
     define(&mut e, "g=:10");
