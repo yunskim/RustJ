@@ -143,6 +143,51 @@ fn nested_direct_verb_does_not_leak_a_local_function() {
 }
 
 #[test]
+fn nested_direct_calls_preserve_same_named_caller_and_callee_locals() {
+    let mut e = Engine::new();
+    define(&mut e, "slot=:100");
+    define(
+        &mut e,
+        "outer=:{{\nslot=.y+10\ninner=.{{\nslot=.y+1\nslot\n}}\nslot+inner y\n}}",
+    );
+    expect(&mut e, "outer 3", "17");
+    expect(&mut e, "outer 5", "21");
+    expect(&mut e, "slot", "100");
+    assert!(e.binding_version("inner").is_none());
+    assert!(e.eval("inner 4").is_err());
+}
+
+#[test]
+fn recursive_direct_calls_restore_each_callers_local_value() {
+    let mut e = Engine::new();
+    define(&mut e, "keep=:777");
+    define(
+        &mut e,
+        "recur=:{{\nkeep=.y+100\nif. y>0 do.\nrecur y-1\nend.\nkeep\n}}",
+    );
+    expect(&mut e, "recur 4", "104");
+    expect(&mut e, "recur 1", "101");
+    expect(&mut e, "keep", "777");
+}
+
+#[test]
+fn direct_local_function_can_rebind_across_verb_and_noun_classes() {
+    let mut e = Engine::new();
+    define(&mut e, "innerop=:+");
+    define(
+        &mut e,
+        "to_noun=:{{\ninnerop=.-\nnegated=.innerop y\ninnerop=.y+10\nnegated+innerop\n}}",
+    );
+    define(
+        &mut e,
+        "to_verb=:{{\ninnerop=.y+10\ninnerop=.-\ninnerop y\n}}",
+    );
+    expect(&mut e, "to_noun 4", "10");
+    expect(&mut e, "to_verb 4", "_4");
+    expect(&mut e, "innerop 4", "4");
+}
+
+#[test]
 fn local_shadowing_is_per_call_and_does_not_modify_globals() {
     let mut e = Engine::new();
     define(&mut e, "g=:10");
