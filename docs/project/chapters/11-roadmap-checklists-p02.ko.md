@@ -714,3 +714,17 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] POS-change 첫 오류 `syntax` vs `domain`의 J 원본 대조는 별개 미해결 항목으로 유지한다.
 
 **주의:** 위 숫자 비교 오류 수정은 NAME 기능의 J 의미론을 새로 검증한 것은 아니다. 자동 CI 로그를 읽었을 뿐 수동 테스트 실행/재실행은 하지 않았다.
+
+
+### NAME POS 재정의 오류 — alias와 direct body의 독립 계약 (2026-10-22)
+
+**근거 재감사:** 고정된 과거 J 비교 기록 `reports/name-system-research-windows.json`과 `reports/name-compatibility-windows.json`에서 `f=:+`, `g=:f`, `f=:7`, `g 3`은 J `j.dll` 및 `javx2.dll` 모두 **domain error**였으며, 당시 RustJ 양 실행 경로도 일치했다. 이는 생성된 **함수 alias가 기대한 verb POS를 유지**하고 호출 시 실제 target의 POS가 달라진 경우를 다룬다. 이 기록으로 `call=:{{op_probe_ y}}` 같은 **direct definition 내부의 이름 재파싱**까지 domain error라 단정할 수 없다. J의 공개 오류 설명에서 잘못된 문장 품사 배열은 syntax error의 한 원인이다. 원본 설명: https://www.jsoftware.com/help/jforc/error_messages.htm . 그러나 그 일반 규칙은 아래 신규 fixture에 대한 실제 원본 실행 증거를 대체하지 않는다.
+
+- [x] `tests/base_locative.rs::named_locative_alias_retains_verb_pos_and_rejects_noun_rebinding`: named-locative 함수 alias를 만든 뒤 target을 noun으로 바꾸면 `domain error`, 다시 verb로 바꾸면 후속 호출은 새 함수를 사용하는 독립 테스트 작성.
+- [x] `tests/base_locative.rs::direct_definition_reparses_named_locative_after_pos_restoration`: direct definition을 만든 뒤 이름을 noun으로 바꾸고 다시 verb로 돌렸을 때 본문의 정상 호출이 회복되는지 별도 활성 테스트 작성.
+- [x] `tools/name_compatibility_audit.py`: 위 두 범주를 분리한 J reference fixture `named_locative_alias_pos_mismatch`, `named_direct_definition_reparse_after_pos_restore` 추가.
+- [ ] `named_function_pos_rebinding_observes_right_to_left_call_order`의 첫 실패(`syntax error` actual / `domain error` test expected)는 **원본 동일 문장 결과를 확인할 때까지 ignored**. 현재 재분류만으로 RustJ parser/error mapper를 바꾸거나 ignore를 해제하지 않는다.
+- [ ] 현 HEAD 기본/portable Rust 테스트 및 고정 C j64/AVX2의 두 fixture + `named_function_pos_rebinding_first_error` 실제 실행. 파서 NAME lookup 시점과 alias FunctionEntity의 런타임 lookup 경로를 별도 로그로 대조.
+- [ ] 같은 문장 내 `nounify` 효과가 먼저 반영된 후 좌측 direct-body가 parse되는지 및 첫 syntax/domain error가 C와 같은지 확인. 시점이 다를 경우 별도 의미론 수정과 재발 방지 사례 필요.
+
+**실행 상태:** 이번 변경은 **추가 검증 코드 작성 및 과거 oracle 결과 분석**이며, 신규 Rust default/portable·Python·C oracle 검증은 UNRUN. 기존 alias 2종 DLL의 domain error 결과를 신규 direct-body 사례의 PASS라고 보고하지 않는다. 자동 push CI도 현 HEAD 증거를 확인한 다음에만 판단한다.
