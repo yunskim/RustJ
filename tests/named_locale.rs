@@ -1336,6 +1336,31 @@ fn negative_holder_does_not_alias_an_active_unsuspended_local_frame() {
 }
 
 #[test]
+fn malformed_indirect_holder_error_follows_successful_rhs_only() {
+    let mut e = Engine::new();
+    e.eval("a_probe_=:9").unwrap();
+    e.eval("holder=:<'bad_name'").unwrap();
+
+    // The invalid holder is not resolved if the RHS fails first.
+    assert_eq!(
+        e.eval("a__holder=:1 2+1 2 3").unwrap_err().kind(),
+        "length error"
+    );
+    scalar(&mut e, "a_probe_", 9);
+
+    // A successful RHS reaches indirect locale resolution and reports
+    // the original holder's malformed-name error without committing.
+    assert_eq!(
+        e.eval("a__holder=:7").unwrap_err().kind(),
+        "ill-formed name"
+    );
+    scalar(&mut e, "a_probe_", 9);
+    e.eval("holder=:<'probe'").unwrap();
+    e.eval("a__holder=:11").unwrap();
+    scalar(&mut e, "a_probe_", 11);
+}
+
+#[test]
 fn indirect_noun_writes_use_own_table_and_commit_time_holder() {
     for semantic in [false, true] {
         let mut e = Engine::new();
