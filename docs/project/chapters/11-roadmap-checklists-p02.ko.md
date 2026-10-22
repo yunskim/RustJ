@@ -659,3 +659,20 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] 간접 locative function 지원 여부, scope stamp/guard 및 NAME provenance 검토 후 Conv1D 통합 재개
 
 **검증 상태는 모두 미실행이며, 체크 표시([x])는 사례·코드 작성 완료만 뜻한다.** 기존 Windows oracle 보고서와 이번 HEAD 신규 사례의 통과 횟수를 합산하지 않는다.
+
+
+### NAME 함수 재바인딩·첫 오류 순서 및 기존 회귀 기대값 정리 (2026-10-22)
+
+직전 direct definition/local·locale fixture에 이어 **일반 J 문장 안의 함수 NAME 조회 시점**과 **실패한 RHS의 비커밋 경계**를 검증 대기열로 추가했다.
+
+- [x] `tests/base_locative.rs`: `op_probe_ 4 + change 0`과 `change 0 + op_probe_ 4`를 대비하는 NAME 재바인딩 우측→좌측 평가 순서 회귀 작성. `change`는 정의 본문에서 named locale의 verb를 재할당하고 noun 인수를 반환
+- [x] `tests/base_locative.rs`: function target에 length-error RHS를 대입하면 기존 함수가 유지되는지, 실패하는 RHS **안에서 이미 완료된 global counter 변경**은 유지되는지 검증하는 회귀 작성
+- [x] `src/runtime.rs::name_locale_regression_tests`: 실패한 named function assignment가 기존 `NameVersion` 및 `BindingGeneration`을 보존하고, 뒤이은 정상 재정의는 둘을 갱신하는 회귀 작성
+- [x] `tests/named_locale.rs`: 이전 noun-only 단계의 `a_probe_=:+` 및 `a_z_=:+` Unsupported 기대를 현재 함수 저장 허용 정책에 맞게 수정. 실패 RHS 후 기존 noun의 조회 관측이 그대로인지 검사하는 기존 단언은 유지
+- [x] `tools/name_compatibility_audit.py`: named function 문장 내 재바인딩 순서, 함수 RHS 실패 및 side effect 순서에 관한 J oracle 비교 fixture 2개 추가
+- [x] `docs/project/chapters/04-semantic-array-ir-p03.ko.md`: 과거 direct/base function lookup Unsupported라고 기술했던 낡은 구현 상태를 현재 범위에 맞게 갱신
+- [ ] **현 HEAD 검사:** Rust fmt/compile/tests 및 named scope J oracle 실행 후 실패·성공·미지원 분류 (현재 사용자 지시에 따라 미실행)
+- [ ] **확장 검증:** right-to-left에서 재바인딩과 parser POS 변경이 겹칠 때의 domain/lookup 오류 우선순위; indirect function locative와 locale/path 생성 실패
+- [ ] **컴파일러 gate:** 이러한 NAME/effect/error 조건을 Graph specialization에 사용하려면 generation·locale provenance·effect boundary가 실행 시 검증되는 추가 증거 필요
+
+**주의:** 새 단언은 결과의 **예상 계약**이지 검증 결과가 아니다. 지금은 코드를 추가했을 뿐, 현 HEAD 및 C oracle 결과의 성공 건수는 갱신하지 않는다.
