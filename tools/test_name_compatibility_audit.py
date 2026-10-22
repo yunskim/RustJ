@@ -4,7 +4,8 @@ import tempfile
 import json
 from pathlib import Path
 
-from name_compatibility_audit import SCRIPT_SETUPS, compare_trace, reference_trace, reference_inputs, PIN
+from name_compatibility_audit import (SCRIPT_SETUPS, compare_trace, reference_trace,
+                                      reference_inputs, select_named_fixtures, SCOPE_FIXTURES, PIN)
 
 
 class ReferenceSelection(unittest.TestCase):
@@ -50,6 +51,42 @@ class ReferenceSelection(unittest.TestCase):
             self.assertEqual([name for name, _ in libraries], ["j.dll", "javx2.dll"])
             with self.assertRaisesRegex(ValueError, "Linux/WSL"):
                 reference_inputs(assets_root=root, platform="linux")
+
+
+class NamedFixtureSelection(unittest.TestCase):
+    def test_no_filter_returns_complete_original_group(self):
+        fixtures = [("first", ["1"]), ("second", ["2"])]
+        self.assertIs(select_named_fixtures(fixtures, []), fixtures)
+
+    def test_requested_cases_keep_original_group_order_and_are_unique(self):
+        fixtures = [("first", ["1"]), ("middle", ["2"]), ("last", ["3"])]
+        self.assertEqual(
+            select_named_fixtures(fixtures, ["last", "first", "last"]),
+            [("first", ["1"]), ("last", ["3"])]
+        )
+
+    def test_unknown_or_duplicate_case_names_fail_closed(self):
+        fixtures = [("a", ["1"]), ("b", ["2"])]
+        with self.assertRaisesRegex(ValueError, "Unknown fixture name"):
+            select_named_fixtures(fixtures, ["a", "missing"])
+        with self.assertRaisesRegex(ValueError, "duplicate fixture"):
+            select_named_fixtures([("a", ["1"]), ("a", ["2"])], ["a"])
+
+    def test_unresolved_direct_definition_pos_case_is_selectable(self):
+        selected = select_named_fixtures(
+            SCOPE_FIXTURES,
+            ["named_function_pos_rebinding_first_error",
+             "named_locative_alias_pos_mismatch"]
+        )
+        self.assertEqual(
+            [name for name, _ in selected],
+            ["named_locative_alias_pos_mismatch",
+             "named_function_pos_rebinding_first_error"]
+        )
+        source = dict(selected)["named_function_pos_rebinding_first_error"]
+        self.assertIn("call 4 + nounify 0", source)
+        self.assertIn("restore 0 + call 4", source)
+
 
 
 class AuditClassification(unittest.TestCase):
