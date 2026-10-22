@@ -628,7 +628,7 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 
 ### 추가 회귀 대기열: 중첩·재귀 direct definition 및 지역 함수 POS (2026-10-22)
 
-`tests/definition_acceptance.rs`에 기존 `define/expect` 검증 패턴을 재사용하여 아래 세 가지 **정적 기대 결과**를 가진 회귀 테스트를 추가했다. 현재 HEAD에서 컴파일·실행·jsource 대조는 하지 않았으며 성공으로 집계하지 않는다.
+`tests/definition_acceptance.rs`에 기존 `define/expect` 검증 패턴을 재사용하여 아래 네 가지 **정적 기대 결과**를 가진 회귀 테스트를 추가했다. 현재 HEAD에서 컴파일·실행·jsource 대조는 하지 않았으며 성공으로 집계하지 않는다.
 
 - [x] **중첩 direct definition 호출 프레임:** 바깥/안쪽 모두 `slot=.`을 쓰되, 안쪽 호출 후 바깥 `slot`과 전역 `slot`이 보존되는지 확인하는 테스트 작성; 중첩 정의의 지역 함수 `inner`가 호출 후 밖으로 노출되지 않는지도 확인
 - [x] **재귀 direct definition 호출 프레임:** 각 재귀 깊이에서 `keep=.`을 바인딩하고 복귀 후 caller의 값 및 전역 `keep`이 보존되는지 확인하는 테스트 작성
