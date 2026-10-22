@@ -27,6 +27,7 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 ### 2. 최상위 아키텍처
 
 - [본문 1/2](./docs/project/chapters/03-architecture-p01.ko.md)
+- [§2.1.2 Frontend → J Graph → Logical 검증 경계·구현 상태](./docs/project/chapters/03-architecture-p01.ko.md#212-frontend-j-graph-logical-handoff-검증-계약)
 - [본문 2/2 — 2.4.2 J semantics 보존과 compiler fact 축적 원칙](./docs/project/chapters/03-architecture-p02.ko.md)
 
 ### 3. J Semantic Array IR
@@ -68,6 +69,7 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 - [본문 2/5 — JE2 구현 — namespace와 runtime result의 JEntity 수렴 (2026-10-04, parti](./docs/project/chapters/11-roadmap-checklists-p02.ko.md)
 - [본문 3/5 — 최적화에 사용할 frontend 정보 보존 (2026-10-03)](./docs/project/chapters/11-roadmap-checklists-p03.ko.md)
 - [본문 4/5 — P2 — 하나의 9-row reduction engine으로 전환](./docs/project/chapters/11-roadmap-checklists-p04.ko.md)
+- [FGX-00–07 — Frontend → J Graph → Logical 경계 검증 체크리스트](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#fgx-frontend-graph-logical-경계-검증-체크리스트-2026-10-22)
 - [§7.10.8 — JAXA Convolution adverb의 인자와 SPORES 가상 전개 설계](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion)
 - [§7.10.9 — Virtual Expansion 실제 계산·SPORES 최적화 예제집](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-examples)
 - [§7.10.10 — Virtual Expansion 관련 연구·차별성·검증 체크리스트](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-related-work)
