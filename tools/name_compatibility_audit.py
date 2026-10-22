@@ -509,6 +509,27 @@ def select_named_fixtures(fixtures, requested):
     return [(name, sources) for name, sources in fixtures if name in requested_set]
 
 
+
+def strict_gate_status(records, reference_metadata):
+    """Require complete pinned variants and exact per-case/route equality.
+
+    A targeted --case subset can pass its own diagnostic gate, but its
+    selection.partial marker must not be upgraded to full conformance.
+    """
+    reasons = []
+    missing = reference_metadata.get("unrun_reference_variants", [])
+    if missing:
+        reasons.append("unrun reference variant(s): " + ", ".join(missing))
+    if not records:
+        reasons.append("no observations")
+    unexpected = sorted({record["status"] for record in records
+                         if record["status"] != "matched"})
+    if unexpected:
+        reasons.append("non-matching observation status(es): " + ", ".join(unexpected))
+    return {"passed": not reasons, "reasons": reasons}
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     references = parser.add_mutually_exclusive_group(required=True)
@@ -529,6 +550,10 @@ def main():
     parser.add_argument("--case", action="append", metavar="NAME", default=[],
                         help="Restrict the selected fixture group to named cases (repeatable); "
                              "the resulting report is a partial diagnostic, not a full group pass")
+    parser.add_argument("--gate", action="store_true",
+                        help="Exit nonzero for a missing pinned reference variant, "
+                             "unsupported gap, observation gap or semantic mismatch; "
+                             "gates only the requested fixture selection")
     args = parser.parse_args()
     try:
         libraries, reference_metadata = reference_inputs(args.assets_root, args.reference_root)
@@ -587,14 +612,19 @@ def main():
     if args.case:
         # Do not report a targeted differential as a complete conformance run.
         report["selection"] = {"partial": True, "cases": [name for name, _ in fixtures]}
+    if args.gate:
+        report["gate"] = {"scope": "selected-fixtures" if args.case else "selected-group",
+                          **strict_gate_status(records, reference_metadata)}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     summary = {"fixtures": len(fixtures), "observations": len(records), "counts": counts}
     if args.case:
         summary["selection"] = report["selection"]
+    if args.gate:
+        summary["gate"] = report["gate"]
     print(json.dumps(summary))
-    # Completing an audit is not a conformance pass. Counts always expose gaps.
-    return 0
+    # A diagnostic always records gaps; only explicit --gate fails on them.
+    return 0 if not args.gate or report["gate"]["passed"] else 1
 
 
 if __name__ == "__main__":
