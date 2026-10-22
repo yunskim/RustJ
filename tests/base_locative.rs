@@ -112,6 +112,49 @@ fn named_function_locative_falls_back_to_z_until_own_binding_shadows_it() {
 }
 
 #[test]
+fn named_function_rebinding_obeys_right_to_left_sentence_effects() {
+    let mut engine = Engine::new();
+    engine.eval("op_probe_=:-").unwrap();
+    engine
+        .eval("change=:{{\nop_probe_=:*\ny\n}}")
+        .unwrap();
+
+    // The rightmost call mutates the named function before the left verb is used.
+    scalar(&mut engine, "op_probe_ 4 + change 0", 1);
+    scalar(&mut engine, "op_probe_ 4", 1);
+
+    engine.eval("op_probe_=:-").unwrap();
+    // The rightmost function call still sees minus, before the left call mutates it.
+    scalar(&mut engine, "change 0 + op_probe_ 4", -4);
+    scalar(&mut engine, "op_probe_ 4", 1);
+}
+
+#[test]
+fn failed_named_function_rhs_preserves_binding_but_not_prior_effects() {
+    let mut engine = Engine::new();
+    engine.eval("op_probe_=:-").unwrap();
+    engine.eval("count=:0").unwrap();
+    engine
+        .eval("fails=:{{\ncount=:count+1\n1 2+1 2 3\n}}")
+        .unwrap();
+
+    assert_eq!(
+        engine.eval("op_probe_=:1 2+1 2 3").unwrap_err().kind(),
+        "length error"
+    );
+    scalar(&mut engine, "count", 0);
+    scalar(&mut engine, "op_probe_ 4", -4);
+
+    assert_eq!(
+        engine.eval("op_probe_=:fails 0").unwrap_err().kind(),
+        "length error"
+    );
+    // Effects completed before the failing RHS remain; the target stays intact.
+    scalar(&mut engine, "count", 1);
+    scalar(&mut engine, "op_probe_ 4", -4);
+}
+
+#[test]
 fn function_locatives_write_runtime_bindings_while_static_admission_stays_bounded() {
     let mut engine = Engine::new();
     engine.eval("f=:+").unwrap();
