@@ -557,10 +557,10 @@ FrontendContext
 
 
 
-## NAME/locale 현재 구현 경계 감사 (2026-10-21; 테스트 미실행)
+## NAME/locale 현재 구현 경계 감사 (2026-10-21 최초 조사, 2026-10-22 갱신; 테스트 미실행)
 
-`parser::ParserNameBinding`은 noun, abstract noun, function POS, analysis-only known verb/modifier를 구별한다. `runtime`의 parser host는 direct/base locative에서 `direct_read_binding`을 사용해 noun을 반환하지만 function에 대해서는 각각 `direct-locative function reference`, `base-locative function reference` Unsupported를 반환한다. `direct_read_binding`은 선택 locale 자체의 바인딩을 먼저 찾고 없으면 `z` locale을 탐색한다. `frontend_context::LocativeNounGuard`는 noun에 한정된다.
+`parser::ParserNameBinding`은 noun, abstract noun, function POS, analysis-only known verb/modifier를 구별한다. **최초 조사 당시** direct/base locative 함수 조회는 Unsupported였으나, 후속 변경에서 `runtime::EngineParserHost::lookup`은 `direct_read_binding`으로 얻은 함수의 POS를 전달하도록 수정되었다. `visible_function_binding`은 direct/base 함수 NAME의 실행 시점 검색에 연결되어 있으며, `commit_runtime_binding`은 해당 locale에 함수 값을 저장할 수 있다. `direct_read_binding`의 조회 순서는 지정 locale 자체→`z` fallback이지만, **쓰기는 지정 locale에만 수행**된다. 현재 indirect locative 함수 참조·할당은 여전히 지원하지 않는다. `frontend_context::LocativeNounGuard`는 noun에 한정된다.
 
-따라서 locale 문법 인식, noun lookup, function lookup, NAME 실행 가드, Graph specialization은 **서로 다른 완료 단계**이다. 등록된 NN Extension의 철자/핸들만으로는 J 이름 재정의 및 locale 검색 결과를 대체할 수 없다. 후속 구현에서는 runtime의 실제 scope/POS/버전/효과 순서를 유지하며 함수 참조를 단계적으로 지원하고, 그 전에는 Graph의 `RequiresSpecialization`을 유지한다.
+따라서 locale 문법 인식, noun lookup, function POS 조회·런타임 호출, NAME 실행 가드, Graph specialization은 **서로 다른 완료 단계**이다. 등록된 NN Extension의 철자/핸들만으로는 J 이름 재정의 및 locale 검색 결과를 대체할 수 없다. 현재 구현의 새로운 함수 지원은 아직 jsource 대조 및 누적 Rust 테스트를 실행하지 않았으므로 **호환성 검증 완료를 뜻하지 않는다**. Graph의 `RequiresSpecialization`도 유지한다.
 
-검증 fixture: named locale 자체에서 찾은 함수, `z` fallback 함수, base 직접 지정, 같은 철자의 noun shadowing, 함수 재정의 및 삭제, indirect locative 오류, lookup 중 locale 생성/실패 순서. 테스트는 일괄 실행 시 검증한다.
+검증 대기열: named locale 자체 함수, `z` fallback, base 직접 지정, 같은 철자의 noun shadowing, 문장 내 우측→좌측 함수 재바인딩, RHS 효과 이후 오류와 원자적 바인딩 보존, indirect locative 오류, locale 생성/실패 순서. `tests/base_locative.rs`, `tests/named_locale.rs`, `src/runtime.rs`, `tools/name_compatibility_audit.py`에 관련 회귀를 작성했으며 테스트는 일괄 실행 시 검증한다.
