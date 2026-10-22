@@ -130,6 +130,39 @@ fn named_function_rebinding_obeys_right_to_left_sentence_effects() {
 }
 
 #[test]
+fn named_locative_alias_retains_verb_pos_and_rejects_noun_rebinding() {
+    let mut engine = Engine::new();
+    engine.eval("op_probe_=:+").unwrap();
+    engine.eval("alias=:op_probe_").unwrap();
+    scalar(&mut engine, "alias 4", 4);
+
+    engine.eval("op_probe_=:7").unwrap();
+    // A constructed alias retains the verb POS. Its target lookup is late,
+    // so changing the target into a noun must not silently turn it into a noun.
+    assert_eq!(engine.eval("alias 4").unwrap_err().kind(), "domain error");
+    scalar(&mut engine, "op_probe_", 7);
+
+    engine.eval("op_probe_=:-").unwrap();
+    scalar(&mut engine, "alias 4", -4);
+}
+
+#[test]
+fn direct_definition_reparses_named_locative_after_pos_restoration() {
+    let mut engine = Engine::new();
+    engine.eval("op_probe_=:+").unwrap();
+    engine.eval("call=:{{op_probe_ y}}").unwrap();
+    scalar(&mut engine, "call 4", 4);
+
+    engine.eval("op_probe_=:7").unwrap();
+    scalar(&mut engine, "op_probe_", 7);
+    // No stale noun class should remain after a later verb assignment.
+    engine.eval("op_probe_=:-").unwrap();
+    scalar(&mut engine, "call 4", -4);
+    engine.eval("op_probe_=:+").unwrap();
+    scalar(&mut engine, "call 4", 4);
+}
+
+#[test]
 #[ignore = "pending pinned J oracle for POS-change error precedence (RustJ: syntax error, expected domain error)"]
 fn named_function_pos_rebinding_observes_right_to_left_call_order() {
     let mut engine = Engine::new();
