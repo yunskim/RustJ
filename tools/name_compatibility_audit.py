@@ -228,6 +228,15 @@ SCOPE_FIXTURES = [
         "route_z_=:*", "route_probe_ 4",
         "route_probe_=:7", "route_probe_", "route_z_ 4",
         "route_probe_=:-", "route_probe_ 4", "route_z_ 4"]),
+    ("named_function_sentence_rebinding_order", [
+        "op_probe_=:-", "change=:{{\nop_probe_=:*\ny\n}}",
+        "op_probe_ 4 + change 0", "op_probe_ 4",
+        "op_probe_=:-", "change 0 + op_probe_ 4", "op_probe_ 4"]),
+    ("named_function_failed_rhs_effect_order", [
+        "op_probe_=:-", "count=:0",
+        "fails=:{{\ncount=:count+1\n1 2+1 2 3\n}}",
+        "op_probe_=:1 2+1 2 3", "count", "op_probe_ 4",
+        "op_probe_=:fails 0", "count", "op_probe_ 4"]),
 ]
 
 # Only these assignment setup blocks need script input (JDo has no interactive
