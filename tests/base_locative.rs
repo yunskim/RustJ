@@ -97,18 +97,22 @@ fn base_capture_records_actual_scope_and_rejects_simple_name_guard() {
 }
 
 #[test]
-fn function_locatives_and_static_admission_remain_explicit_boundaries() {
+fn function_locatives_write_runtime_bindings_while_static_admission_stays_bounded() {
     let mut engine = Engine::new();
     engine.eval("f=:+").unwrap();
     let version = engine.binding_version("f");
-    for source in ["f__", "f__=:*", "a_probe_=:*", "f___:"] {
-        assert_eq!(
-            engine.eval(source).unwrap_err().kind(),
-            "unsupported",
-            "{source}"
-        );
-        assert_eq!(engine.binding_version("f"), version);
-    }
+    engine.eval("f__=:*").unwrap();
+    assert_ne!(engine.binding_version("f"), version);
+    assert!(engine.binding_version("f__").is_none()); // Not a flattened key.
+    scalar(&mut engine, "f__ 3", 1);
+    scalar(&mut engine, "f 3", 1);
+
+    engine.eval("a_probe_=:*").unwrap();
+    scalar(&mut engine, "a_probe_ 3", 1);
+    // The named-locale binding must not overwrite base.
+    assert!(engine.binding_version("a").is_none());
+    assert_eq!(engine.eval("f___:").unwrap_err().kind(), "unsupported");
+
     engine.eval("a=:7").unwrap();
     assert_eq!(
         engine.parse_frontend("a__").unwrap_err().error.kind(),
