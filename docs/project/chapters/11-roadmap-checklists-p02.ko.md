@@ -703,3 +703,14 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] J와 일치하도록 필요하면 런타임/파서 또는 **정확한 기대값**을 수정한 뒤 ignore 해제. 오류 종류를 확인하지 않고 단언을 `is_err()`로 완화하지 않는다.
 
 **실행 정책 상태:** 수동 테스트·CI는 시작하지 않았다. GitHub push가 자동 트리거한 원격 CI 결과를 **관측**했으며, 이 항목은 현재 FAIL/원본 미검증으로 추적한다. 다른 fmt/clippy/portable/J differential의 PASS는 주장하지 않는다.
+
+
+### 누적 회귀의 자료형 오라클 수정 (2026-10-22)
+
+자동 push-triggered `Basis compile probe`의 [run 39730895158](https://github.com/yunskim/RustJ/actions/runs/39730895158)에서 `tests/definition_acceptance.rs::direct_local_function_does_not_shadow_base_or_named_locale_functions`의 첫 비교가 FAIL이었다. 관측된 RustJ 결과는 `{"type":4,"shape":[],"data":[1]}`(Int scalar)이고, 테스트가 `expect(..., "1")`로 생성한 기준은 `{"type":1,"shape":[],"data":[1]}`(Bool scalar)이었다. 두 값은 숫자상 1이지만 J 자료형은 다르므로 검사가 정확하게 차이를 포착했다.
+
+- [x] 비교 검사의 JSON type/value/shape 엄격성을 유지하면서 예상값 표현을 `_1+2`(Int 산술 결과)로 변경 (`tests/definition_acceptance.rs`, `32fa8f1`).
+- [ ] 수정 HEAD에 대한 실제 CI 결과 확인. 이전 실패 run은 변경 이전 SHA이며 새 HEAD의 PASS를 의미하지 않는다.
+- [ ] POS-change 첫 오류 `syntax` vs `domain`의 J 원본 대조는 별개 미해결 항목으로 유지한다.
+
+**주의:** 위 숫자 비교 오류 수정은 NAME 기능의 J 의미론을 새로 검증한 것은 아니다. 자동 CI 로그를 읽었을 뿐 수동 테스트 실행/재실행은 하지 않았다.
