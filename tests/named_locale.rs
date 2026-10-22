@@ -95,11 +95,13 @@ fn capture_separates_locale_identity_from_spelling_and_binding_version() {
     assert_ne!(identities[0], identities[1]);
 }
 #[test]
-fn unsupported_paths_functions_and_computed_locatives_do_not_mutate_bindings() {
+fn supported_function_writes_and_unsupported_locative_paths_are_distinct() {
     let mut e = Engine::new();
     e.eval("a_probe_=:7").unwrap();
+    e.eval("a_probe_=:+").unwrap();
+    scalar(&mut e, "a_probe_ 4", 4);
+    e.eval("a_probe_=:7").unwrap();
     for source in [
-        "a_probe_=:+",
         "a__holder__other",
         "a___1",
         "a_0_=:9",
@@ -216,7 +218,6 @@ fn z_own_nouns_keep_scope_versions_snapshots_and_failed_writes() {
     e.eval("a_z_=:7").unwrap();
     let before = e.eval_captured("a_z_");
     e.eval("a_z_=:1 2+1 2 3").unwrap_err();
-    e.eval("a_z_=:+").unwrap_err();
     let after = e.eval_captured("a_z_");
     after.result.unwrap();
     after.capture.verify().unwrap();
@@ -224,6 +225,10 @@ fn z_own_nouns_keep_scope_versions_snapshots_and_failed_writes() {
         before.capture.frontend.as_ref().unwrap().name_uses[0].lookup,
         after.capture.frontend.as_ref().unwrap().name_uses[0].lookup
     );
+    scalar(&mut e, "a_z_", 7);
+    e.eval("a_z_=:+").unwrap();
+    scalar(&mut e, "a_z_ 4", 4);
+    e.eval("a_z_=:7").unwrap();
     scalar(&mut e, "a_z_", 7);
     scalar(&mut e, "a", 1);
     scalar(&mut e, "a_probe_", 2);
