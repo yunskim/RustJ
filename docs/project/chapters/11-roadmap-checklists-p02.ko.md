@@ -774,3 +774,34 @@ python3 tools/name_compatibility_audit.py \
 ```
 
 이 명령은 **제안된 미래 실행 방법**이며 이번 대화에서 실행하지 않았다. 특히 기존 C 자료의 alias POS mismatch가 domain error라는 결과는 direct body 문장에 대한 실제 C 결과를 대신하지 않는다.
+
+
+### NAME differential 엄격 검증 모드 및 정상화된 HEAD CI (2026-10-22)
+
+이전 진단 전용 `tools/name_compatibility_audit.py`는 `semantic_mismatch`, `unsupported_gap`, `observation_gap`을 JSON으로 보고하더라도 프로세스 종료 코드는 **0**이었다. 이 동작은 고장 목록을 쌓는 데는 적합하지만 CI에서 의미론 통과로 오인될 수 있다. **명시적인 `--gate`를 도입**해 실행 목적에 따라 종료 상태를 분리한다.
+
+- [x] `--gate`가 없는 기존 진단 모드는 유지: 결과가 불일치해도 정상적으로 전체 보고서를 기록하고 0 반환. `counts`와 `records`의 의미를 바꾸지 않음.
+- [x] `--gate`는 `matched` 외의 어떤 상태(`unsupported_gap`, `semantic_mismatch`, `observation_gap`)도 PASS로 계산하지 않음. 관측 0건과 고정 C 원본의 기대 j64/j64avx2 변형 중 누락도 FAIL.
+- [x] `--gate` 실행은 JSON의 `gate.scope`, `gate.passed`, `gate.reasons`에 별도 기록. `--case`와 함께 쓰면 `selection.partial=true`를 유지하며, **선택한 fixture만 통과**한 것이지 NAME 전체 합격이 아님.
+- [x] `tools/test_name_compatibility_audit.py`에 `matched` 허용, reference variant 누락 거부, mismatch/unsupported/observation gap 거부, 관측 0건 거부 회귀 코드 작성.
+- [ ] **실제 실행/증거 대기:** `--scope-fixtures-only --case named_locative_alias_pos_mismatch --case named_direct_definition_reparse_after_pos_restore --case named_function_pos_rebinding_first_error --gate`로 고정 J 양 변형과 양 Rust 경로 대조. 실행 전에는 아래 명령을 PASS/FAIL로 기록하지 않음.
+- [ ] direct definition 내 `syntax` 대 `domain` 첫 오류가 고정 J의 결과와 일치한 경우에만 `#[ignore]`를 해제하고 정상 회귀로 승격. 차이가 확인되면 parser/runtime 오류 순서 원인을 국소 수정한 뒤 원본과 재검증.
+
+직전 `main` SHA `38902e3ed7196370e1c0b4ef450d95c175ccae82`에 대한 자동 [Linux milestone run 39733826013](https://github.com/yunskim/RustJ/actions/runs/39733826013)은 **SUCCESS**를 확인했다. 이 결과는 현재의 `--gate` 코드 추가 전 HEAD에만 해당한다. Rust 테스트/default/portable, fmt/clippy, reference baseline을 포함한 해당 자동 워크플로가 NAME 전용 C oracle까지 확인했다는 뜻은 아니다.
+
+일괄 실행 때의 타깃 검사 예시:
+
+```sh
+python3 tools/name_compatibility_audit.py \
+  --reference-root .reference \
+  --binary target/debug/rustj \
+  --rust-revision "$(git rev-parse HEAD)" \
+  --report reports/name-pos-targeted.json \
+  --scope-fixtures-only \
+  --case named_locative_alias_pos_mismatch \
+  --case named_direct_definition_reparse_after_pos_restore \
+  --case named_function_pos_rebinding_first_error \
+  --gate
+```
+
+**보류 상태:** 이번 변경에서는 수동 Rust/Python 검증, 고정 J-C 실행, CI 트리거를 하지 않았다. 코드는 작성했지만 J 오류 종류의 정확한 판정은 미완료. `--gate`가 켜지면 정확한 관측·원본 변형이 모두 갖춰지지 않는 한 PASS라고 주장하지 않는다.
