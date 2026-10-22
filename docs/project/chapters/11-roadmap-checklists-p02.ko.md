@@ -821,3 +821,27 @@ python3 tools/name_compatibility_audit.py \
 이 변경은 기존 `--gate`의 **요청 범위 내부에서만** completeness를 요구한다. `--case`가 지정된 경우 선택되지 않은 전체 NAME fixture까지 통과했다고 주장하지 않는다. 비교 절차는 기존 `--scope-fixtures-only --case ... --gate`와 동일하며, 진단 모드(게이트 미지정)는 이전처럼 관측 기록을 남기고 종료 상태를 강제하지 않는다.
 
 기존 `main` `a68223f95ab2b8397b36a8b31d8955a18807d0d5`의 [Linux milestone 39734585854](https://github.com/yunskim/RustJ/actions/runs/39734585854) 전체 작업은 성공. 단, 해당 CI는 신규 gate 완전성 코드를 포함하지 않고 별도의 NAME C differential 실행을 증명하지 않는다.
+
+
+### NAME direct body 첫 오류 — J 원본 독립 관측 경로 (2026-10-22)
+
+`named_function_pos_rebinding_observes_right_to_left_call_order`는 현재 RustJ에서 `syntax error`가 보고된 반면 테스트는 `domain error`를 기대하여 ignored 상태다. 과거 j.dll/javx2.dll의 **함수 alias**가 noun 재바인딩 후 `domain error`를 보고했다는 기록은 **direct definition 본문 재파싱** 사례의 C 원본 증거가 아니다. 먼저 C reference만 독립적으로 관측하는 도구를 준비했다.
+
+- [x] `tools/name_reference_first_error.py`: `name_compatibility_audit.py`의 동일한 `SCOPE_FIXTURES`, `reference_inputs`, `reference_trace`를 재사용하는 **J-C reference-only** 관측 CLI 추가. RustJ 실행 파일을 호출하지 않으며 별도의 RustJ 결과 비교/성공 판정을 하지 않음
+- [x] 별칭 POS 불일치, direct definition 복구, 동일 문장 내 nounify·restore 첫 오류의 **세 fixture**를 기본으로 선택. `--case NAME`으로 대상을 좁힐 수 있음
+- [x] j64/j64avx2 또는 Windows DLL 두 변형의 완전한 공급을 강제하고 기존 pin manifest/원본 라이브러리 SHA-256을 기록. 한쪽 누락을 합의된 J 원본 판정으로 처리하지 않음
+- [x] 각 원본 문장과 transport, 모든 결과, **첫 오류의 source/index/type**, 뒤따르는 readback 및 후속 오류를 source 순서 그대로 JSON에 보존; `reference-only` 상태를 `OBSERVED_J_REFERENCE_NOT_RUST_CONFORMANCE`로 명시
+- [x] 비교 도구가 noun 결과를 읽기 위해 `rustjresult =: `를 앞에 붙이는 **wrapped J 평가**와, 접두 할당 없이 원문을 그대로 `JDo`로 실행하는 **raw J 평가**를 **별도의 새 J 인터프리터**에서 각각 관측. `raw_reference`, `raw_first_error`, `transport_error_disagreements`를 분리하여 대입 접두문의 품사 파싱 영향이 있는지 확인한다. raw 성공은 noun 결과를 읽지 못하므로 `silent`는 결과 동일성을 뜻하지 않는다.
+- [x] `tools/test_name_reference_first_error.py`: 세 fixture 선택, 양 변형 요구, wrapped/raw 서로 다른 첫 오류 보존과 후속 조회 순서 유지, SCRIPT_SETUP 전송, J_LIBRARY 복원 및 독립된 두 oracle 종료 처리의 비실행 FakeOracle 단위 테스트 작성
+- [ ] pinned J-C j64/j64avx2의 실제 원본 추적을 확보한 뒤, 기존 `--scope-fixtures-only --case ... --gate` differential과 대조. 두 단계 모두 **수동 실행은 누적 테스트 시점까지 UNRUN**
+- [ ] 원본과 비교 전에는 direct definition의 첫 오류가 `syntax`인지 `domain`인지 **미결정**. 기존 ignored 회귀 테스트를 임의로 해제·완화하지 않음
+
+Linux/WSL의 pinned `.reference` 준비 후 단독 원본 판정용 **향후 실행 예시**:
+
+```sh
+python3 tools/name_reference_first_error.py \
+  --reference-root .reference \
+  --report reports/name-first-error-reference-only.json
+```
+
+**해석 제한:** raw/JDo와 wrapped/값 캡처의 오류 결과가 다르면 원본 오류 판정은 추가 분해가 필요하며, `transport_error_disagreements`를 확인한 후에만 테스트의 단일 오류 종류를 선택한다. 이 스크립트가 0으로 종료되더라도 뜻하는 것은 *두 J-C 변형의 관측 기록을 모두 확보했다*는 것뿐이다. RustJ NAME 준수, 동일 문장의 RustJ PASS, 자동 CI에서 이 새 probe 실행 여부, optimizer Graph legality는 별도이며 이 기록으로 인증되지 않는다.
