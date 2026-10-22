@@ -490,6 +490,25 @@ def reference_inputs(assets_root=None, reference_root=None, platform=None):
                        "revision_note": "Pinned build manifests select supplied Linux libraries; actual SHA256 identifies each binary. Absent variants are unrun, not passes."}
 
 
+
+def select_named_fixtures(fixtures, requested):
+    """Keep original suite order and reject unknown or ambiguous named subsets.
+
+    A named subset is a diagnostic observation, never evidence that the full
+    fixture group passed. Supplying no names preserves the legacy full group.
+    """
+    if not requested:
+        return fixtures
+    names = [name for name, _ in fixtures]
+    if len(names) != len(set(names)):
+        raise ValueError("Cannot select a named subset from duplicate fixture names")
+    unknown = sorted(set(requested) - set(names))
+    if unknown:
+        raise ValueError("Unknown fixture name(s) in selected group: " + ", ".join(unknown))
+    requested_set = set(requested)
+    return [(name, sources) for name, sources in fixtures if name in requested_set]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     references = parser.add_mutually_exclusive_group(required=True)
@@ -507,6 +526,9 @@ def main():
     selection.add_argument("--nested-fixtures-only", action="store_true")
     selection.add_argument("--assignment-fixtures-only", action="store_true")
     selection.add_argument("--abandon-fixtures-only", action="store_true")
+    parser.add_argument("--case", action="append", metavar="NAME", default=[],
+                        help="Restrict the selected fixture group to named cases (repeatable); "
+                             "the resulting report is a partial diagnostic, not a full group pass")
     args = parser.parse_args()
     try:
         libraries, reference_metadata = reference_inputs(args.assets_root, args.reference_root)
@@ -519,6 +541,10 @@ def main():
                 DEFINITION_FIXTURES if args.definition_fixtures_only else
                 BOUNDARY_FIXTURES if args.boundary_fixtures_only else
                 SCOPE_FIXTURES if args.scope_fixtures_only else FIXTURES)
+    try:
+        fixtures = select_named_fixtures(fixtures, args.case)
+    except ValueError as error:
+        parser.error(str(error))
     records = []
     for variant, library in libraries:
         os.environ["J_LIBRARY"] = str(library)
@@ -558,9 +584,15 @@ def main():
                         "name-scopes" if args.scope_fixtures_only else "names"),
         "fixtures": len(fixtures), "observations": len(records), "counts": counts, "records": records,
     }
+    if args.case:
+        # Do not report a targeted differential as a complete conformance run.
+        report["selection"] = {"partial": True, "cases": [name for name, _ in fixtures]}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"fixtures": len(fixtures), "observations": len(records), "counts": counts}))
+    summary = {"fixtures": len(fixtures), "observations": len(records), "counts": counts}
+    if args.case:
+        summary["selection"] = report["selection"]
+    print(json.dumps(summary))
     # Completing an audit is not a conformance pass. Counts always expose gaps.
     return 0
 
