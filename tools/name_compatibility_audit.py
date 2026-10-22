@@ -224,6 +224,10 @@ SCOPE_FIXTURES = [
         "local_adverb=:{{ u+m }}",
         "local_conjunction=:{{ u+v+m+n }}",
         "3 local_adverb", "2 local_conjunction 4", "u", "m", "v", "n"]),
+    ("named_function_z_fallback_then_own_shadow", [
+        "route_z_=:*", "route_probe_ 4",
+        "route_probe_=:7", "route_probe_", "route_z_ 4",
+        "route_probe_=:-", "route_probe_ 4", "route_z_ 4"]),
 ]
 
 # Only these assignment setup blocks need script input (JDo has no interactive
