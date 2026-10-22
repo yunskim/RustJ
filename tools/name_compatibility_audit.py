@@ -242,6 +242,15 @@ SCOPE_FIXTURES = [
         "fails=:{{\ncount=:count+1\n1 2+1 2 3\n}}",
         "op_probe_=:1 2+1 2 3", "count", "op_probe_ 4",
         "op_probe_=:fails 0", "count", "op_probe_ 4"]),
+    ("named_locative_alias_pos_mismatch", [
+        "op_probe_=:+", "alias=:op_probe_", "alias 4",
+        "op_probe_=:7", "alias 4", "op_probe_",
+        "op_probe_=:-", "alias 4"]),
+    ("named_direct_definition_reparse_after_pos_restore", [
+        "op_probe_=:+", "call=:{{op_probe_ y}}", "call 4",
+        "op_probe_=:7", "op_probe_",
+        "op_probe_=:-", "call 4",
+        "op_probe_=:+", "call 4"]),
     ("named_function_pos_rebinding_first_error", [
         "op_probe_=:+", "call=:{{op_probe_ y}}",
         "nounify=:{{\nop_probe_=:7\n0\n}}",
