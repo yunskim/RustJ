@@ -1641,7 +1641,7 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 - [x] **회귀 코드 작성:** `analyze_j_graph("1")`의 정상 lowering/verify와, literal node의 dtype fact를 Char로 변조한 뒤 `graph.verify()`가 통과하더라도 `lower_graph`가 verifier defect로 거부하는 경로를 추가. J 실행 오류를 흉내 내지 않는다. **실행 검증 대기**.
 - [x] **Admission 회귀 코드 작성:** `Admission::<Plan>::inspected(Stage::Logical, Err(drift))`의 `VerifierDefect`, `may_inspect_another_route()==false`, `is_j_handler_eligible()==false`를 검증하며 `Unsupported`의 `may_inspect_another_route()==true`와 대조. **실행 검증 대기**.
 - [x] **정상 회귀 코드 작성:** 동일한 원본 literal graph를 먼저 `lower_graph`하고 Logical verifier를 실행하는 positive control을 추가. 기존 고수준 lowering/regression suite의 default·portable 실제 실행 결과는 CI에서 확인한다.
-- [ ] **승인 조건:** verifier 오류와 Unsupported 오류의 범주가 테스트로 구분되고 default/portable + fmt/clippy + 해당 구조·부정 테스트를 통과한다.
+- [x] **승인 조건(브랜치 HEAD 검증 완료):** verifier 오류와 Unsupported 오류를 분리하는 unit regression, default/portable Rust, Python, 문서, fmt, Clippy가 자동 `check` job에서 통과했다. 정확한 코드 HEAD `0090efbbcaba9e361e7abb9b3a12c3d82776bd1c`, [Linux milestone #39764500328](https://github.com/yunskim/RustJ/actions/runs/39764500328) **check + 4 reference matrix 전부 PASS**. 단, NAME 전용 differential은 이 범위의 검사가 아니며 수동 실행하지 않았다. 새 문서 커밋과 병합된 `main`의 CI는 독립적으로 확인해야 한다.
 
 **FGX-01 구현 범위 (2026-10-22):** `src/analysis.rs`의 **오류 분류와 테스트만** 변경했다. GraphFacts 추론, graph 생성/검증, 실제 J semantics, handoff admission, Graph rewrite 선택·CFG에는 변경이 없다. 변경 전 `main` 기준 SHA `3d80fffbaaf09c8082b5728cc9f3b5fbe593c77b`. PR 정확한 HEAD/CI 결과는 테스트 완료 후 별도 보고·기록한다. pinned J-C 차분 검증은 내부 verifier 오류 분류를 검사하는 이 slice의 의미론적 필수 조건이 아니며, 사용자 요청대로 수동 테스트는 보류한다.
 
@@ -1690,10 +1690,10 @@ v0.2에서 explicit stage/branch graph를 도입했고, v0.3에서 Window access
 | 검사·증거 | 현재 상태 | 완료 기록 시 요구 사항 |
 |---|---|---|
 | 코드 구조 및 책임 경계 감사 | **확인(정적 감사)** | 감사 기준 `main` SHA `d1aa4506`를 유지 |
-| 이번 변경의 fmt/clippy, 문서 검사 | **UNRUN** | 정확한 PR HEAD 자동 CI 또는 수동 결과·링크 |
-| Rust default/portable 및 Python harness | **UNRUN** | 정확한 HEAD와 실행된 테스트명·ignored 별도 명시 |
+| 이번 변경의 fmt/clippy, 문서 검사 | **자동 CI PASS (코드 HEAD `0090efbb`)** | [#39764500328](https://github.com/yunskim/RustJ/actions/runs/39764500328) `check` job; 최종 HEAD·병합 이후 별도 재확인 |
+| Rust default/portable 및 Python harness | **자동 CI PASS (코드 HEAD `0090efbb`)** | [#39764500328](https://github.com/yunskim/RustJ/actions/runs/39764500328) `check` job; 수동 검증은 UNRUN, ignored test는 PASS로 합산하지 않음 |
 | Frontend handoff 부정 verifier 테스트 | **UNRUN** | 변조 root/assignment/occurrence별 실패 category |
-| Graph fact drift 분류 테스트 | **회귀 코드 작성, 실행 증거 대기** | `VerifierDefect`, no retry; Unsupported 대비; PR HEAD CI 정확히 기록 |
+| Graph fact drift 분류 테스트 | **자동 CI PASS (코드 HEAD `0090efbb`)** | [#39764500328](https://github.com/yunskim/RustJ/actions/runs/39764500328): default/portable unit 및 verifier/nonretry regression, check + 4 J reference jobs PASS; 새 HEAD·병합 후 재확인 |
 | 정적/관측 Graph 교집합 비교 | **UNRUN** | 공통 승인 subset/불일치 내역 기록 |
 | J-C pinned j64/j64avx2 differential | **UNRUN(본 변경은 문서 전용)** | 향후 의미론 변경 시 해당 fixture 실제 관측 |
 | Graph 선택 최적화 / compiled CFG | **BLOCKED(미구현)** | 개별 FGX-05/06 gate 충족 |
