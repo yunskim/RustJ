@@ -691,3 +691,15 @@ Parser host `gerund_binding`에서 direct/base locative의 현재 바인딩을 `
 - [ ] 성공적 함수 재정의 뒤의 parser POS, modifier POS 변경, locale 초기 생성·local/path/holder 재검색을 포함한 실행 가드와 Graph specialization 증거 확정.
 
 **실행 상태:** 이번 항목의 `cargo fmt`, `clippy`, Rust default/portable, Python audit, J-C differential은 **UNRUN**이다(사용자 요청에 따른 일괄 테스트 보류). 소스·보고서의 과거 PASS를 새 HEAD의 PASS로 옮기지 않는다. `main` push에서 자동 시작되는 원격 워크플로가 있더라도 수동 테스트 실행이나 결과 확인과 구별한다. 이 체크리스트의 체크([x])는 **테스트 코드/fixture 작성만 완료**된 뜻이다.
+
+
+### NAME POS 재바인딩 자동 CI 차이 기록 (2026-10-22)
+
+- **관측 리비전:** `dc0c205f307c9e0295eac2a3d984b0297a3a29c8`, 자동 push-triggered `Basis compile probe` [run 39730634513](https://github.com/yunskim/RustJ/actions/runs/39730634513). `cargo test` 중 `tests/base_locative.rs`의 `named_function_pos_rebinding_observes_right_to_left_call_order`가 **FAIL**: `tests/base_locative.rs:146`에서 실제 `syntax error`, 테스트 가정 `domain error`. 같은 테스트 파일의 앞선 8개는 그 자동 실행에서 PASS. 이 로그는 전체 HEAD 검증이 아니다.
+- **진단:** 현재 기록으로는 J 원본도 `syntax error`를 내는지 확인되지 않았다. RustJ 오류 분류를 임의 변경하거나 J 동작이라고 주장하지 않는다. POS의 **파싱 시점 분류**와 함수 NAME의 **호출 시점 재조회**가 충돌하는 경계로 분류한다.
+- **격리:** 해당 테스트의 기대값을 바꾸지 않고 `#[ignore = "..."]`를 추가했다(`74b1631`). 이는 CI의 다른 회귀를 관찰하기 위한 **미해결 계약 격리**이며 통과(PASS)가 아니다.
+- [ ] 고정 버전 J-C 양 변형에서 `named_function_pos_rebinding_first_error` fixture를 실행하여 첫 오류와 후속 바인딩 상태 확인.
+- [ ] RustJ 파서 body 재파싱과 `resolve_function_entity` 호출 경로를 구분해 `syntax`/ `domain` 첫 오류 차이의 원인을 규명.
+- [ ] J와 일치하도록 필요하면 런타임/파서 또는 **정확한 기대값**을 수정한 뒤 ignore 해제. 오류 종류를 확인하지 않고 단언을 `is_err()`로 완화하지 않는다.
+
+**실행 정책 상태:** 수동 테스트·CI는 시작하지 않았다. GitHub push가 자동 트리거한 원격 CI 결과를 **관측**했으며, 이 항목은 현재 FAIL/원본 미검증으로 추적한다. 다른 fmt/clippy/portable/J differential의 PASS는 주장하지 않는다.
