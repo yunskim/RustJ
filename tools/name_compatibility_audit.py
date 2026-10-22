@@ -278,6 +278,10 @@ NESTED_FIXTURES = [
     ("recursive_direct_local_slots", ["keep=:777",
                                        "recur=:{{\nkeep=.y+100\nif. y>0 do.\nrecur y-1\nend.\nkeep\n}}",
                                        "recur 4", "recur 1", "keep"]),
+    ("nested_direct_error_unwinds", ["slot=:100",
+                                     "outer_bad=:{{\nslot=.y+10\ninner=.{{\nslot=.y+1\n1 2+1 2 3\n}}\ninner y\n}}",
+                                     "outer_bad 3", "slot", "inner 4",
+                                     "ok=:{{\nslot=.y+20\nslot\n}}", "ok 4", "slot"]),
 ]
 
 FOR_FIXTURES = [
