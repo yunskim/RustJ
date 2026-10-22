@@ -188,7 +188,7 @@ Physical planning / backend
 RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌트명을 두기보다 각 compiler stage의 책임을 명확히 분리한다.
 
 - **RustJ frontend / J Semantic Construction IR**: source text를 J word로 나누고 J parsing/binding 의미를 보존한다. immutable `FunctionEntity` graph가 primitive, adverb/conjunction application, hook/fork/train, rank, `@:` 같은 **J 함수 구성 자체**를 표현한다. 이 층은 언어 의미의 canonical source다.
-- **J Graph IR / JAXA Array Operation Graph IR**: 완성된 J function을 실제 noun input에 적용한 **배열 연산 graph를 J 문법의 대수로 표현하는 compiler analysis surface**다. `@: → Pipeline`, hook/fork → Branch/Join, `/ → Reduce`, `" → CellParallel`처럼 parser/semantic construction에서 정적으로 유도되는 topology와 optimization hint를 first-class로 기록한다. JAXA의 주 관심사는 이 층이며, 역사적 JAXA의 `basis verb`도 주로 이 층의 **Graph Basis**를 뜻한다.
+- **J Graph IR (과거 JAXA의 Array Operation Graph 연구 계승)**: 완성된 J function을 실제 noun input에 적용한 **배열 연산 graph를 J 문법의 대수로 표현하는 compiler analysis surface**다. `@: → Pipeline`, hook/fork → Branch/Join, `/ → Reduce`, `" → CellParallel`처럼 parser/semantic construction에서 정적으로 유도되는 topology와 optimization hint를 first-class로 기록한다. JAXA의 주 관심사는 이 층이며, 역사적 JAXA의 `basis verb`도 주로 이 층의 **Graph Basis**를 뜻한다.
 - **Graph Analyzer / Algebraic Optimizer**: J Graph IR에서 fusion topology, fan-out/fan-in, common-input reuse, retained-value lifetime, reduction/cell parallelism, materialization-elision, 이후 adjoint/VJP fan-out 등을 찾는다. 가능한 경우 **GraphBasis** / rewrite / equivalence rule로 동등한 J graph 후보를 만들 수 있다. 여기서 생성되는 것은 target-independent opportunity와 graph candidate이지 concrete kernel schedule이 아니다.
 - **Execution Semantic Lowering**: 선택된 J Graph IR을 explicit dataflow와 normalized array operation으로 이루어진 `Logical Execution IR / Logical Execution Plan`으로 낮춘다. 이 후자의 IR은 J observable semantics, facts/checks, **ExecutionBasis** operation, effect/error ordering, executable dependency를 정확히 표현한다. 여러 execution op가 하나의 J Graph node에서 나올 수 있으므로 모든 op는 J Graph origin을 보존한다.
 - **Route Partition / Export**: verified Logical Execution IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
@@ -247,7 +247,7 @@ Semantic Analyzer ─X→ source-text reparsing
 <a id="211-두-compiler-ir은-목적이-다르며-둘-다-canonical-boundary다"></a>
 ### 2.1.1 두 compiler IR은 목적이 다르며 둘 다 canonical boundary다
 
-RustJ/JAXA에는 서로 다른 질문에 답하는 두 graph IR이 필요하다.
+현행 RustJ에는 서로 다른 질문에 답하는 두 canonical compiler IR 경계가 필요하다(과거 JAXA 연구를 계승한다).
 
 <a id="a-j-graph-ir--이-배열-계산은-j-대수로-어떤-graph인가"></a>
 #### A. J Graph IR — “이 배열 계산은 J 대수로 어떤 graph인가?”
@@ -353,6 +353,64 @@ Physical/Schedule
 **소유권 불변조건:** GraphFacts는 조기 abstract fact이며 Execution Facts의 축약 복사본이 아니다. Graph IR에는 layout/representation, SemanticCheck, EffectSummary, error ordering, ResolvedInstantiation을 넣지 않는다. 공통 dtype/shape/rank transfer rule은 하나의 semantic rule source를 공유하고 lowering에서 drift를 검증한다.
 
 현재 `StructuralOpportunity`는 이 두 층을 연결하는 bridge다. 앞으로는 J Graph IR의 `GraphForm/GraphHint`가 source이며, Execution lowering이 이를 실제 execution ValueId에 투영해 `StructuralOpportunity<ValueId>`를 만든다. 후자가 generic DAG를 다시 pattern-match해서 원래 J topology를 복원하는 경로는 보조 수단으로만 사용한다.
+
+<a id="212-frontend-j-graph-logical-handoff-검증-계약"></a>
+### 2.1.2 Frontend → J Graph IR → Logical IR: 검증 경계와 구현 상태 감사 (2026-10-22)
+
+**결정:** 세 단계는 통합하지 않는다. Frontend/J Semantic Construction은 **J 표현의 의미와 함수 구성**을, J Graph IR은 **실제 인수에 적용된 계산 topology**를, Logical Execution IR은 **실행 operation·data dependency·J-visible check/effect/error 순서**를 책임진다. Graph optimizer는 실행 계획을 미리 결정하지 않으며, Logical/Physical planning이 J 문법상 topology를 뒤늦게 복원한다고 가정하지 않는다. 아래는 코드 감사에 근거한 **구현 현황**과 장기 **목표 계약**의 분리이며, 새 의미론 기능을 구현·검증했다는 선언이 아니다.
+
+**감사 기준:** GitHub `main` `d1aa45065ce9e5ed50dbc725873f2bf8a1873b07`의 `src/runtime.rs`, `src/frontend_handoff.rs`, `src/j_graph_ir.rs`, `src/analysis.rs`, `src/logical_ir.rs`, `src/error.rs`, `src/admission.rs`, `src/j_graph_rewrite.rs`와 `README.ko.md`/`README.md`. 관련 검사 실행은 이 감사에 포함되지 않았다.
+
+#### 현재 주 컴파일 분석 경로 (코드에서 확인)
+
+```text
+source
+  -> parser::parse_analysis + semantic::bind
+  -> BoundProgram
+  -> j_graph_ir::Plan::from_bound_with_graph_facts + Plan::verify
+  -> J Graph IR (original graph)
+       + jsource_opportunities()
+       + rewrite_candidates() / evaluate_rewrite_candidates()
+  -> analysis::lower_graph(original_j_graph.clone(), ...)
+       -> graph.verify / per-node GraphFacts vs ExecutionFacts / A3 verify
+  -> CompilationAnalysis { j_graph, opportunities, candidates, resources, logical }
+```
+
+여기서 `Engine::analyze_compilation_diagnostic()`은 **원본 graph**를 lowering한다. 현재 `GraphRewriteCandidate`는 발견·검증·자원 평가의 **analysis-only 후보**이며 자동 선택·치환·실행 결과의 일부가 아니다. `VerifiedFrontend::from_program()`은 `admit_frontend_handoff`와 NAME-effects 경로 등에 있지만 위 주 분석 경로가 직접 호출하지는 않는다.
+
+| 경계 | 현재 보장하는 사항 | 빠져 있거나 의도적으로 유보한 사항 |
+|---|---|---|
+| Frontend → BoundProgram | J parser reduction의 `FunctionEntity`, 이름·소스 의미, semantic binding | 주 compiler admission에서 `VerifiedFrontend`의 root·assignment·expression occurrence 대조를 일관되게 요구하는 계약 |
+| BoundProgram → J Graph | `Plan::verify()`의 context 완전성·source 일치·parser origin 범위, graph facts/region 검증 | `VerifiedFrontend::from_program()`과의 검증 범위가 같다는 증거 없음; 단순 context 검증만으로 semantic Program/root 일치를 대신하지 않음 |
+| J Graph → Logical | graph 재검증, GraphFacts/ExecutionFacts 일치 검사, `j_origin`/parser provenance, A3 verifier | fact drift가 현재 `Error::Unsupported`로 잘못 분류됨; rewrite 후보가 lowering 대상 graph를 바꾸지는 않음 |
+| Logical v0 → compiled control | 단일 function·region·block의 SSA/Return 계약 | 다중 block, phi/block argument, CFG, explicit-definition 본문 제어 흐름 lowering은 아직 없음 |
+
+**P0 — 내부 fact drift는 capability miss가 아니다.** `analysis::lower_graph`의 `GraphFacts::agrees_with` 실패는 컴파일러 내부 표상의 불일치이므로 `Error::Verification`/`FailureCategory::VerifierDefect`가 정당하다. 현재는 `Error::Unsupported`/`UnsupportedCapability`로 분류되어 `admission::Rejection::may_inspect_another_route()`가 다른 읽기 전용 경로 탐색을 허용할 수 있다. 수정 뒤에도 기존 J-visible 오류 종류나 순서를 바꾸지 않으며, verifier defect를 "미지원 기능"으로 숨기지 않는다. **본 절은 수정 요구만 정의한다.**
+
+**P1 — frontend handoff를 무조건 모든 graph 생성자의 타입으로 강제하지 않는다.** `VerifiedFrontend::from_program()`은 frontend context가 가리키는 root, 최종 assignment target/source/coupla 메타데이터, expression/occurrence edge 등을 추가 대조한다. 기존 graph verifier는 context 자체·source·origin 범위를 검사하지만 이 검사와 동등하다는 보장은 없다. 주 compiler 경로에서 검증된 handoff를 소비하거나 `VerifiedFrontend`와 동등한 검증을 명시적으로 선행하게 한다. 단, `from_capture`, 배열 batch 및 context 없는 합법적인 graph 생성은 **독립적인 입력 계약/admission**으로 관리한다. 일부 지원하지 않는 프로그램을 억지로 graph로 승인하지 않고 `Unsupported`를 유지해야 한다.
+
+**P1 — 두 graph 생성 경로의 비교 범위를 제한한다.** `from_bound`는 정적 `j_graph_ir::Plan`을, `from_capture`는 관측·occurrence·constructor 정보가 더 있는 `CapturedGraph`를 반환한다. 동일한 **순수·정적·지원되는 J 문장**의 공통 graph node/region, source/provenance, 계산 의미가 일치하는지 비교하되 객체 전체·runtime observation·name guard의 완전한 동일성을 요구하지 않는다. 부작용/동적 이름/실패 capture는 무조건 동등성 예시로 선택하지 않는다.
+
+**이후 — 선택된 graph를 lowering하는 목표 경로** (아직 실행 경로로 연결되지 않음):
+
+```text
+Verified frontend / bounded independent graph admission
+    -> original J Graph IR
+    -> graph candidates / equality saturation (SPORES/egg 포함 가능)
+    -> Exact-J legality: value, shape/rank, error priority, NAME/effect/state
+    -> required guard + target/resource feasibility + cost comparison
+    -> selected, proof/witness-backed J Graph   [미구현]
+    -> execution semantic lowering / A3 verifier
+    -> route partition / physical planning
+```
+
+`Candidate` 생성, 동등성 근거 확인, target feasibility, resource feasibility, cost, **selected/committed transformation**은 서로 다른 상태다. 현재의 graph resource/target readiness를 곧바로 변환 실행 허가로 승격하지 않는다. 선택/증명이 미완성이면 원본 graph를 보수적으로 lowering하는 경로를 유지한다. 단, 원본 graph라도 이미 드러난 **verifier defect**를 정상 fallback으로 무시해서는 안 된다. 더 구체적인 candidate lifecycle 계약은 [§4.1.4](./05-graph-execution-lowering-p02.ko.md#414-candidate-lifecycle와-proof-discharge-contract)를 따른다.
+
+**이후 — CFG 확대는 별도 단계:** A3-v0 `logical_ir::Plan::verify()`는 function/region/block을 각각 하나로 제한한다. 이는 현재 straight-line 배열 계산의 명시된 범위이지 RustJ 언어 전체가 single-block이라는 뜻이 아니다. explicit definition의 control flow를 graph/logical로 실제 lowering할 때 다중 block, terminator, block argument/phi, effect/first-error 및 dominance 검증을 도입한다. 그 전까지 실행 인터프리터의 제어 흐름 지원을 compiled CFG 지원으로 표기하지 않는다.
+
+**명칭과 README:** 현행 RustJ 컴포넌트 명은 **J Graph IR / Graph Analyzer**다. `JAXA`는 이 설계에 영향을 준 과거 연구명이다. `README.ko.md`와 `README.md`의 *상세* 파이프라인은 이미 J Graph IR을 포함하므로 "README에서 Graph IR이 빠졌다"는 지적은 현재 HEAD에 적용되지 않는다. 다만 일부 *축약된* 그림은 Semantic/Graph를 한 줄로 표시하므로 상세 책임을 이 문서로 연결한다. 역사적 `JAXA Array Operation Graph IR`이라는 명칭은 현행 시스템의 병렬 컴포넌트를 의미하지 않는다.
+
+**실행·완료 추적:** [A1.5 FGX 경계 검증 체크리스트](./11-roadmap-checklists-p04.ko.md#fgx-frontend-graph-logical-경계-검증-체크리스트-2026-10-22)에서 P0/P1/P2, 부정 테스트, 승인 조건, `PASS/FAIL/UNRUN/BLOCKED`를 관리한다. 현재 설계·코드 감사만 했으며 해당 변경의 Rust default/portable, fmt, clippy, Python, J-C differential을 실행한 것이 아니다.
 
 <a id="22-물리적으로-함께-논리적으로-독립"></a>
 ### 2.2 물리적으로 함께, 논리적으로 독립
