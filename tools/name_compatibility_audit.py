@@ -251,6 +251,17 @@ SCOPE_FIXTURES = [
         "op_probe_=:7", "op_probe_",
         "op_probe_=:-", "call 4",
         "op_probe_=:+", "call 4"]),
+    # Isolate already-noun lookup from a right-hand nounifying side effect.
+    # Run each fixture in its own fresh J and RustJ interpreter.
+    ("named_direct_body_noun_before_call", [
+        "op_probe_=:+", "call=:{{op_probe_ y}}", "call 4",
+        "op_probe_=:7", "call 4", "op_probe_",
+        "op_probe_=:-", "call 4"]),
+    ("named_direct_body_rhs_nounifies_before_call", [
+        "op_probe_=:+", "call=:{{op_probe_ y}}",
+        "nounify=:{{\nop_probe_=:7\n0\n}}",
+        "call 4", "call 4 + nounify 0", "op_probe_",
+        "op_probe_=:-", "call 4"]),
     ("named_function_pos_rebinding_first_error", [
         "op_probe_=:+", "call=:{{op_probe_ y}}",
         "nounify=:{{\nop_probe_=:7\n0\n}}",

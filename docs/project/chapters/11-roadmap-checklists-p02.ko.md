@@ -845,3 +845,18 @@ python3 tools/name_reference_first_error.py \
 ```
 
 **해석 제한:** raw/JDo와 wrapped/값 캡처의 오류 결과가 다르면 원본 오류 판정은 추가 분해가 필요하며, `transport_error_disagreements`를 확인한 후에만 테스트의 단일 오류 종류를 선택한다. 이 스크립트가 0으로 종료되더라도 뜻하는 것은 *두 J-C 변형의 관측 기록을 모두 확보했다*는 것뿐이다. RustJ NAME 준수, 동일 문장의 RustJ PASS, 자동 CI에서 이 새 probe 실행 여부, optimizer Graph legality는 별도이며 이 기록으로 인증되지 않는다.
+
+
+### NAME 첫 오류 분리: 기존 noun과 문장 내 RHS nounify (2026-10-22)
+
+앞선 J-C reference-only 비교에서는 `named_function_pos_rebinding_first_error` 안의 `call 4 + nounify 0` 오류를 확인할 준비가 되었으나, 같은 이름이 **호출 이전부터 noun인 경우**와 **동일 문장의 RHS가 noun으로 바꾼 경우**가 분리되지 않았다. 오류 종류가 달라도 그 차이가 NAME 파싱/POS 분류 시점인지, RHS 효과 순서인지 특정하기 어려웠다.
+
+- [x] `tools/name_compatibility_audit.py::SCOPE_FIXTURES`에 `named_direct_body_noun_before_call` 추가: 먼저 정상 direct 함수 호출, 다음 문장에서 `op_probe_=:7`, 이어 `call 4` 실패 관측, noun 조회 및 verb 복원 뒤 재호출. 오류 이후 바인딩을 함께 확인하는 독립 fresh engine 사례
+- [x] `named_direct_body_rhs_nounifies_before_call` 추가: 정상 direct 호출 뒤 `call 4 + nounify 0`의 **RHS 함수 재정의 효과**를 포함한 경우만 독립 fresh engine으로 분리해 관측
+- [x] `tools/name_reference_first_error.py`의 기본 C 원본 비교 대상을 이전 3개에서 **5개**로 확장. 함수 alias POS mismatch/verb 복원 사례를 대조군으로 유지
+- [x] 각 기록에 `focused_probe`를 추가해 **중복된 문장 텍스트의 정확한 실행 순번**, 해당 문장의 raw/wrapped 관측, 검사 문장 **이전**에 발생한 오류들을 별도로 보존. `first_error`가 fixture 준비 실패를 가리켜도 판정 대상과 혼동하지 않도록 함
+- [x] `tools/test_name_reference_first_error.py`에 문장 출현 횟수·대상 인덱스, 준비 단계 오류와 대상 오류의 분리, 예상 문장 누락 시 fail-closed를 확인하는 FakeOracle/정적 fixture 회귀 작성
+- [ ] pinned C j64/j64avx2 원본 실행 후 두 독립 경우의 실제 `focused_probe.raw` 및 `focused_probe.wrapped`와 `*_errors_before`를 점검. 수동 J-C 실행은 사용자 요청에 따라 **UNRUN**
+- [ ] 이어 RustJ의 기존 ignored 회귀에 대해 동일 첫 오류/후속 바인딩을 비교하며 `syntax error` 또는 `domain error` 기대를 **실증된 경우에만** 확정. NAME/Graph 최적화 합법성 인정은 별도 게이트
+
+**증거의 제한:** `focused_probe`는 **관측 지점이 어디인지 표시**할 뿐 실제 J-C 결과를 미리 주장하지 않는다. 서로 다른 원본 실행 방식(wrapped 대 raw)의 오류가 다르면 그 차이를 보존한다. 현 HEAD의 일반 Linux milestone CI 성공은 새 NAME 전용 fixture가 실제 C에서 일치했다는 증거가 아니다.
