@@ -226,7 +226,10 @@ pub(crate) fn lower_graph(
             execution_facts.shape.as_deref(),
             execution_facts.rank,
         ) {
-            return Err(Error::Unsupported(format!(
+            // A contradiction between compiler-owned facts is a verifier
+            // defect, not a missing execution capability. In particular,
+            // admission must not treat this as permission to try another route.
+            return Err(Error::Verification(format!(
                 "J Graph/Execution fact drift at graph value {index}"
             )));
         }
@@ -523,5 +526,84 @@ impl Builder<'_> {
             self.current_j_origin,
             span,
         ))
+    }
+}
+
+// Guard the distinction between compiler-internal inconsistency and an
+// unsupported J operation at the Graph -> Logical boundary. These tests use
+// a deliberately contradictory graph fact, not a source-language J error.
+#[cfg(test)]
+mod tests {
+    use super::lower_graph;
+    use crate::{
+        Engine, Error,
+        admission::{Admission, Stage},
+        error::FailureCategory,
+        facts::{Facts, TypeFact},
+        j_graph_ir::NodeKind,
+        logical_ir::Plan,
+        types::DType,
+    };
+
+    #[test]
+    fn graph_execution_fact_drift_is_a_verifier_defect() {
+        let mut graph = Engine::new().analyze_j_graph("1").unwrap();
+        graph.verify().unwrap();
+
+        // A valid graph still lowers, preserving the normal execution plan.
+        let logical = lower_graph(graph.clone(), &|_| Facts::default()).unwrap();
+        logical.verify().unwrap();
+
+        let index = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.kind, NodeKind::Literal(_)))
+            .expect("literal graph node");
+        // The graph verifier checks structural consistency. It does not
+        // reconstruct every execution fact from the literal payload.
+        graph.nodes[index].facts.dtype = TypeFact::Exact(DType::Char);
+        graph.verify().unwrap();
+
+        let error = lower_graph(graph, &|_| Facts::default()).unwrap_err();
+        assert_eq!(error.kind(), "verifier failure");
+        assert_eq!(error.category(), FailureCategory::VerifierDefect);
+        assert!(matches!(&error, Error::Verification(_)));
+        assert!(error.to_string().contains(&format!("graph value {index}")));
+    }
+
+    #[test]
+    fn graph_fact_drift_cannot_be_retried_as_a_capability_miss() {
+        let mut graph = Engine::new().analyze_j_graph("1").unwrap();
+        let index = graph
+            .nodes
+            .iter()
+            .position(|node| matches!(node.kind, NodeKind::Literal(_)))
+            .expect("literal graph node");
+        graph.nodes[index].facts.dtype = TypeFact::Exact(DType::Char);
+        let error = lower_graph(graph, &|_| Facts::default()).unwrap_err();
+
+        let rejection =
+            Admission::<Plan>::inspected(Stage::Logical, Err(error))
+                .into_result()
+                .unwrap_err();
+        assert_eq!(rejection.stage(), Stage::Logical);
+        assert_eq!(rejection.category(), FailureCategory::VerifierDefect);
+        assert!(!rejection.may_inspect_another_route());
+        assert!(!rejection.is_j_handler_eligible());
+
+        // An actual unsupported operation retains its distinct routing
+        // policy: read-only analysis of another route remains permissible.
+        let unsupported = Admission::<Plan>::inspected(
+            Stage::Logical,
+            Err(Error::Unsupported("unavailable lowering".into())),
+        )
+        .into_result()
+        .unwrap_err();
+        assert_eq!(
+            unsupported.category(),
+            FailureCategory::UnsupportedCapability
+        );
+        assert!(unsupported.may_inspect_another_route());
+        assert!(!unsupported.is_j_handler_eligible());
     }
 }
