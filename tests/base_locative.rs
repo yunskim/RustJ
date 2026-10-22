@@ -97,6 +97,21 @@ fn base_capture_records_actual_scope_and_rejects_simple_name_guard() {
 }
 
 #[test]
+fn named_function_locative_falls_back_to_z_until_own_binding_shadows_it() {
+    let mut engine = Engine::new();
+    engine.eval("route_z_=:*").unwrap();
+    scalar(&mut engine, "route_probe_ 4", 1);
+
+    engine.eval("route_probe_=:7").unwrap();
+    scalar(&mut engine, "route_probe_", 7);
+    scalar(&mut engine, "route_z_ 4", 1);
+
+    engine.eval("route_probe_=:-").unwrap();
+    scalar(&mut engine, "route_probe_ 4", -4);
+    scalar(&mut engine, "route_z_ 4", 1);
+}
+
+#[test]
 fn function_locatives_write_runtime_bindings_while_static_admission_stays_bounded() {
     let mut engine = Engine::new();
     engine.eval("f=:+").unwrap();
