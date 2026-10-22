@@ -185,8 +185,19 @@ def assess_reference_probe_consensus(records, fixture_names, variants):
     expected = {(case, variant)
                 for case in fixture_names for variant in variants}
     extra = set(observed) - expected
-    duplicate = {key for key, count in observed.items() if count != 1}
     cases = []
+    if not variants or len(variants) != len(set(variants)):
+        cases.append({
+            "case": None, "status": "blocked",
+            "raw_error_kind": None, "wrapped_error_kind": None,
+            "reasons": ["reference variant dimension is empty or duplicated"],
+        })
+    if len(fixture_names) != len(set(fixture_names)):
+        cases.append({
+            "case": None, "status": "blocked",
+            "raw_error_kind": None, "wrapped_error_kind": None,
+            "reasons": ["fixture dimension contains duplicate names"],
+        })
     for case in fixture_names:
         reasons = []
         raw_kinds, wrapped_kinds = [], []
@@ -221,6 +232,12 @@ def assess_reference_probe_consensus(records, fixture_names, variants):
             if (probe.get("wrapped_errors_before") is None
                     or probe.get("raw_errors_before") is None):
                 reasons.append(f"{variant}: missing prerequisite error traces")
+                continue
+            if (probe["wrapped_errors_before"] !=
+                    error_steps(sources[:index], record["reference"][:index])
+                    or probe["raw_errors_before"] !=
+                    error_steps(sources[:index], record["raw_reference"][:index])):
+                reasons.append(f"{variant}: prerequisite errors disagree with traces")
                 continue
             if (probe["wrapped_errors_before"]
                     or probe["raw_errors_before"]):
@@ -259,10 +276,9 @@ def assess_reference_probe_consensus(records, fixture_names, variants):
         cases.append({
             "case": None, "status": "blocked",
             "raw_error_kind": None, "wrapped_error_kind": None,
-            "reasons": ["unexpected observation keys: " + repr(sorted(extra))],
+            "reasons": ["unexpected observation keys: " +
+                        repr(sorted(extra, key=repr))],
         })
-    if duplicate and not any(item["status"] == "blocked" for item in cases):
-        raise AssertionError("duplicate records must block consensus")
     return {
         "scope": "focused J-C error kinds only; not RustJ conformance",
         "complete": bool(cases) and all(item["status"] != "blocked"
