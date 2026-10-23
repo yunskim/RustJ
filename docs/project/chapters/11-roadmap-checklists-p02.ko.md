@@ -876,3 +876,22 @@ python3 tools/name_reference_first_error.py \
 - [ ] C 합의 오류 결과를 근거로 `named_function_pos_rebinding_observes_right_to_left_call_order`의 `syntax error` vs `domain error` 판정을 결정한 후 RustJ direct/semantic-reference 모두와 비교하고 ignore 해제 여부 결정
 
 **원칙:** `agreed_error`도 **RustJ 오류 의미론과 일치함을 뜻하지 않는다**. 이는 J 원본 실행 두 변형의 대상 오류 종류가 일치한다는 관측 결과일 뿐이며, NAME의 후속 부작용/배열 결과, Graph/Logical IR 합법성은 별도의 검증이 필요하다. 일반 Linux milestone에서 수행하는 pinned conformance는 본 NAME 전용 probe 실행으로 대체되지 않는다.
+
+
+### NAME indirect locative 함수 **쓰기만** 지원 후보 — 검증 전 병합 보류 (2026-10-22)
+
+**근거·경계:** 기존 간접 locative noun 쓰기는 RHS를 계산한 뒤 holder의 boxed locale 이름을 검증하고 해당 namespace에만 저장한다. J 언어 문서 [Names and Locales §24.6/24.9](https://www.jsoftware.com/help/learning/24.htm)와 [Copula](https://jsoftware.com/help/dictionary/d001.htm)는 locative가 함수·noun 등 엔티티 바인딩을 지정하고, locative assignment는 `=.`도 전역 저장임을 설명한다. **이 문서는 특정 pinned C 버전의 실제 결과가 아니므로 conformance 완료 근거로 대체할 수 없다.**
+
+- [x] `src/runtime.rs::commit_runtime_binding`의 indirect-locative 분기에서 `JEntity::Noun`만 수용하던 제한을 제거하고, 같은 **RHS → holder resolve → ensure locale → store_binding** 순서로 `JEntity::Function`을 저장하는 후보 구현
+- [x] 의미적 범위를 **쓰기**로만 제한. indirect function *read/call*, function NameRef late re-resolution, modifier constructor 및 Graph/A3 guard 확장은 하지 않음. 간접 함수 읽기는 의도적으로 `Unsupported`
+- [x] `tests/named_locale.rs`에 default/semantic-reference 경로별 selected locale/base/z 독립 보존, holder 변경 후 다른 locale 대상, RHS length 오류 후 기존 함수 보존, 유효하지 않은 holder 오류, explicit caller의 지역 holder에 따른 전역 함수 저장 후보 회귀 작성
+- [x] `tools/name_compatibility_audit.py::SCOPE_FIXTURES`에 함수 locale 저장·할당 오류 우선순위·local holder 회귀 세트 추가. oracle result의 정확한 값/POS/오류는 아직 미확정
+- [x] `docs/project/chapters/04-semantic-array-ir-p03.ko.md`의 indirect 함수 한계를 **구현 후보 vs 검증 완료**로 분리
+- [ ] `--scope-fixtures-only --case indirect_function_assignment_own_locale --case indirect_function_assignment_first_error --case indirect_function_assignment_local_holder --gate`를 pinned J-C j64/j64avx2 × RustJ 두 경로로 실행, 관측별 성공/semantic_mismatch/unsupported_gap 기록
+- [ ] function 결과의 NameRef late binding, local holder/POS, 실패 RHS와 locale 생성 순서에 **J 원본 정확한 증거** 확보. 에러 종류·결과가 다르면 runtime/parser를 교정한 뒤 다시 비교
+- [ ] 병합 전에 현재 PR SHA의 자동 CI와 위 **전용 C differential**을 모두 확인. 사용자 요청으로 수동 테스트를 보류한 상태에서는 **구현 PR을 열린 상태로 BLOCKED** 유지
+- [ ] 이후 별도 slice: indirect 함수 참조/호출의 parsing POS·holder lookup 시점·실행 locale·path 및 late alias를 설계/검증. noun의 LocativeNounGuard를 function용으로 오용하지 않는다
+
+**검증 상태:** 코드·테스트·fixture는 작성만 완료했다. 수동 fmt/clippy/Rust/Python/pinned J-C 실행은 **UNRUN**이며 J 정확성은 미확정. GitHub push-trigger CI 결과는 SHA를 명시해 별도로 보고한다. `check`를 통과하더라도 named function read/call이나 full-J locale/path를 지원한다고 표시하지 않는다.
+
+**해당 구현은 conformance 결과 없이는 `main`으로 병합하지 않는다.** 이는 오류·효과·스코프 의미론을 임의로 확정하지 않기 위한 의도적인 게이트다.
