@@ -3305,8 +3305,133 @@ legality:  J-observational proof? state version/guard valid?
 **Generalized interface.** VirtualExpansion should be an optional **AlgebraSignature → symbolic parameter/index relation → proved candidate → verified extraction** analysis interface supplied by high-level Graph primitives, not a Conv-specific executable lowering pass. Linear/MatMul/tensor contraction and eligible pure contraction subregions in attention are plausible next clients. This does **not** authorize applying SPORES sum-product equalities indiscriminately to softmax, RNG/dropout or stateful normalization. Preserve the original high-level structured operation as the default path; instantiate its sidecar only on demand.
 
 
+**E9–E14 — Numerical walkthroughs of optimizations from other array/tensor compilers (2026-10-23; design fixtures, RustJ execution UNRUN).**
+
+These extend E1–E8 with inputs, access relations, before/after forms, independently calculated values and rejection conditions. Graph/Virtual/Logical/Physical labels denote proposed IR, not RustJ Graph/A3 dumps. The 2D Conv examples suppress unit batch/channel dimensions and use NCHW cross-correlation with hypothetical parameter snapshots. They do not require user-visible weight nouns. Integer examples assume exact arithmetic without overflow; J dtype, Rank, empty/error/effect, state-version and IEEE equivalence remain unproved.
+
+**E9 — Glenside: from convolution access patterns to virtual im2col/MatMul.**
+
+~~~text
+X = [[1,2,3], [4,5,6], [7,8,9]]
+ParameterRef(C1,weight@v7): W = [[2,-1], [0,3]]
+Graph original: y = StructuredConv(C1,x)
+Virtual: win[oh,ow,kh,kw] = X[oh+kh,ow+kw]
+         WindowView shape = [2,2,2,2]
+         y = OrderedContract(win,W,axes=[KH,KW])
+Candidate: row=2*oh+ow; col=2*kh+kw
+VirtualPatchRows = [[1,2,4,5], [2,3,5,6], [4,5,7,8], [5,6,8,9]]
+VirtualWeightColumn = [2,-1,0,3]
+reshape(MatMul(VirtualPatchRows,VirtualWeightColumn),[2,2])
+  = [[15,19],[27,31]]
+~~~
+
+| Output | Original window | Direct Conv = virtual row dot | Result |
+|---|---|---|---:|
+| Y[0,0] | [[1,2],[4,5]] | 1×2 + 2×(-1) + 4×0 + 5×3 | 15 |
+| Y[0,1] | [[2,3],[5,6]] | 2×2 + 3×(-1) + 5×0 + 6×3 | 19 |
+| Y[1,0] | [[4,5],[7,8]] | 4×2 + 5×(-1) + 7×0 + 8×3 | 27 |
+| Y[1,1] | [[5,6],[8,9]] | 5×2 + 6×(-1) + 8×0 + 9×3 | 31 |
+
+Graph analysis distinguishes access axes from reduction axes to discover a matrix-product candidate. Logical lowering may select a verified WindowView+Contract or MatMul+Reshape SSA recipe. Physical planning selects an available direct Conv, full/tiled pack or implicit GEMM realization. The virtual 4×4 matrix does not command a buffer allocation. Matching integer results alone do not license Exact-J rewrites with different floating accumulation/FMA, padding/fill, groups or state versions. Reference: [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/).
+
+**E10 — MLIR indexing-map ideas: compose nested windows into original-input indices.**
+
+Let X=[1,2,3,4,5,6]. Apply width-3 windows, then width-2 windows along their **outer position axis**, both with unit stride and no padding.
+
+~~~text
+Before:
+  a = WindowView(X,width=3)             // [4,3]
+    = [[1,2,3],[2,3,4],[3,4,5],[4,5,6]]
+  b = WindowOuterAxis(a,width=2)        // [3,2,3]
+    = [[[1,2,3],[2,3,4]],
+       [[2,3,4],[3,4,5]],
+       [[3,4,5],[4,5,6]]]
+  b[i,j,k] = a[i+j,k] = X[i+j+k]
+After:
+  b = IndexMapView(X,output_shape=[3,2,3],access(i,j,k)=X[i+j+k])
+~~~
+
+The same 3×2×3 result retains overlapping accesses and both j,k axes. Substituting a width-4 WindowView would wrongly produce shape [3,4]. Composing the index maps can allow consumers to read X without storing the intermediate windows. This is a candidate common to Conv/Pool/Stencil/StaticReindex, subject to consumer Rank/shape, boundaries/fill, effects, aliasing and buffer lifetime. It is an original example applying [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/) concepts; WindowOuterAxis is not claimed to be an actual MLIR operation.
+
+**E11 — Halide bounds inference: exact read sets versus covers with stride/dilation.**
+
+Let X[i,j]=6*i+j+1 on a 6×6 input, W=[[1,0],[0,-1]], kernel=2×2, stride=2, dilation=2, padding=1. Effective kernel size is 3 and output size is 3×3. Demand only Y[1:3,1:3].
+
+~~~text
+oh,ow in {1,2}; kh,kw in {0,1}
+input_h=2*oh-1+2*kh; input_w=2*ow-1+2*kw
+Exact input union: {1,3,5} × {1,3,5} = 9 atoms
+Bounding cover: X[1:6,1:6] = 25 atoms
+Logical references: 2×2 outputs × 2×2 kernel = 16
+Y[1,1] = X[1,1]-X[3,3] = 8-22 = -14
+Y[1,2] = X[1,3]-X[3,5] = 10-24 = -14
+Y[2,1] = X[3,1]-X[5,3] = 20-34 = -14
+Y[2,2] = X[3,3]-X[5,5] = 22-36 = -14
+Result = [[-14,-14],[-14,-14]]
+~~~
+
+Graph demand pullback retains the nine coordinates and the 25-element cover as separate facts; 16 positions in the rectangle are holes. Verified Logical lowering may restrict the computed output tile. Physical planning may use strided gathers or cover-based tile caching; this does not assert exactly nine physical loads. Output (0,0) involves coordinate -1: specified zero padding supplies zero without loading that address. Do not replace a different J fill policy or remove required checks/first errors/effects. Reference: [Halide BoundsInference](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp).
+
+**E12 — MLIR Linalg producer-consumer fusion: Contract→ReLU values and intermediate storage.**
+
+E9 gives Z=[[15,19],[27,31]], so ReLU(Z) is unchanged. With E1's W=[[1,0],[0,-1]], Z=[[-4,-4],[-4,-4]] and ReLU(Z)=[[0,0],[0,0]].
+
+~~~text
+Before: win=WindowView(X); z=OrderedContract(win,W); y=ReLU(z); return y
+After (physical candidate preserving reduction order):
+  for oh,ow:
+    acc=OrderedContractAt(oh,ow,X,W)
+    Y[oh,ow]=max(0,acc)
+~~~
+
+Against a plan materializing Z globally as float32, eliminating it could avoid 2×2×4=16 bytes of Z storage. Y, accumulators, tile scratch and total peak-memory savings remain separate. Another Z consumer prevents assuming the same elimination. ReLU(2+(-3))=0 while ReLU(2)+ReLU(-3)=2: distributing ReLU across contraction terms is invalid algebra, not producer-consumer fusion. Admit a route only with preserved errors/effects, aliasing and Rank. Reference: [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/).
+
+**E13 — CUTLASS implicit GEMM: four physical realizations of one virtual patch relation.**
+
+~~~text
+For E9: p=2*oh+ow; k=2*kh+kw
+A_virtual[p,k]=X[floor(p/2)+floor(k/2),(p mod 2)+(k mod 2)]
+B_virtual[k]=ParameterRef(C1,W@v7)[floor(k/2),k mod 2]
+A rows=[[1,2,4,5],[2,3,5,6],[4,5,7,8],[5,6,8,9]]
+B=[2,-1,0,3]; A @ B=[15,19,27,31]
+~~~
+
+| Realization | Float32 patch storage in this fixture | Meaning |
+|---|---:|---|
+| Full im2col + GEMM | 4×4×4 = 64 bytes | Store all four patch rows |
+| Two-row tiled pack + GEMM | 2×4×4 = 32 bytes/tile | Pack two rows at a time |
+| Implicit GEMM | Full patch buffer: 0 bytes | Compute input addresses at load time; shared/register staging may remain |
+| Direct Conv | Full patch buffer: 0 bytes | Does not physically restructure the computation as GEMM |
+
+This is patch-only arithmetic, not measured peak memory or speed. The Graph relation and weight version are unchanged across candidates. [CUTLASS implicit GEMM](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md) is a physical on-the-fly im2col precedent, distinct from RustJ's proposed analysis sidecar.
+
+**E14 — TASO/TenSat-style search and rejection: mathematical agreement versus Exact-J admission.**
+
+For E3's two bias-free 1×1 Convs, x=2, W1=[3,4], W2=[5,6] produce Z=[6,8] and Y=5×6+6×8=78. The effective-weight candidate has k=5×3+6×4=39 and Y=39×2=78.
+
+~~~text
+Original: X --Conv1x1(W1@v3)--> Z --Conv1x1(W2@v8)--> Y
+Virtual: y=5*(3*x)+6*(4*x)
+Candidate: y=(5*3+6*4)*x
+Independent small-integer result: 78 == 78
+~~~
+
+| Gate | Concrete observation | Candidate status |
+|---|---|---|
+| Small-integer mathematics | 78 = 78 | Generate a search candidate |
+| IEEE counterexample | x=2,a=b=1e308,c=1,d=-1: original combines +Inf and -Inf into NaN; effective weight and candidate are zero | Reject general floating Exact-J rewrite |
+| State/effects | Stable W1@v3/W2@v8 snapshots and update ordering unproved | Do not approve CSE/precomposition |
+| Logical/target | Conv SSA/Physical lowering unimplemented | Exclude non-executable extraction |
+
+SPORES/egg/TenSat-style exploration can discover mathematical alternatives, but RustJ must not union unproved candidates into exact e-classes. Preserve original Conv/state provenance and lower only candidates with both semantic evidence and executable target support. References: [TASO](https://web.stanford.edu/class/cs245/readings/taso.pdf), [TenSat](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html).
+
+**Evidence ownership (all executable acceptance remains [ ] UNRUN).** E9/E13 map to conv_virtual_export_roundtrip and conv_virtual_budget_cost; E10 to GF5a/FW access/index-map composition; E11 to conv_region_halo/IO-09; E12 to GF4/GF6 fusion legality; E14 to conv_virtual_legality_extract/conv_parameter_identity. Values above are independently calculated fixtures, not RustJ exporter/SPORES/Logical SSA/native-kernel/CI execution evidence. Future tests must separately check original-Graph preservation, symbolic parameter identity/version, values/shapes, error/effect ordering and rejection of unavailable target routes.
+
+
 <a id="conv-virtual-expansion-related-work"></a>
 **7.10.10 Virtual Expansion and prior art: distinguish analogous mechanisms from the proposed semantic/algebraic interface (2026-10-14; literature review and design only).**
+
+**Numerical examples:** §7.10.9 E9 (Glenside Conv→MatMul), E10 (MLIR-style nested-window index composition), E11 (Halide stride/dilation demand), E12 (MLIR-style Conv→ReLU fusion), E13 (CUTLASS implicit-GEMM realization) and E14 (TASO/TenSat candidate admission). These are original explanatory fixtures, not RustJ implementation results or executions of those frameworks.
 
 **Positioning.** Keeping a high-level structured operation while selectively exposing its indexed, relational, or algebraic definition for analysis is **not an invention unique to RustJ**. Multiple established systems embody important parts of this pattern. We compare **what the original research/API explicitly demonstrates**, **the concrete RustJ application**, and **what cannot be inferred**. Similarity does not imply a shared IR, an interchangeable implementation, or a validated J-observational rewrite.
 

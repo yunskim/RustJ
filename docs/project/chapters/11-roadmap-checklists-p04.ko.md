@@ -1247,8 +1247,162 @@ gate:      proven J semantics? correct versions/guards?
 **재사용 가능한 원칙.** VirtualExpansion은 Conv에만 하드코딩하는 실행 pass가 아니라, graph의 고수준 primitive가 선택적으로 제공하는 **AlgebraSignature → symbolic index/parameter relation → proven candidate → verified extraction**이라는 공통 분석 인터페이스로 일반화할 수 있다. Linear·MatMul·tensor contraction, attention의 *적격하고 효과가 분리된 contraction 구역*에도 확장 후보가 있으나, softmax, RNG/dropout, stateful normalization까지 임의의 sum-product 법칙으로 재작성할 수 있다는 뜻은 아니다. 원본 high-level identity가 기본 경로이고 sidecar는 요청할 때만 생성된다.
 
 
+
+**E9–E14 — 타 배열·텐서 컴파일러의 최적화를 숫자로 끝까지 따라가는 예제 (2026-10-23, 설계·문서 fixture, RustJ 실행 UNRUN).**
+
+기존 E1–E8의 기호식·상태·후보 논의를 확장해, 아래에는 **입력 → 접근 관계 → 재작성 전후 → 실제 계산값 → 실패 조건**을 함께 적는다. Graph/Virtual/Logical/Physical 표기는 *목표 의사 IR*이지 현재 RustJ Graph/A3에서 출력한 dump가 아니다. 모든 2D 그림은 batch=1, Cin=Cout=1인 NCHW 단면이고, cross-correlation 기준이며, weight 값은 독립 계산을 위한 가상 스냅샷이다. 사용자에게 weight noun을 요구하지 않는다. 정수 예는 overflow 없는 정확한 정수 모델로 계산하며, 실제 J dtype/Rank/empty/error/effect/StateResource version·IEEE에 대한 동등성은 아직 증명하지 않았다.
+
+**E9 — Glenside: Conv의 access pattern에서 virtual im2col/MatMul을 발견하는 전 과정.**
+
+~~~text
+X = [[1,2,3],        검산용 ParameterRef(C1,weight@v7):
+     [4,5,6],        W = [[ 2,-1],
+     [7,8,9]]             [ 0, 3]]
+
+Graph original:  %y = StructuredConv(C1, %x)   // 원본 identity 보존
+
+Virtual (요청 시 생성, 실행 아님):
+  %win = WindowView(X, kernel=[2,2], stride=1, pad=0)
+  // logical shape [OH,OW,KH,KW] = [2,2,2,2]
+  %win[oh,ow,kh,kw] = X[oh+kh,ow+kw]
+  %y = OrderedContract(%win, ParameterRef(C1,weight@v7), axes=[KH,KW])
+
+Candidate (Glenside식 접근 축 재해석):
+  row = 2*oh + ow; col = 2*kh + kw
+  VirtualPatchRows(X) =
+    [[1,2,4,5],
+     [2,3,5,6],
+     [4,5,7,8],
+     [5,6,8,9]]
+  VirtualWeightColumn = [2,-1,0,3]
+  reshape(MatMul(VirtualPatchRows,VirtualWeightColumn),[2,2])
+     = [[15,19],[27,31]]
+~~~
+
+| 출력 | 원본 2×2 window | direct Conv = 가상 행 dot | 결과 |
+|---|---|---|---:|
+| Y[0,0] | [[1,2],[4,5]] | 1×2 + 2×(-1) + 4×0 + 5×3 | 15 |
+| Y[0,1] | [[2,3],[5,6]] | 2×2 + 3×(-1) + 5×0 + 6×3 | 19 |
+| Y[1,0] | [[4,5],[7,8]] | 4×2 + 5×(-1) + 7×0 + 8×3 | 27 |
+| Y[1,1] | [[5,6],[8,9]] | 5×2 + 6×(-1) + 8×0 + 9×3 | 31 |
+
+**Graph에서 발견하는 것:** window의 access axes와 계약(reduction) 축을 분리해 행렬곱이라는 *다른 후보 표현*을 구성한다. **Logical에서 가능한 것:** 검증·선택한 WindowView+Contract 또는 MatMul+Reshape를 SSA 연산으로 내린다. **Physical에서 가능한 것:** direct Conv, full/tiled im2col, implicit GEMM 가운데 실제 가능한 구현을 선택한다. 가상 4×4 행렬은 **저장하도록 명령한 버퍼가 아니다**. float 누산/FMA 순서, pad/fill, groups, StateResource 버전이 다르면 단지 정수 결과가 일치했다는 이유로 Exact-J rewrite를 승인하지 않는다. 원문 대응: [Glenside](https://ztatlock.net/pubs/2021-maps-glenside/).
+
+**E10 — MLIR indexing-map 개념의 재사용: 중첩 Window를 하나의 원본 인덱스로 합성.**
+
+X=[1,2,3,4,5,6]. 먼저 길이 3 window를 만들고, **그 외부 위치 축**에 길이 2 window를 적용한다. 둘 다 stride=1, pad=0이다.
+
+~~~text
+Before:
+  %a = WindowView(X, width=3)                 // shape [4,3]
+       [[1,2,3],[2,3,4],[3,4,5],[4,5,6]]
+  %b = WindowOuterAxis(%a, width=2)          // shape [3,2,3]
+       [
+         [[1,2,3],[2,3,4]],
+         [[2,3,4],[3,4,5]],
+         [[3,4,5],[4,5,6]]
+       ]
+  %b[i,j,k] = %a[i+j,k] = X[i+j+k]
+
+After (index-map composition candidate):
+  %b = IndexMapView(X, output_shape=[3,2,3],
+                       access(i,j,k)=X[i+j+k])
+~~~
+
+결과 배열은 전후 **동일한 3×2×3**이다. 단순히 WindowView(X,width=4)로 치환하면 **shape [3,4]**가 되어 잘못된 최적화다. 내부 중복/접근 축 (j,k)을 보존하는 index-map 합성이라면 중간 window 저장을 없애고 소비자가 직접 X를 읽을 수 있다. 이는 Conv, Pool, Stencil, StaticReindex를 잇는 공통 규칙 후보이다. 소비자별 Rank/shape, boundary/fill, effect, alias와 buffer 수명에 따라 실현 가능성이 달라진다. **MLIR Linalg의 indexing-map 아이디어를 적용한 자체 예제**이며 MLIR에 WindowOuterAxis라는 실제 op가 있다는 주장이 아니다. 원문 대응: [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/).
+
+**E11 — Halide bounds inference: stride·dilation 때문에 exact read set과 bounding cover가 달라지는 계산.**
+
+X는 6×6이고 X[i,j]=6i+j+1 (0-base), W=[[1,0],[0,-1]], kernel 2×2, stride=2, dilation=2, padding=1. 유효 커널 크기 3이며 Conv 출력 공간 shape는 3×3이다. 그중 Y[1:3,1:3]의 2×2 영역만 demand라고 한다.
+
+~~~text
+Demand: oh,ow ∈ {1,2}; kh,kw ∈ {0,1}
+Index:  input_h = 2*oh - 1 + 2*kh
+        input_w = 2*ow - 1 + 2*kw
+
+Exact input axis coordinates: {1,3,5} × {1,3,5}
+Exact input union:           9 atoms
+Bounding rectangle:          X[1:6,1:6] = 25 atoms
+Logical references:          2×2 outputs × 2×2 kernel = 16
+
+Y[1,1] = X[1,1] - X[3,3] = 8 - 22 = -14
+Y[1,2] = X[1,3] - X[3,5] = 10 - 24 = -14
+Y[2,1] = X[3,1] - X[5,3] = 20 - 34 = -14
+Y[2,2] = X[3,3] - X[5,5] = 22 - 36 = -14
+Result = [[-14,-14],[-14,-14]]
+~~~
+
+**Graph에서 발견하는 것:** output demand를 access map의 역상으로 보내고, 실제 9개 좌표의 집합과 보수적인 25개 직사각형 영역을 **별도 facts**로 보유한다. rectangle 내부의 구멍 16개는 정확한 read set에 없다. **Logical에서 가능한 것:** 검증된 조건에서 output tile만 계산. **Physical에서 가능한 것:** strided gather 또는 cover 기반 tile-cache/halo를 선택한다. 실제 load 수가 9회라는 주장은 하지 않는다. **부정 사례:** 출력 (0,0)은 계산 중 -1 좌표를 가지므로, 명시된 zero padding은 값 0으로 처리하되 주소 -1을 실제 로드할 수 없다. 다른 J fill 정책을 무단으로 0으로 바꾸거나 원래의 필수 검사/first-error/effect를 삭제할 수도 없다. 원문 대응: [Halide BoundsInference](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp).
+
+**E12 — MLIR Linalg producer-consumer fusion: Contract→ReLU의 실제 값과 중간 저장 생략.**
+
+E9의 W를 사용하면 Z=Conv(X,W)=[[15,19],[27,31]]이고 Y=ReLU(Z)=[[15,19],[27,31]]이다. 음수 출력도 시험한다. E1의 W=[[1,0],[0,-1]]이면 Z=[[-4,-4],[-4,-4]], Y=[[0,0],[0,0]]이다.
+
+~~~text
+Before (conceptual Logical):
+  %win = WindowView(X)
+  %z   = OrderedContract(%win,W)    // [2,2]
+  %y   = ReLU(%z)
+  return %y
+
+After (physical fusion candidate; same reduction order):
+  for oh,ow:
+    acc = OrderedContractAt(oh,ow,X,W)
+    Y[oh,ow] = max(0,acc)
+~~~
+
+float32 결과 Z를 별도 글로벌 배열로 materialize하는 계획에 비하면 **2×2×4=16 bytes의 Z 저장을 없앨 가능성**이 있다. Y·누산기·tile scratch와 실제 peak memory 절감량은 별도다. Z를 읽는 다른 consumer가 있으면 동일한 생략을 바로 적용할 수 없다. **분배 금지 반례:** ReLU(2+(-3))=0, ReLU(2)+ReLU(-3)=2. ReLU를 contract의 각 항으로 이동시키는 것은 fusion이 아니라 **잘못된 대수적 재작성**이다. effect/error/alias/Rank가 보존되는 실행 후보일 때만 승인한다. 원문 대응: [MLIR Linalg](https://mlir.llvm.org/docs/Dialects/Linalg/).
+
+**E13 — CUTLASS implicit GEMM: 같은 virtual patch를 물리화하는 네 가지 방법의 차이.**
+
+E9에서 virtual patch의 행 p=0..3은 (oh,ow)=(floor(p/2),p mod 2), 열 k=0..3은 (kh,kw)=(floor(k/2),k mod 2)이다.
+
+~~~text
+A_virtual[p,k] = X[floor(p/2)+floor(k/2),
+                   (p mod 2)+(k mod 2)]
+B_virtual[k]   = ParameterRef(C1,W@v7)[floor(k/2),k mod 2]
+
+A rows = [[1,2,4,5], [2,3,5,6], [4,5,7,8], [5,6,8,9]]
+B      = [2,-1,0,3]
+A @ B  = [15,19,27,31]
+~~~
+
+| 실행 후보 | 이 fixture의 float32 *patch 저장량* | 실제 의미 |
+|---|---:|---|
+| Full im2col + GEMM | 4×4×4 = **64 bytes** | 네 patch 행을 모두 저장 |
+| 2-row tiled pack + GEMM | 2×4×4 = **32 bytes/tile** | 두 행씩 pack해 사용 |
+| Implicit GEMM | **full patch buffer 0 bytes** | 로드 시 X index 계산; shared/register staging은 존재할 수 있음 |
+| Direct Conv | **full patch buffer 0 bytes** | GEMM으로 물리적으로 재구성하지 않는 구현 |
+
+이는 **patch-only 산술 모델**이지 peak memory나 속도 실측이 아니다. Graph의 virtual relation과 weight version은 위 실행 후보 사이에서 변하지 않는다. CUTLASS는 *물리적인 on-the-fly im2col* 선례이며 RustJ의 Graph sidecar와 같은 기능이라는 뜻은 아니다. 원문 대응: [CUTLASS implicit GEMM](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md).
+
+**E14 — TASO/TenSat식 후보 탐색과 승인 거부: 같은 수학적 값이어도 Exact-J는 별도 검증.**
+
+E3의 두 bias 없는 1×1 Conv를 x=2, W1=[3,4], W2=[5,6]으로 정하면 원본의 채널 중간값은 [6,8]이고 Y=5×6+6×8=78이다. 재작성 후보의 effective weight는 5×3+6×4=39, Y=39×2=78이다.
+
+~~~text
+Graph original:  X --Conv1x1(W1@v3)--> Z --Conv1x1(W2@v8)--> Y
+Virtual:         y = 5*(3*x) + 6*(4*x)
+Candidate:       y = (5*3 + 6*4)*x
+Independent small-integer result: 78 == 78
+~~~
+
+| 검사 관문 | 구체적 결과 | 후보 상태 |
+|---|---|---|
+| 작은 정수 수학 | 78 = 78 | *탐색 후보* 생성 |
+| IEEE 반례 | x=2, a=b=1e308, c=1, d=-1이면 원본은 +Inf와 -Inf가 만나 NaN; 결합 가중치는 0, 후보는 0 | 일반 floating Exact-J rewrite **거부** |
+| 상태·효과 | W1@v3/W2@v8이 변하지 않는다는 스냅샷·업데이트 순서 미증명 | CSE/사전 합성 승인 불가 |
+| Logical/target | 현행 Conv SSA/Physical lowering 미구현 | 구현되지 않은 후보 **추출 불가** |
+
+SPORES/egg/TenSat식 탐색은 수학적 변형 후보를 발견할 수 있지만, RustJ에서는 모든 후보를 증거 없는 **정확한 e-class 합병**으로 처리하지 않는다. Graph의 원본 Conv와 StateResource provenance를 유지하고, 정확성 및 target 실행 지원을 모두 통과한 후보만 Logical IR로 보낸다. 원문 대응: [TASO](https://web.stanford.edu/class/cs245/readings/taso.pdf), [TenSat](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html).
+
+**E9–E14 검증 귀속 (기존 체크리스트에 기록하며 모두 [ ] UNRUN).** E9/13은 conv_virtual_export_roundtrip 및 conv_virtual_budget_cost, E10은 GF5a/FW Access/IndexMap composition, E11은 conv_region_halo·IO-09, E12는 GF4·GF6의 fusion legality, E14는 conv_virtual_legality_extract·conv_parameter_identity의 positive/negative corpus로 연결한다. 본문의 결과값은 **독립적으로 계산한 fixture**일 뿐 RustJ exporter/SPORES/Logical SSA/native kernel/CI 실행 증거가 아니다. 실제 테스트 구현 시에는 원본 Graph 보존, symbolic parameter identity와 version, 변환 전후 배열값·shape, 오류/효과 순서, 지원되지 않는 target에서의 비추출을 각각 검사한다.
+
+
 <a id="conv-virtual-expansion-related-work"></a>
 **7.10.10 Virtual Expansion 선행 연구 대조 — 구현 시의 유사성과 대수 분석 계약의 경계 (2026-10-14; 문헌 검토·설계 전용).**
+
+**수치 예제 찾아보기:** §7.10.9의 E9(Glenside Conv→MatMul), E10(MLIR식 Window index 합성), E11(Halide stride·dilation 영역 역추적), E12(MLIR식 Conv→ReLU fusion), E13(CUTLASS implicit-GEMM 물리화), E14(TASO/TenSat 후보 승인·거부). 이들은 각 프레임워크의 최적화를 RustJ에 대응시켜 만든 자체 fixture이며 RustJ 구현 결과 또는 해당 프레임워크의 동일한 실행 기록으로 취급하지 않는다.
 
 **요약.** **구조화된 고수준 표현을 유지하다가, 필요할 때 인덱스·관계·연산자 의미를 펼쳐 분석한다**는 발상은 새롭거나 RustJ만의 것이 아니다. 다음 연구들은 각각 가상 행렬을 실행 중 생성, 텐서 access pattern을 재작성, 고수준 그래프의 대체식을 탐색, 출력 수요에서 입력 범위를 유도, affine index를 모델링, DB view를 펼침, matrix-free 선형 변환을 구성하는 선례를 제공한다. 공통된 비유를 그대로 하나의 알고리즘/IR 또는 이미 증명된 RustJ 동등성으로 혼동해서는 안 된다. 아래 각 행의 **원문에서 확인한 성질**, **RustJ의 구체 적용**, **동일시할 수 없는 경계**를 분리했다.
 
