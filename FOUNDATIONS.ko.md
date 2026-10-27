@@ -886,6 +886,8 @@ Structured Conv
 
 어느 경로를 택하더라도 원래 graph identity와 equivalence/provenance를 잃지 않는다. 즉 **graph black-box 보존과 execution decomposition은 서로 모순되지 않는다.**
 
+**두 단계의 용어:** Graph IR의 **Algebraic Expansion(대수적 확장)**은 원본 고수준 연산을 보존한 채 선택적 sum-product/index 의미식을 탐색용으로 투영하고, 주변 연산까지 포함하는 동등한 Graph 후보를 만든다. Logical IR의 **Logical Decomposition(논리적 연산 분해)**은 선택된 Graph의 고수준 연산을 `WindowView/IndexMap`, `Multiply`, `ReduceSum/Contract` 같은 정규화된 논리 연산으로 **필요할 때만** 분해한다. 기존 `ExecutionBasisExpansion`은 후자를 표현할 수 있는 내부 sidecar/계약이지 수학적으로 최소인 basis의 증명이 아니다. `IndexMap`은 접근 관계이며 J의 implicit rank loop는 `CellApply`/frame·cell 의미론으로 별도 보존한다. 둘 다 물리적 반복·버퍼·target 결정을 강제하지 않는다. 상세 계약은 [Conv Algebraic Expansion](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion)을 따른다.
+
 문법이 정보의 **근원**이라는 말과 parser node가 optimization metadata를 **소유**한다는 말은 다르다. parser/semantic entity는 J construction semantics를 정확히 보존하고, graph analysis가 그 구조를 applied noun graph와 결합해 topology/provenance 정보를 유도한다. 이렇게 하면 JAXA의 정적 정보 이점을 살리면서 target/cost/pass-local fact가 parser 의미 객체로 역류하는 것을 막을 수 있다. 구체 graph/basis 타입 이름은 PROJECT.ko.md가 정한다.
 
 ### Logical Execution IR

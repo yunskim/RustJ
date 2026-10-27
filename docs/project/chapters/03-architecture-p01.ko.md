@@ -189,8 +189,8 @@ RustJ는 하나의 compiler system으로 개발한다. 별도 고유 컴포넌�
 
 - **RustJ frontend / J Semantic Construction IR**: source text를 J word로 나누고 J parsing/binding 의미를 보존한다. immutable `FunctionEntity` graph가 primitive, adverb/conjunction application, hook/fork/train, rank, `@:` 같은 **J 함수 구성 자체**를 표현한다. 이 층은 언어 의미의 canonical source다.
 - **J Graph IR (과거 JAXA의 Array Operation Graph 연구 계승)**: 완성된 J function을 실제 noun input에 적용한 **배열 연산 graph를 J 문법의 대수로 표현하는 compiler analysis surface**다. `@: → Pipeline`, hook/fork → Branch/Join, `/ → Reduce`, `" → CellParallel`처럼 parser/semantic construction에서 정적으로 유도되는 topology와 optimization hint를 first-class로 기록한다. JAXA의 주 관심사는 이 층이며, 역사적 JAXA의 `basis verb`도 주로 이 층의 **Graph Basis**를 뜻한다.
-- **Graph Analyzer / Algebraic Optimizer**: J Graph IR에서 fusion topology, fan-out/fan-in, common-input reuse, retained-value lifetime, reduction/cell parallelism, materialization-elision, 이후 adjoint/VJP fan-out 등을 찾는다. 가능한 경우 **GraphBasis** / rewrite / equivalence rule로 동등한 J graph 후보를 만들 수 있다. 여기서 생성되는 것은 target-independent opportunity와 graph candidate이지 concrete kernel schedule이 아니다.
-- **Execution Semantic Lowering**: 선택된 J Graph IR을 explicit dataflow와 normalized array operation으로 이루어진 `Logical Execution IR / Logical Execution Plan`으로 낮춘다. 이 후자의 IR은 J observable semantics, facts/checks, **ExecutionBasis** operation, effect/error ordering, executable dependency를 정확히 표현한다. 여러 execution op가 하나의 J Graph node에서 나올 수 있으므로 모든 op는 J Graph origin을 보존한다.
+- **Graph Analyzer / Algebraic Optimizer — Algebraic Expansion(대수적 확장)**: J Graph IR에서 fusion topology, fan-out/fan-in, common-input reuse, retained-value lifetime, reduction/cell parallelism, materialization-elision, 이후 adjoint/VJP fan-out 등을 찾는다. 필요할 때 고수준 `Structured(Conv2d)` 등의 의미식을 **비파괴·비실행 분석용** indexed sum-product/접근 관계로 투영하여 **주변 연산까지 포함한 동등한 Graph 후보**를 탐색한다. 원본 노드는 유지하고 GraphBasis/rewrite/equivalence rule, 증명·guard·provenance로 새 고수준 Graph를 재구성할 수 있다. 이는 실행용 Window 물질화나 concrete kernel schedule이 아니다.
+- **Execution Semantic Lowering — Logical Decomposition(논리적 연산 분해)**: 선택된 J Graph IR을 explicit dataflow와 normalized array operation으로 이루어진 `Logical Execution IR / Logical Execution Plan`으로 낮춘다. 필요한 경우 동일한 semantic/access 계약을 `WindowView/IndexMap → Multiply → ReduceSum/Contract` 등 **선택적 논리 접근·계산 표현**으로 구체화한다. 이는 기존 `ExecutionBasisExpansion` 계약에 기반한 선택적 연산 분해이며 실행 버퍼나 물리 루프를 만들지 않는다. J observable semantics, facts/checks, effect/error ordering, `j_origin`을 보존한다.
 - **Route Partition / Export**: verified Logical Execution IR 이후 프로그램 전체 또는 일부 region/subgraph를 RustJ-native planning, MLIR, StableHLO-compatible subset, library/custom-kernel 등 검증된 경로에 배정할 수 있다. 하나의 프로그램이 여러 route를 혼합할 수 있다.
 - **RustJ-native Schedule / Transform Plan**: Route A에서 fusion/grouping, tiling, vectorization, axis mapping 같은 schedule 선택을 payload Logical IR과 분리해 기록한다.
 - **RustJ-native Physical Planner / Bufferization**: 선택된 schedule을 바탕으로 placement, memory space, layout, concrete materialization/copy, buffer binding/reuse, transfer, synchronization을 구체화한다.
@@ -219,11 +219,12 @@ J Semantic Construction IR / FunctionEntity
         ↓
 J Graph IR / Array Operation Graph IR
         ↓
-Graph Analysis / J-algebra optimization
-        ↓
+Graph Analysis / Algebraic Expansion / J-algebra optimization (optional)
+        ↓  selected, witnessed Graph candidate (or original)
 Execution Semantic Lowering
         ↓
 Logical Execution IR / Plan
+        ↳ optional Logical Decomposition / ExecutionBasisExpansion
         ↓
 Route partition / export
    ├─ RustJ native: Logical Optimizer → Schedule → Physical Plan
@@ -326,6 +327,8 @@ Insert
 
 <a id="두-ir-사이의-최적화-책임"></a>
 #### 두 IR 사이의 최적화 책임
+
+**두 변환의 명명 계약:** `Algebraic Expansion`은 **Graph IR의 대수적 동등식 탐색**이며 출력은 원본을 포함한 동등 Graph 후보/증거다. `Logical Decomposition`은 **선택된 Graph의 Logical IR 연산 분해**이며 출력은 `IndexMap/WindowView/Multiply/ReduceSum` 등의 선택적 logical operation region이다. 과거 논의의 `Virtual Expansion`은 두 목적이 혼재될 수 있으므로 신규 단계 명칭으로 사용하지 않는다. Logical Decomposition은 J implicit rank loop를 전개하는 단계가 아니며, 그것은 `CellApply`/IterationDomain 의미론과 downstream schedule/backend에서 다룬다. 두 단계는 동일한 shape/rank/index/padding/numeric/error 의미 정의를 참조하되 독립된 증명 의무를 가진다. **어느 단계도 중간 배열 물질화나 실행 지원을 뜻하지 않는다.** [Conv 설계/예제](./11-roadmap-checklists-p04.ko.md#conv-virtual-expansion), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion)을 참고한다.
 
 ~~~text
 J Graph IR

@@ -116,6 +116,8 @@ Route Partition
   └─ region(s): verified library/custom-kernel route
 ```
 
+**Graph 단계의 `Algebraic Expansion`**은 고수준 연산을 비파괴 대수적 의미식으로 투영해 동등 Graph 후보를 탐색한다. **Logical 단계의 `Logical Decomposition`**은 선택된 고수준 연산을 IndexMap·Reduce 등을 포함할 수 있는 논리 연산들로 선택적으로 분해한다. 두 단계 모두 중간 배열 물질화나 구현 완료를 의미하지 않는다. 상세 계약은 [Conv 설계](docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion)를 따른다.
+
 **상세 아키텍처, compiler stage 경계, IR, 구현 계획, 체크리스트, 지원 범위와 검증 정책의 유일한 기준 문서는 [PROJECT.ko.md](PROJECT.ko.md)입니다.**
 
 **왜 RustJ가 compiler-oriented architecture를 택하면서도 J semantics를 그대로 보존해야 하는지에 대한 설계 근거와 회귀 판정 기준은 [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)입니다. frontend·Semantic IR·interpreter/JIT/AOT 경계·rank/CellApply·target architecture를 바꾸기 전 반드시 검토합니다.**

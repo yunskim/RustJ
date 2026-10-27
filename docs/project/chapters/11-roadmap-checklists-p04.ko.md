@@ -900,7 +900,7 @@ stride/dilation이 1보다 크면 cover에 실제로 읽지 않는 구멍이 생
 
 **확정한 방향과 범위.** NN-04 `conv2d`는 J primitive 조합(`;._3`/Cut, Window/Multiply/Reduce 등)으로 **소스 코드나 Graph IR에 펼쳐서 정의하지 않는다**. J로 작성한 Conv 참조 구현 역시 **필수 조건이 아니다**. Frontend가 올바른 ordinary J NAME·POS 및 derived computational function을 해석한 뒤, **J Graph IR에는 하나의 고수준 `Structured(Conv2d)` semantic operation**을 유지한다. *Blackbox*는 구현 본문을 숨긴다는 뜻이지 shape·axis·Rank·입출력·배열 접근·effect를 모두 Unknown으로 처리한다는 뜻은 아니다. NN-08 Conv1d/Conv3d, adjoint, 다른 NN 연산이나 전체 NN 모델의 구현은 이번 결정·체크리스트 범위 밖이다. 기존 `7.10.4의 계층 간 fusion 후보는 장기 연구로 유지하며 다른 연산의 구현을 Conv2d 분석의 전제 조건으로 만들지 않는다.
 
-**어디서 SPORES를 실행하는가.** `Graph IR optimization`에서 원본 `Structured(Conv2d)`에 붙은 **선택적 의미론 sidecar**를 이용해 SPORES 방식의 관계·sum-product *탐색용 투영(projection)*을 만든다. 이 투영은 **실제 J 소스도, 원본 Graph IR을 대체하는 필수 IR도, 즉시 실행되는 Logical IR도 아니다**. 원본 노드와 투영은 동일한 source/ValueId/FunctionEntity/parameter version·proof provenance로 연결된다. 투영에 필요한 fact가 미확정이면 `Opaque/Unknown`으로 남긴다. 기존 `j_graph_access.rs`·`j_graph_rewrite.rs`의 분석/보존적 후보 흐름에 통합하는 방향이며 지금 Rust API가 구현됐다는 뜻은 아니다.
+**어디서 SPORES를 실행하는가.** 이 비파괴 대수적 후보 탐색을 **Algebraic Expansion(대수적 확장)**이라 부른다. `Graph IR optimization`에서 원본 `Structured(Conv2d)`에 붙은 **선택적 의미론 sidecar**를 이용해 SPORES 방식의 관계·sum-product *탐색용 투영(projection)*을 만든다. 이 투영은 **실제 J 소스도, 원본 Graph IR을 대체하는 필수 IR도, 즉시 실행되는 Logical IR도 아니다**. 원본 노드와 투영은 동일한 source/ValueId/FunctionEntity/parameter version·proof provenance로 연결된다. 투영에 필요한 fact가 미확정이면 `Opaque/Unknown`으로 남긴다. 기존 `j_graph_access.rs`·`j_graph_rewrite.rs`의 분석/보존적 후보 흐름에 통합하는 방향이며 지금 Rust API가 구현됐다는 뜻은 아니다.
 
 ~~~text
 J ordinary NAME / derived function
@@ -933,7 +933,7 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 
 **정확성 경계.** `Indexed access를 표현할 수 있음`, `수학적으로 동등함`, `J에서 관찰상 동등함`, `특정 타깃에서 실행·비용상 유리함`은 서로 독립적인 주장이다. SPORES의 semiring 등식은 부동소수점 NaN/±0/FMA·누산 순서·rounding, integer overflow/promotion, Rank/CellApply/empty/fill, 인자 평가와 first-error, NAME/rebind, effect/alias를 자동 보존하지 않는다. e-graph의 **exact e-class union**은 동일한 J 관찰 의미의 증거가 있을 때만 한다. 미검증/수학적 후보는 별도로 보관한다. Guard가 필요하면 관찰 가능한 effect보다 먼저 유효성·버전을 검사하고, 미증명 guard를 근거로 동등성을 선언하지 않는다. J의 `2^-44` 비교 허용오차를 무조건적인 근사 최적화 예산으로 전환하지 않는다.
 
-**Graph / Logical / Physical 역할 계약.** Graph 단계는 `Conv2d` semantic identity, 원본 간선과 bindings, 후보 관계/증거, 효과·오류 의무 및 후보 비용 추정치를 보존한다. **실행 계획을 확정하거나 무조건 분해하지 않는다.** Logical 단계는 적법한 후보를 `WindowView/Contract` 등으로 **선택적으로 구체화**하거나 high-level Conv2d identity를 보존하고, SSA/Rank/shape/ordered SemanticCheck/first-error를 검증한다. 기존 Logical/Physical 경로가 해당 original/high-level op나 후보를 실행할 수 없으면 **실제 지원되는 경로만** 선택하거나 명시적 `UnsupportedRoute`로 남긴다. Physical 단계가 buffer/materialization/strides/schedule, target capability, hard resource feasibility 및 cost를 최종 판단한다. Graph의 낮은 비용 추정만으로 native kernel, 성공 실행 또는 성능 향상을 주장하지 않는다.
+**Graph / Logical / Physical 역할 계약.** Graph의 `Algebraic Expansion`은 동등한 *새 Graph* 후보를 탐색하고, Logical의 `Logical Decomposition`은 선택된 Graph의 고수준 연산을 필요할 때 논리 연산으로 분해한다. Graph 단계는 `Conv2d` semantic identity, 원본 간선과 bindings, 후보 관계/증거, 효과·오류 의무 및 후보 비용 추정치를 보존한다. **실행 계획을 확정하거나 무조건 분해하지 않는다.** Logical 단계는 적법한 후보를 `WindowView/Contract` 등으로 **선택적으로 구체화**하거나 high-level Conv2d identity를 보존하고, SSA/Rank/shape/ordered SemanticCheck/first-error를 검증한다. 기존 Logical/Physical 경로가 해당 original/high-level op나 후보를 실행할 수 없으면 **실제 지원되는 경로만** 선택하거나 명시적 `UnsupportedRoute`로 남긴다. Physical 단계가 buffer/materialization/strides/schedule, target capability, hard resource feasibility 및 cost를 최종 판단한다. Graph의 낮은 비용 추정만으로 native kernel, 성공 실행 또는 성능 향상을 주장하지 않는다.
 
 **동등성 오라클 정책.** J 언어의 일반 부분에 대한 pinned jsource differential은 그대로 중요하지만, 신규 `Conv2d` extension의 참조 정의를 **J primitive로 작성할 의무는 없다**. 독립적인 단순 CPU indexed convolution, 사양/버전을 고정한 외부 reference 구현, 손으로 검산한 소형 입력 등에서 **실제 extension의 서명·dtype·padding·numeric·empty/error 의미와 일치하는 범위**를 명시하여 differential corpus를 구축할 수 있다. 단순 수학/외부 프레임워크 결과 일치는 J observational proof가 아니며, 구현하지 않은 oracle 또는 미실행 테스트를 PASS로 기재하지 않는다.
 
@@ -944,9 +944,9 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 | **GCS-00 / 문서** | Graph SPORES 투영 + blackbox 보존 + optional Logical 분해/비J oracle 정책을 한영 문서에 고정 | 문서 완료를 compiler/CI PASS로 취급하지 않음 | [x] 문서만 |
 | **GCS-01 / GF4·NN-04** | `Structured(Conv2d)` 원본, FunctionEntity/ValueId/source·parameter binding/NAME·Rank 유지; `conv_builder_binding` | late rebind/동명이름·오류/효과가 다른 호출의 Conv 오인, source 소실 | [ ] UNRUN |
 | **GCS-02 / GF5a·IO-09** | sidecar index/padding/group/ordered reduction 및 output→input exact set vs halo cover; `conv_index_geometry`/`conv_region_halo` | zero/invalid geometry·overflow·stride holes·empty/opaque에서 가짜 정확 witness | [ ] UNRUN |
-| **GCS-03 / GF4·SPORES R1/R2** | **Conv2d-local** exporter 및 비파괴 원본/Window/MatMul/im2col/tile 후보와 RuleId/출처 보존; `conv_candidate_fallback` | exporter가 J 소스 분해를 강제, 원본 소거 또는 타 연산 구현 요구 | [ ] UNRUN |
+| **GCS-03 / GF4·SPORES R1/R2** | **Algebraic Expansion**의 **Conv2d-local** exporter 및 비파괴 원본/Window/MatMul/im2col/tile 후보와 RuleId/출처 보존; `conv_candidate_fallback` | exporter가 J 소스 분해를 강제, 원본 소거 또는 타 연산 구현 요구 | [ ] UNRUN |
 | **GCS-04 / GF4·FW-05–09** | exact observation / math-only / unknown / reject와 guard 분리; `conv_numeric_rewrite_negative`·`conv_padding_empty_error` | floating 재결합, ±0·NaN, Rank/fill, first-error·effect·NAME 누락으로 false e-union | [ ] UNRUN |
-| **GCS-05 / M3·GF6** | 검증된 후보만 Logical IR로 **선택적** expansion, 원본 high-level 경로·SSA/check·Unsupported 분리; `conv_candidate_fallback` | window/contract 전개 강제, 지원되지 않는 물리 경로에 조용히 우회 | [ ] UNRUN |
+| **GCS-05 / M3·GF6** | 검증된 후보만 Logical IR로 **선택적 Logical Decomposition**, 원본 high-level 경로·SSA/check·Unsupported 분리; `conv_candidate_fallback` | window/contract 전개 강제, 지원되지 않는 물리 경로에 조용히 우회 | [ ] UNRUN |
 | **GCS-06 / GF6·IO-10** | legal 후보의 work/bytes/halo/peak-memory/resource, target 경로 여부, 측정 가능할 때 비용; `conv_cpu_cost_comparison` | unmeasured speedup, packing/target hard limit 누락 또는 모든 후보가 실행 가능하다는 주장 | [ ] UNRUN |
 | **GCS-07 / NN-G6·GF6** | 독립 indexed oracle 및 가능하면 실제 지원되는 route의 전후 value/type/shape/error/effect differential, exact PR/head·main CI | 오라클 사양 차이·미실행 경로를 동등성 PASS나 실행 완료로 오인 | [ ] UNRUN |
 
@@ -956,7 +956,18 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 
 
 <a id="conv-virtual-expansion"></a>
-**7.10.8 가상 전개(Virtual Expansion) — JAXA의 매개변수화 adverb를 유지하고 가중치 값은 노출하지 않음 (2026-10-14; 설계 전용).**
+**7.10.8 Algebraic Expansion(대수적 확장; 기존 Virtual Expansion) — 매개변수화 adverb와 숨겨진 가중치의 의미 보존 (2026-10-14; 설계 전용).**
+
+**두 변환의 공식 명칭과 소유권(구 용어 `Virtual Expansion`은 이전 명칭 설명·레거시 문서 앵커·기존 검사명에서만 유지).** Graph의 대수적 확장과 Logical의 연산 분해는 모두 중간 배열을 만들지 않을 수 있지만 같은 pass가 아니다.
+
+| 단계 | 공식 명칭 | 분석 입력 → 산출물 | 범위·금지 |
+|---|---|---|---|
+| **J Graph IR** | **Algebraic Expansion(대수적 확장)** | 원본 StructuredConv와 주변 Graph, symbolic ParameterRef, 공통 의미 계약 → indexed sum-product/e-graph의 동등 후보 및 **새 고수준 Graph**(증거·guard 동반) | 원본 Graph와 FunctionEntity/NAME/StateResource 버전을 유지. J source 재작성, 물리 Window·weight 값 읽기, 증명 없는 exact e-class union 금지 |
+| **Logical Execution IR** | **Logical Decomposition(논리적 연산 분해)** | **선택된** Graph + 동일한 semantic/index 계약 → `WindowView/IndexMap → Multiply → ReduceSum/Contract` 등의 선택적 logical operation region | 기존 `ExecutionBasisExpansion` 계약에 기반한 선택적 논리 연산 분해. IndexMap은 그 결과의 접근 관계 표현 중 하나일 뿐이며 J implicit loop를 전개하는 pass가 아니다. 모든 Conv의 강제 분해, 실제 im2col/patch materialization, 물리 loop·tile·device 결정 금지 |
+
+**전형적인 Graph 전체 재작성 예(실수 수학에 대한 후보, 실행·Exact-J 증명 아님).** 순수하고 Shape가 호환되는 `Y = MatMul(Conv2D(X,K), P)`에서 `K`의 출력 채널 축이 `P`의 축소 축과 대응하면, 분석용 확장과 축소 순서 변경으로 `K'[d,c,u,v] = sum_o K[o,c,u,v] * P[o,d]`를 얻어 `Y = Conv2D(X,K')`라는 **새 Graph 후보**를 만들 수 있다. `K'`를 구성하는 `KernelContract(K,P)`는 권한이 있는 operand/버전 스냅샷과 reconstruction 계약이 있을 때만 유효하다. 숨겨진 가중치를 노출하거나 서로 다른 StateResource/NAME 버전을 섞을 수 없다. groups=1, 비선형 연산 부재, padding/stride/dilation/채널 축 의미가 일치한다는 전제이며, 수학적 축소 재결합은 J/IEEE 연산 순서와 첫 오류를 자동 보존하지 않는다. 따라서 **미증명 후보는 exact EqGraph에 병합하지 않고**, 증명·guard·cost·실행 지원을 갖춘 후보만 선택할 수 있다.
+
+Logical 단계는 이 선택된 Graph의 Conv2D를 `WindowView/IndexMap`, `Multiply`, `ReduceSum/Contract` 등의 논리 연산으로 **필요할 때만** 분해(Logical Decomposition)하며, DirectConv/native 경로를 선택하면 분해 없이 진행할 수 있다. 두 단계는 같은 axis/rank/padding/fill/numeric/error 계약을 참조하지만 결과물·최적화 목적이 다르다. [상위 IR 경계](./03-architecture-p01.ko.md#두-ir-사이의-최적화-책임)와 [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion)을 따른다.
 
 **실행 경계.** 원본 StructuredConv 보존은 실행 지원을 새로 제공하지 않는다. 실제 Logical/Physical 실행 경로가 존재할 때만 원본으로 실행할 수 있으며, 경로가 없으면 명시적으로 UnsupportedRoute를 반환한다. [§7.10.7 실행 경계](#conv2d-graph-spores-semantic-blackbox)를 함께 따른다.
 
@@ -1020,7 +1031,7 @@ Analysis-only:
 
 LayerInstanceId는 사용자 NAME의 철자나 동일한 shape 자체가 아니다. DerivedFunction instance identity, 원본 binding/version 및 resource owner의 연결을 증명한다. C1과 C2의 shape가 같아도 weight는 합치지 않는다. 명시적으로 공유한 경우만 같은 StateResource를 참조하며, J NAME shadow/rebind, dynamic lookup, fixation(f.) 및 alias를 존중한다. JAXA의 과거 conv_forward/conv_backward 접미사 기반 weight 공유 관례는 참고 이력이며 RustJ에서 동일성을 증명하는 규칙으로 도입하지 않는다. 훈련 단계의 W@v와 W@(v+1)는 다른 관측 시점이다. 미확정 mutable read는 순수 값으로 추정하지 않으며, snapshot/ordered effect 없이 공통 부분식 소거나 e-class 병합을 허용하지 않는다.
 
-**가상 전개의 절차와 각 경계.**
+**Algebraic Expansion의 절차와 각 경계.**
 
 1. **요청 시 해석:** Conv의 config, output/input/weight ShapeSpec, Rank/Cell/frame, dtype, geometry, source FunctionEntity 및 state-read/version을 해석한다. 지원 범위 밖이거나 미상인 경우 Opaque로 유지한다. 이때 실제 weight 값을 읽거나 초기화하지 않는다.
 2. **인덱스 전개:** 기존 §7.10.1–2의 NCHW/group/stride/pad/dilation 공식과 ConvAccessWitness로 free/bound axes, 유효 index/padding predicate, ordered fold를 산출한다. JAXA 원형은 계약이 확인될 때 groups=1, dilation=1, stride=(s,s), pad=(p,p)로 정규화할 수 있다.
@@ -1036,7 +1047,7 @@ J source: (config conv2d)"rank -> derived function C1
              |                 |
              |                 +--> semantic StateResource(weight@v, bias@v)
              v
-       optional VirtualExpansion sidecar (non-executing)
+       optional AlgebraicExpansion sidecar (non-executing)
          X + symbolic ParameterRef(C1, weight@v)
              -> index relation / ordered sum-product
              -> SPORES search (bounded)
@@ -1066,7 +1077,7 @@ J source: (config conv2d)"rank -> derived function C1
 
 
 <a id="conv-virtual-expansion-examples"></a>
-**7.10.9 Virtual Expansion 상세 예제집 — 계산값·관계형 전개·최적화 후보·거부 사례 (2026-10-14; 설계 전용).**
+**7.10.9 Algebraic Expansion 상세 예제집 — 계산값·관계형 전개·최적화 후보·거부 사례 (2026-10-14; 설계 전용).**
 
 이 절의 J 표면 예제에서 conv2d builder와 해당 인자 배열은 **§7.10.8의 RustJ 제안 표기**이며 실행을 검증한 문법이 아니다. 과거 JAXA의 7-field configuration은 재사용하지만 JAXA의 RjP precision 확장을 일반 J rank 문법으로 가져오지 않는다. 배열 숫자 예제는 아래에 명시한 일반적 2D NCHW *cross-correlation* 및 정확한 실수 계산의 교육용 모델이다. 모든 X, W, Y의 단순화된 2D 표기에서는 크기 1인 batch·channel 축을 생략한다. 각 예제의 **virtual relation은 분석 산출물이지 실제 weight buffer, 추가 J noun, 변경된 Graph IR 또는 실행 검증의 증거가 아니다**.
 
@@ -1083,7 +1094,7 @@ model =: relu @: C1
 * 원본 Graph: Input(X) → StructuredConv(C1,X) → ReLU → Output. 별도 user-level W 노드는 없다.
 * State side table: LayerInstance(C1) → StateResource(weight_C1, logical_shape=[1,1,2,2], version=7). shape/version은 분석용 예시이며 실제 snapshot read가 아니다.
 
-분석기가 VirtualExpansion(C1)을 요청하면 ParameterRef(weight_C1@v7)를 [[a,b],[c,d]]라는 **기호**로 표시할 수 있다. IndexJoin/Multiply/OrderedAggregate가 뜻하는 결과:
+분석기가 AlgebraicExpansion(C1)을 요청하면 ParameterRef(weight_C1@v7)를 [[a,b],[c,d]]라는 **기호**로 표시할 수 있다. IndexJoin/Multiply/OrderedAggregate가 뜻하는 결과:
 
 ~~~text
 Y[0,0] = 1a + 2b + 4c + 5d
@@ -1129,7 +1140,7 @@ C2 =: (2 1 1 1 1 0 0 conv2d)"3
 model =: C2 @: C1
 ~~~
 
-같은 공간 위치에서 W1=[a,b] (1→2), W2=[c,d] (2→1)라 하면 z0=a*x, z1=b*x, y=c*z0+d*z1. 가상 전개는 결합 가중치 k=(c*a+d*b)를 사용해 y=k*x인 1×1 Conv 후보를 제시한다.
+같은 공간 위치에서 W1=[a,b] (1→2), W2=[c,d] (2→1)라 하면 z0=a*x, z1=b*x, y=c*z0+d*z1. Algebraic Expansion은 결합 가중치 k=(c*a+d*b)를 사용해 y=k*x인 1×1 Conv 후보를 제시한다.
 
 ~~~text
 BEFORE: X -> Conv(C1, W1@v3) -> Z(2 channels) -> Conv(C2, W2@v8) -> Y
@@ -1150,7 +1161,7 @@ C1 =: (1 1 2 2 1 0 0 conv2d)"3
 model =: relu @: C1
 ~~~
 
-VirtualExpansion은 y=ReLU(Σ X*W)로 의미를 보존한다. ReLU(Σ X*W)와 Σ ReLU(X*W)는 일반적으로 같지 않다. 예를 들어 항이 2와 -3이면 전자는 ReLU(-1)=0이고, 후자는 2이다. 따라서 **ReLU를 contraction의 각 항으로 밀어 넣는 대수적 rewrite는 부정 사례**다. 반면 Conv와 ReLU를 하나의 physical kernel로 처리하면서 중간 Y의 저장을 생략하는 *fusion candidate*는 있다. 이 경우에도 다른 consumer의 fanout, numeric/Rank/error, target capability 및 resource feasibility를 따로 검증한다.
+AlgebraicExpansion은 y=ReLU(Σ X*W)로 의미를 보존한다. ReLU(Σ X*W)와 Σ ReLU(X*W)는 일반적으로 같지 않다. 예를 들어 항이 2와 -3이면 전자는 ReLU(-1)=0이고, 후자는 2이다. 따라서 **ReLU를 contraction의 각 항으로 밀어 넣는 대수적 rewrite는 부정 사례**다. 반면 Conv와 ReLU를 하나의 physical kernel로 처리하면서 중간 Y의 저장을 생략하는 *fusion candidate*는 있다. 이 경우에도 다른 consumer의 fanout, numeric/Rank/error, target capability 및 resource feasibility를 따로 검증한다.
 
 **E5 — Halo·부분 출력 demand: 전개하는 것은 필요한 인덱스 범위이지 곧바로 전체 tensor가 아니다.**
 
@@ -1233,7 +1244,7 @@ gate:      proven J semantics? correct versions/guards?
           Logical IR / Physical Planner
 ~~~
 
-| 상황 | 가상 전개 가능성 | 최적화 승인 |
+| 상황 | Algebraic Expansion 가능성 | 최적화 승인 |
 |---|---|---|
 | 유효한 k=2 Conv와 안정된 W snapshot | yes: E1/E2의 index relation | 실제 실행 rewrite는 별도 증명 |
 | Conv→ReLU, 단일 consumer | yes: Conv 내부만 전개 | fused kernel은 후보, 분배법칙은 거부(E4) |
@@ -1244,7 +1255,7 @@ gate:      proven J semantics? correct versions/guards?
 
 **테스트 수용 추가 (기존 §7.10.8 테스트 항목에 사례 연결, 모두 [ ] UNRUN).** E1 symbolic 4-cell 전개와 예제 W 검산, E2 가상 4×4 patch와 실제 할당 부재, E3 1×1 두 계층의 algebra candidate 및 IEEE negative, E4 ReLU 비분배, E5 8×8→10×10 exact/cover·빈 결과, E6 stride=2에서 H=5/6의 dX shape 부정 사례, E7 자원 identity/version/명시 공유, E8 original-call roundtrip·unsupported/fuel-exhaustion/target-failure를 각각 기존 conv_virtual_export_roundtrip, conv_virtual_legality_extract, conv_virtual_adjoint, conv_parameter_identity, conv_virtual_budget_cost로 귀속한다. 모든 시나리오는 documentation fixture일 뿐 실행 코드/CI·C oracle·target 검증 **UNRUN**이다.
 
-**재사용 가능한 원칙.** VirtualExpansion은 Conv에만 하드코딩하는 실행 pass가 아니라, graph의 고수준 primitive가 선택적으로 제공하는 **AlgebraSignature → symbolic index/parameter relation → proven candidate → verified extraction**이라는 공통 분석 인터페이스로 일반화할 수 있다. Linear·MatMul·tensor contraction, attention의 *적격하고 효과가 분리된 contraction 구역*에도 확장 후보가 있으나, softmax, RNG/dropout, stateful normalization까지 임의의 sum-product 법칙으로 재작성할 수 있다는 뜻은 아니다. 원본 high-level identity가 기본 경로이고 sidecar는 요청할 때만 생성된다.
+**재사용 가능한 원칙.** AlgebraicExpansion은 Conv에만 하드코딩하는 실행 pass가 아니라, graph의 고수준 primitive가 선택적으로 제공하는 **AlgebraSignature → symbolic index/parameter relation → proven candidate → verified extraction**이라는 공통 분석 인터페이스로 일반화할 수 있다. Linear·MatMul·tensor contraction, attention의 *적격하고 효과가 분리된 contraction 구역*에도 확장 후보가 있으나, softmax, RNG/dropout, stateful normalization까지 임의의 sum-product 법칙으로 재작성할 수 있다는 뜻은 아니다. 원본 high-level identity가 기본 경로이고 sidecar는 요청할 때만 생성된다.
 
 
 
@@ -1400,7 +1411,7 @@ SPORES/egg/TenSat식 탐색은 수학적 변형 후보를 발견할 수 있지�
 
 
 <a id="conv-virtual-expansion-related-work"></a>
-**7.10.10 Virtual Expansion 선행 연구 대조 — 구현 시의 유사성과 대수 분석 계약의 경계 (2026-10-14; 문헌 검토·설계 전용).**
+**7.10.10 Algebraic Expansion 선행 연구 대조 — 구현 시의 유사성과 대수 분석 계약의 경계 (2026-10-14; 문헌 검토·설계 전용).**
 
 **수치 예제 찾아보기:** §7.10.9의 E9(Glenside Conv→MatMul), E10(MLIR식 Window index 합성), E11(Halide stride·dilation 영역 역추적), E12(MLIR식 Conv→ReLU fusion), E13(CUTLASS implicit-GEMM 물리화), E14(TASO/TenSat 후보 승인·거부). 이들은 각 프레임워크의 최적화를 RustJ에 대응시켜 만든 자체 fixture이며 RustJ 구현 결과 또는 해당 프레임워크의 동일한 실행 기록으로 취급하지 않는다.
 
@@ -1408,7 +1419,7 @@ SPORES/egg/TenSat식 탐색은 수학적 변형 후보를 발견할 수 있지�
 
 | 선행 연구 / 근거 | 원문으로 확인한 기술 및 가장 가까운 예제 | RustJ에서 재사용할 아이디어 | 다른 점과 금지할 추론 |
 |---|---|---|---|
-| **NVIDIA CUTLASS implicit GEMM / implicit im2col** — [공식 알고리즘 문서](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md), [Conv 매핑 코드](https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/convolution.h) | 일반 im2col의 **전체 복제 행렬**을 만들지 않고 GPU가 global memory에서 읽을 때 index/predicate로 GEMM에 필요한 **타일**을 구성한다. Forward/dgrad/wgrad 매핑도 제공한다. **E2**의 가장 직접적인 실행 대응 | Graph의 virtual patch relation에서 물리적 on-the-fly gather/implicit-GEMM lowering 후보 생성 | CUTLASS는 **커널 실행/물리적 타일 구성**이며 RustJ VirtualExpansion은 **컴파일러 분석용 sidecar**다. full im2col이 없다는 말은 shared-memory/register staging도 없다는 뜻이 아니다. CUTLASS 자체가 SPORES e-class 증명/원본 Graph 보존 정책을 제공한다는 주장 금지 |
+| **NVIDIA CUTLASS implicit GEMM / implicit im2col** — [공식 알고리즘 문서](https://github.com/NVIDIA/cutlass/blob/main/media/docs/cpp/implicit_gemm_convolution.md), [Conv 매핑 코드](https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/conv/convolution.h) | 일반 im2col의 **전체 복제 행렬**을 만들지 않고 GPU가 global memory에서 읽을 때 index/predicate로 GEMM에 필요한 **타일**을 구성한다. Forward/dgrad/wgrad 매핑도 제공한다. **E2**의 가장 직접적인 실행 대응 | Graph의 virtual patch relation에서 물리적 on-the-fly gather/implicit-GEMM lowering 후보 생성 | CUTLASS는 **커널 실행/물리적 타일 구성**이며 RustJ AlgebraicExpansion은 **컴파일러 분석용 sidecar**다. full im2col이 없다는 말은 shared-memory/register staging도 없다는 뜻이 아니다. CUTLASS 자체가 SPORES e-class 증명/원본 Graph 보존 정책을 제공한다는 주장 금지 |
 | **Glenside** — Smith 외, *Pure Tensor Program Rewriting via Access Patterns* (MAPS 2021), [논문·저자 원문](https://ztatlock.net/pubs/2021-maps-glenside/) | 순수 tensor IR의 **access pattern**을 중심으로 layout-aware term rewrite를 수행하며 **im2col 변환의 자동 탐색**을 시연했다. **E1/E2**의 대수 표현 측면에서 가장 가까운 직접 선행 연구 | primitive별 optional AlgebraSignature를 access-pattern/index rewrite에 연결하고, EqGraph 후보를 비파괴적으로 탐색하는 연구 출발점 | Glenside의 자체 pure IR와 RustJ의 **full-J source/FunctionEntity + 외부 StateResource + optional sidecar**가 동일 구조는 아니다. RustJ의 모든 숫자·효과 관측 동등성은 별도 과제 |
 | **TASO** — Jia 외, *TASO: Optimizing Deep Learning Computation with Automated Generation of Graph Substitutions* (SOSP 2019), [논문](https://web.stanford.edu/class/cs245/readings/taso.pdf), [프로젝트](https://catalyst.cs.cmu.edu/projects/taso.html) | 텐서 연산자의 명세/대수적 성질에서 graph substitution **후보를 생성하고 검사**하며 비용 기반 그래프 탐색을 수행한다. **E3/E4/E8**의 규칙 생성·승인에 선례 | 고수준 operator property를 단순한 kernel 정의와 분리하고, rewrite마다 적법성 witness/반례를 수집 | TASO는 이미 operator properties 및 검증을 사용했다. 따라서 **대수 signature를 primitive 계약으로 둔다는 발상 자체가 최초**라고 주장하지 않는다. TASO의 성질 검증을 곧바로 J Rank/NAME/오류/IEEE 동등성 증명이라고 간주하지 않는다 |
 | **TenSat** — Yang 외, *Equality Saturation for Tensor Graph Superoptimization* (MLSys 2021), [학회 원문](https://proceedings.mlsys.org/paper_files/paper/2021/hash/cc427d934a7f6c0663e5923f49eba531-Abstract.html) | 순차적 치환의 phase-ordering 한계를 넘어 **e-graph equality saturation + extraction**으로 텐서 그래프를 탐색한다. **E3/E8**에 대응 | Rule whitelist, typed e-class/shape facts, budget, target-cost extraction 및 original candidate 보존 | TenSat의 tensor equality를 무조건 J **observational equality**로 옮길 수 없다. 미지원 residual expression은 **높은 비용**이 아니라 **추출 불가**이며, 근사 수치 후보는 별도 정책이 필요 |
@@ -1421,7 +1432,7 @@ SPORES/egg/TenSat식 탐색은 수학적 변형 후보를 발견할 수 있지�
 **정확한 비교 관점 — 세 가지 '가상'을 구분한다.**
 
 ~~~text
-1. Algebraic / compiler analysis: RustJ VirtualExpansion, Glenside access rewrites,
+1. Algebraic / compiler analysis: RustJ AlgebraicExpansion, Glenside access rewrites,
    Tensat candidate search, DB-like view unfolding analogy
    -> index and algebra relation is represented; not necessarily executed.
 
@@ -1466,7 +1477,7 @@ AlgebraSignature {
 | DB view unfolding 대비: sidecar를 버려도 원본 StructuredConv/NAME provenance가 그대로 실행 가능한가? | conv_candidate_fallback / conv_virtual_export_roundtrip, E8 | [ ] UNRUN |
 | SciPy/PyLops/JAX 대비: input/weight 별도의 올바른 explicit adjoint, 원본 ShapeSpec·conjugation·snapshot, autograd 비강제 규약을 만족하는가? | conv_virtual_adjoint / conv_parameter_identity, E6/E7 | [ ] UNRUN |
 
-**연구 기여 주장 범위.** 선행 연구가 이미 **연산자의 수학적 성질을 계약으로 주는 방법(TASO)**, **access pattern을 rewrite IR의 핵심으로 두는 방법(Glenside)**, **e-graph saturation/extraction(TenSat)**, **실행 시 가상 im2col을 만드는 방법(CUTLASS)**을 보여 주었다. 따라서 'Virtual Expansion 최초 발명'이나 '대수 signature를 1급으로 다루는 최초 컴파일러'라는 표현은 사용하지 않는다. RustJ의 **잠정적인 설계 조합**은 (a) J의 원본 modifier/derived verb와 StructuredOp identity 보존, (b) 사용자 가중치 값 비노출과 별도 명시적 StateResource/version, (c) 필요할 때만 sum-product/access/operator-view 제공, (d) Exact-J numeric·Rank·NAME·error/effect 관문 및 실현 가능한 후보만 추출, (e) explicit adjoint와 원본 Graph fallback을 **같은 계약**으로 연결하는 데 있다. 이것이 학술적으로 기존 연구와 구별되는 *새로운 기여인지*는 더 완전한 선행 문헌 조사와 구현/실측/반례 검증 없이는 단정할 수 없다.
+**연구 기여 주장 범위.** 선행 연구가 이미 **연산자의 수학적 성질을 계약으로 주는 방법(TASO)**, **access pattern을 rewrite IR의 핵심으로 두는 방법(Glenside)**, **e-graph saturation/extraction(TenSat)**, **실행 시 가상 im2col을 만드는 방법(CUTLASS)**을 보여 주었다. 따라서 'Algebraic Expansion 최초 발명'이나 '대수 signature를 1급으로 다루는 최초 컴파일러'라는 표현은 사용하지 않는다. RustJ의 **잠정적인 설계 조합**은 (a) J의 원본 modifier/derived verb와 StructuredOp identity 보존, (b) 사용자 가중치 값 비노출과 별도 명시적 StateResource/version, (c) 필요할 때만 sum-product/access/operator-view 제공, (d) Exact-J numeric·Rank·NAME·error/effect 관문 및 실현 가능한 후보만 추출, (e) explicit adjoint와 원본 Graph fallback을 **같은 계약**으로 연결하는 데 있다. 이것이 학술적으로 기존 연구와 구별되는 *새로운 기여인지*는 더 완전한 선행 문헌 조사와 구현/실측/반례 검증 없이는 단정할 수 없다.
 
 **문헌 검증 상태:** 위 문헌의 논문 초록/원문, 작성자·공식 기술 문서/API로 각 대응 관계를 확인했다. 단, 모든 구현 세부에 대한 source-level 감사나 문헌의 기계 증명 재현을 수행한 것은 아니다. RustJ의 sidecar, rewrite/proof, target 실현/성능 결과는 이 절 추가로 구현되거나 검증된 것이 아니다. **설계 문서만 수정, 기존 M2→M3→M4 관문과 NN/GF/FW/IO의 [ ] UNRUN 상태 유지.**
 
@@ -1475,7 +1486,7 @@ AlgebraSignature {
 
 
 <a id="conv-virtual-expansion-walkthrough"></a>
-**7.10.11 Virtual Expansion 입출력과 최적화 전 과정 — 분석 요청에서 후보 선택까지 (2026-10-14).**
+**7.10.11 Algebraic Expansion 입출력과 최적화 전 과정 — 분석 요청에서 후보 선택까지 (2026-10-14).**
 
 이 절은 §7.10.8–10의 설계를 **입력 → 분석 산출물 → 후보 → 승인/거부 → 실행 경로** 순서로 읽는 안내다. 아래 요청 객체·RuleId·후보 이름은 설명용 의사 인터페이스이며 현재 Rust API가 아니다. 산술·배열 크기는 검산한 예제이고, RustJ Conv exporter/SPORES/커널 실행·성능 검증은 여전히 **UNRUN**이다. 기존 NN/GF/FW/IO 원장을 확장해 읽으며 새 완료 체크리스트를 만들지 않는다.
 
@@ -1488,10 +1499,10 @@ AlgebraSignature {
 | semantic resource owner | layer L17, weight Rw@v7, bias Rb@v3, source/binding epoch; immutable snapshot 또는 ordered-read 의무 | 값 대신 기호 참조. 버전·공유·effect를 모르면 Opaque/guarded로 유지 |
 | numeric/error contract | float32 storage, 명시된 accumulator/rounding·fold 순서, bias→ReLU 순서, empty/fill·first-error 의무 | dtype만으로 재결합/FMA 허가를 추론하지 않음. 이 예제는 c,r,s 순서를 명시하나 최종 RustJ extension 계약은 별도 수용 필요 |
 | consumer demand | n=[0,1), o=[0,16), y=[10,18), x=[10,18) | 최종 출력의 8×8 타일. demand가 없으면 전체 출력; 작은 demand도 원래 오류·효과를 지울 권한이 아님 |
-| downstream planner | 실제 target capability, layout, patch scratch 제한 8 KiB, 경험적 cost 정보 | **VirtualExpansion 뒤에** 후보를 거르는 물리 조건. source 의미/FunctionEntity identity의 일부가 아님 |
+| downstream planner | 실제 target capability, layout, patch scratch 제한 8 KiB, 경험적 cost 정보 | **Algebraic Expansion 뒤에** 후보를 거르는 물리 조건. source 의미/FunctionEntity identity의 일부가 아님 |
 
 ~~~text
-ExpansionRequest (proposed):
+AlgebraicExpansionRequest (proposed):
   original_call=L17; operation=StructuredConv; input_value=Vx
   geometry=(Cin=3,Cout=16,k=3x3,stride=1,pad=1,groups=1,dilation=1)
   state=(ParameterRef(Rw,v7),BiasRef(Rb,v3))
@@ -1499,7 +1510,7 @@ ExpansionRequest (proposed):
   demand=Y[0:1,0:16,10:18,10:18]
   limits=(node_budget,time_budget); required_provenance=(source,binding)
 
-ExpansionResult (proposed):
+AlgebraicExpansionResult (proposed):
   original_call=L17                -- authoritative Graph is retained
   free_axes=(n,o,y,x); bound_axes=(c,r,s)
   X_access=(n,c,y-1+r,x-1+s); W_access=(o,c,r,s)
@@ -1562,7 +1573,7 @@ assert direct == [[-4, -4], [-4, -4]]
 assert via_patch == [-4, -4, -4, -4]
 ~~~
 
-Python이 여기서 patches를 실제 list로 만드는 것은 독립 정답 검산을 위한 것이다. VirtualExpansion은 같은 row의 **좌표 매핑만** 저장하고 a,b,c,d는 기호로 남긴다. 이 정수 fixture 통과는 일반 float32 GEMM의 재결합·FMA·J error equivalence를 증명하지 않는다.
+Python이 여기서 patches를 실제 list로 만드는 것은 독립 정답 검산을 위한 것이다. AlgebraicExpansion은 같은 row의 **좌표 매핑만** 저장하고 a,b,c,d는 기호로 남긴다. 이 정수 fixture 통과는 일반 float32 GEMM의 재결합·FMA·J error equivalence를 증명하지 않는다.
 
 **D. 두 1×1 Conv의 실제 후보와 거부 입력.** config=(1→2→1), bias 없음, 같은 spatial domain, resource W1@v3=(a,b), W2@v8=(c,d)에 대해 `c*(a*x)+d*(b*x)`에서 `(c*a+d*b)*x`라는 후보를 생성한다. x=2,a=3,b=4,c=5,d=6이면 원본 5×6+6×8=78, 후보 k=39 및 k×2=78이다. 이는 수학적 후보를 설명하는 작은 정수 예다.
 
@@ -1578,7 +1589,7 @@ Python이 여기서 patches를 실제 list로 만드는 것은 독립 정답 검
 | [Halide bounds inference](https://github.com/halide/Halide/blob/main/src/BoundsInference.cpp) | pipeline의 호출 인덱스에서 필요한 함수 영역을 추론 | 8×8 demand→10×10 halo의 참고. bounds 추론만으로 ordered aggregate 재작성이나 e-class union을 승인하지 않음 |
 | [SciPy LinearOperator](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.LinearOperator.html) | shape/dtype 및 matvec, 선택적 adjoint callable; matrix 없이 적용·지연 합성 | W snapshot을 고정한 Conv의 input-linear operator/explicit adjoint와 대응. callable만으로 sum-product 내부가 드러나지는 않음; 자동 e-graph 탐색기라고 간주하지 않음 |
 
-RustJ 제안의 추가 연결은 **원본 FunctionEntity/StructuredConv ↔ source와 state version을 가진 분석 relation ↔ witnessed candidate ↔ 실제 supported Logical/Physical route**다. 사용자는 layer 구성과 X를 제공하며, compiler는 분석에 필요한 좌표·parameter identity를 공개하고 runtime은 선택된 경로에서 실제 parameter를 읽는다. 이 세 시점을 분리해야 값을 읽지 않는 가상 전개와 실제 실행 최적화를 혼동하지 않는다.
+RustJ 제안의 추가 연결은 **원본 FunctionEntity/StructuredConv ↔ source와 state version을 가진 분석 relation ↔ witnessed candidate ↔ 실제 supported Logical/Physical route**다. 사용자는 layer 구성과 X를 제공하며, compiler는 분석에 필요한 좌표·parameter identity를 공개하고 runtime은 선택된 경로에서 실제 parameter를 읽는다. 이 세 시점을 분리해야 값을 읽지 않는 Algebraic Expansion과 실제 실행 최적화를 혼동하지 않는다.
 
 **검증 기록과 남은 작업.** 이 절의 정수 fixture, IEEE 반례, tile/patch bytes·MAC 쌍 산술 및 문서 링크는 별도로 검사한다. exporter roundtrip/demand witness는 `conv_virtual_export_roundtrip`·`conv_region_halo`, FP 반례는 `conv_virtual_legality_extract`, version/fanout는 `conv_parameter_identity`, resource/route/cost는 `conv_virtual_budget_cost`에 연결한다. 기존 구현 수용 항목은 모두 [ ] UNRUN이며, 문서 검사나 CI의 기존 J suite 통과가 새 Conv 실행을 수용하지 않는다.
 
