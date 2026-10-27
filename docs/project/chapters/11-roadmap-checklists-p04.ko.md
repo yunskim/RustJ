@@ -958,16 +958,16 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 <a id="conv-virtual-expansion"></a>
 **7.10.8 Algebraic Expansion(대수적 확장; 기존 Virtual Expansion) — 매개변수화 adverb와 숨겨진 가중치의 의미 보존 (2026-10-14; 설계 전용).**
 
-**두 변환의 공식 명칭과 소유권(구 용어 `Virtual Expansion`은 이전 명칭 설명·레거시 문서 앵커·기존 검사명에서만 유지).** Graph의 대수적 확장과 Logical의 연산 분해는 모두 중간 배열을 만들지 않을 수 있지만 같은 pass가 아니다.
+**두 변환·세 결과 그래프의 공식 명칭과 소유권(구 용어 `Virtual Expansion`은 이전 명칭 설명·레거시 문서 앵커·기존 검사명에서만 유지).** Graph의 대수적 확장과 Logical의 연산 분해는 모두 중간 배열을 만들지 않을 수 있지만 같은 pass가 아니다. **J Operation Graph**는 원본 J Graph IR, **Optimized J Graph**는 증거와 조건에 따라 선택된 J Graph IR(원본일 수도 있음), **Logical Operation Graph**는 선택된 Graph를 표현한 기존 Logical Execution IR의 operation/SSA 그래프 관점이다. 세 이름은 새로운 별도 정본 IR이나 물리 실행 계획을 추가하지 않는다.
 
 | 단계 | 공식 명칭 | 분석 입력 → 산출물 | 범위·금지 |
 |---|---|---|---|
 | **J Graph IR** | **Algebraic Expansion(대수적 확장)** | 원본 StructuredConv와 주변 Graph, symbolic ParameterRef, 공통 의미 계약 → indexed sum-product/e-graph의 동등 후보 및 **새 고수준 Graph**(증거·guard 동반) | 원본 Graph와 FunctionEntity/NAME/StateResource 버전을 유지. J source 재작성, 물리 Window·weight 값 읽기, 증명 없는 exact e-class union 금지 |
 | **Logical Execution IR** | **Logical Decomposition(논리적 연산 분해)** | **선택된** Graph + 동일한 semantic/index 계약 → `WindowView/IndexMap → Multiply → ReduceSum/Contract` 등의 선택적 logical operation region | 기존 `ExecutionBasisExpansion` 계약에 기반한 선택적 논리 연산 분해. IndexMap은 그 결과의 접근 관계 표현 중 하나일 뿐이며 J implicit loop를 전개하는 pass가 아니다. 모든 Conv의 강제 분해, 실제 im2col/patch materialization, 물리 loop·tile·device 결정 금지 |
 
-**전형적인 Graph 전체 재작성 예(실수 수학에 대한 후보, 실행·Exact-J 증명 아님).** 순수하고 Shape가 호환되는 `Y = MatMul(Conv2D(X,K), P)`에서 `K`의 출력 채널 축이 `P`의 축소 축과 대응하면, 분석용 확장과 축소 순서 변경으로 `K'[d,c,u,v] = sum_o K[o,c,u,v] * P[o,d]`를 얻어 `Y = Conv2D(X,K')`라는 **새 Graph 후보**를 만들 수 있다. `K'`를 구성하는 `KernelContract(K,P)`는 권한이 있는 operand/버전 스냅샷과 reconstruction 계약이 있을 때만 유효하다. 숨겨진 가중치를 노출하거나 서로 다른 StateResource/NAME 버전을 섞을 수 없다. groups=1, 비선형 연산 부재, padding/stride/dilation/채널 축 의미가 일치한다는 전제이며, 수학적 축소 재결합은 J/IEEE 연산 순서와 첫 오류를 자동 보존하지 않는다. 따라서 **미증명 후보는 exact EqGraph에 병합하지 않고**, 증명·guard·cost·실행 지원을 갖춘 후보만 선택할 수 있다.
+**전형적인 Graph 전체 재작성 예(실수 수학에 대한 후보, 실행·Exact-J 증명 아님).** 원본 **J Operation Graph**가 순수하고 Shape가 호환되는 `Y = MatMul(Conv2D(X,K), P)`에서 `K`의 출력 채널 축이 `P`의 축소 축과 대응하면, 분석용 확장과 축소 순서 변경으로 `K'[d,c,u,v] = sum_o K[o,c,u,v] * P[o,d]`를 얻어 `Y = Conv2D(X,K')`라는 **새 Graph 후보**를 만들 수 있다. 합법성·비용과 실행 경로가 충족되어 선택되면 이를 **Optimized J Graph**라 부른다. 선택적 논리 분해를 적용한 결과는 **Logical Operation Graph**라 부르며, 모든 Conv를 반드시 Window/Multiply/ReduceSum으로 바꾸지는 않는다. `K'`를 구성하는 `KernelContract(K,P)`는 권한이 있는 operand/버전 스냅샷과 reconstruction 계약이 있을 때만 유효하다. 숨겨진 가중치를 노출하거나 서로 다른 StateResource/NAME 버전을 섞을 수 없다. groups=1, 비선형 연산 부재, padding/stride/dilation/채널 축 의미가 일치한다는 전제이며, 수학적 축소 재결합은 J/IEEE 연산 순서와 첫 오류를 자동 보존하지 않는다. 따라서 **미증명 후보는 exact EqGraph에 병합하지 않고**, 증명·guard·cost·실행 지원을 갖춘 후보만 선택할 수 있다.
 
-Logical 단계는 이 선택된 Graph의 Conv2D를 `WindowView/IndexMap`, `Multiply`, `ReduceSum/Contract` 등의 논리 연산으로 **필요할 때만** 분해(Logical Decomposition)하며, DirectConv/native 경로를 선택하면 분해 없이 진행할 수 있다. 두 단계는 같은 axis/rank/padding/fill/numeric/error 계약을 참조하지만 결과물·최적화 목적이 다르다. [상위 IR 경계](./03-architecture-p01.ko.md#두-ir-사이의-최적화-책임)와 [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion)을 따른다.
+Logical 단계는 **Optimized J Graph**의 Conv2D를 `WindowView/IndexMap`, `Multiply`, `ReduceSum/Contract` 등의 논리 연산으로 **필요할 때만** 분해(Logical Decomposition)해 **Logical Operation Graph**로 나타내며, DirectConv/native 경로를 선택하면 분해 없이 진행할 수 있다. 두 단계는 같은 axis/rank/padding/fill/numeric/error 계약을 참조하지만 결과물·최적화 목적이 다르다. [상위 IR 경계](./03-architecture-p01.ko.md#두-ir-사이의-최적화-책임)와 [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion)을 따른다.
 
 **실행 경계.** 원본 StructuredConv 보존은 실행 지원을 새로 제공하지 않는다. 실제 Logical/Physical 실행 경로가 존재할 때만 원본으로 실행할 수 있으며, 경로가 없으면 명시적으로 UnsupportedRoute를 반환한다. [§7.10.7 실행 경계](#conv2d-graph-spores-semantic-blackbox)를 함께 따른다.
 

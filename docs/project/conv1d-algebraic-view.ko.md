@@ -20,7 +20,7 @@ Y[2] = 3*2 + 4*3 = 18
 Output Y = [8,13,18]
 ```
 
-Graph IR 입력은 X, W 및 conv spec이고 출력은 Y이다:
+Graph IR 입력은 X, W 및 conv spec이고 출력은 Y이다. 이 원본을 **J Operation Graph**라 부른다:
 ```text
 %y = Conv1D(%x, %w, spec={stride:1,padding:0,dilation:1,groups:1})
 ```
@@ -68,7 +68,7 @@ primitive Conv1D {
 sum_k X[p+k]*W1[k] + sum_k X[p+k]*W2[k]
   = sum_k X[p+k]*(W1[k]+W2[k])
 ```
-Reconstruction contract가 이 식을 Conv1D로 재인식할 수 있으면 **출력 Graph IR 후보**:
+Reconstruction contract가 이 식을 Conv1D로 재인식할 수 있으면 **동등 Graph IR 후보**(검증·비용 선택 후 **Optimized J Graph**):
 ```text
 %w = Add(%w1, %w2)      // [6,4]
 %y = Conv1D(%x, %w, spec)
@@ -97,7 +97,7 @@ Output dW = [14,20]
 ## 6. 동일한 view의 Logical IR Logical Decomposition 재사용
 
 **입력:** 최적화된 Graph IR `%w=Add(W1,W2); %y=Conv1D(X,%w,spec)` 및 정적 shape/spec.
-**출력:** 인덱스 관계, 곱셈, 축약이 명시된 Logical IR:
+**출력:** 인덱스 관계, 곱셈, 축약이 명시된 **Logical Operation Graph**(기존 Logical Execution IR의 operation/SSA 관점; 정식 구현 미완료):
 ```text
 %w = ElementwiseAdd(W1,W2)
 %window = IndexMap(X, [n,c,p+k])  // 논리적 view, materialization 아님

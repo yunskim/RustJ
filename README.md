@@ -116,7 +116,7 @@ Route Partition
   └─ region(s): verified library/custom-kernel route
 ```
 
-**Graph-time `Algebraic Expansion`** non-destructively projects high-level operations into algebraic views to discover equivalent graph candidates. **Logical-time `Logical Decomposition`** optionally decomposes a selected high-level graph operation into normalized logical operations (which may include IndexMap or reduction). Neither implies intermediate materialization or implementation completion. See the [Conv design contract](PROJECT.md#conv-virtual-expansion).
+**Graph-time `Algebraic Expansion`** non-destructively projects high-level operations into algebraic views to discover equivalent graph candidates. **Logical-time `Logical Decomposition`** optionally decomposes a selected high-level graph operation into normalized logical operations (which may include IndexMap or reduction). Call the original applied graph the **J Operation Graph**, the selected equivalent (or unchanged original) the **Optimized J Graph**, and the logical operation/SSA graph view in existing Logical Execution IR the **Logical Operation Graph**. These are descriptive results, not additional independent IR types. Neither implies intermediate materialization or implementation completion. See the [Conv design contract](PROJECT.md#conv-virtual-expansion).
 
 **The canonical source for detailed architecture, compiler-stage boundaries, IR design, implementation planning, checklists, supported semantics, and validation policy is [PROJECT.ko.md](PROJECT.ko.md). Its English mirror is [PROJECT.md](PROJECT.md).**
 

@@ -35,7 +35,7 @@ Mean
 
 expansion은 mandatory lowering이 아니다. planner/optimizer는 original identity와 expansion 양쪽을 이용할 수 있다. refinement는 4.24.11의 성능 기준을 만족할 때 추가한다.
 
-**명칭 구분:** 고수준 연산을 `WindowView/IndexMap`, `Multiply`, `ReduceSum/Contract` 등으로 선택적으로 분해하는 설계 동작을 **Logical Decomposition(논리적 연산 분해)**이라고 부른다. 기존 `ExecutionBasisExpansion`은 이 동작을 표현하는 내부 sidecar/계약이다. 이는 선택된 J Graph를 Logical IR에서 실행 의미에 맞게 설명하는 선택적 동작이다. IndexMap은 데이터 접근 관계일 뿐 `CellApply`가 소유한 J implicit rank loop를 의미하지 않는다. Graph IR의 **Algebraic Expansion(대수적 확장)**은 고수준 Primitive를 비실행 sum-product로 투영해 주변 연산까지 재작성하여 *새로운 Graph 후보를 발견*하는 별도 과정이다. 두 과정 모두 중간 배열을 물질화하거나 실행 경로를 보장하지 않으며, 동일한 semantic/index 계약과 별도의 proof/guard를 사용한다. [Graph/Logical 책임](./03-architecture-p01.ko.md#두-ir-사이의-최적화-책임).
+**명칭 구분:** 고수준 연산을 `WindowView/IndexMap`, `Multiply`, `ReduceSum/Contract` 등으로 선택적으로 분해하는 설계 동작을 **Logical Decomposition(논리적 연산 분해)**이라고 부른다. 기존 `ExecutionBasisExpansion`은 이 동작을 표현하는 내부 sidecar/계약이다. 이는 선택된 **Optimized J Graph**(변환 미선택 시 원본 **J Operation Graph**)를 Logical IR에서 실행 의미에 맞게 설명하는 선택적 동작이다. 그 결과의 operation/SSA 의존성 그래프를 **Logical Operation Graph**라 부르되, 이는 기존 `logical_ir::Plan`의 표현 관점이며 새로운 독립 IR이나 모든 고수준 노드의 강제 분해가 아니다. IndexMap은 데이터 접근 관계일 뿐 `CellApply`가 소유한 J implicit rank loop를 의미하지 않는다. Graph IR의 **Algebraic Expansion(대수적 확장)**은 고수준 Primitive를 비실행 sum-product로 투영해 주변 연산까지 재작성하여 *새로운 Graph 후보를 발견*하는 별도 과정이다. 두 과정 모두 중간 배열을 물질화하거나 실행 경로를 보장하지 않으며, 동일한 semantic/index 계약과 별도의 proof/guard를 사용한다. [Graph/Logical 책임](./03-architecture-p01.ko.md#두-ir-사이의-최적화-책임).
 
 <a id="공통-logicalbasisop-contract"></a>
 ##### 공통 LogicalBasisOp contract

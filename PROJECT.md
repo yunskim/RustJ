@@ -287,6 +287,17 @@ This boundary is easy to misunderstand, so RustJ states it explicitly. **The two
 
 J Graph IR instead describes an **applied computation**: a completed function/entity acting on inputs. It therefore exposes producer/consumer, branch/join, rank/cell boundaries, reductions, and related array topology as first-class graph forms/bases. Shape/type/rank facts and optimization hints may be attached here, but this is still not a physical plan.
 
+**Names of the graph results (not new IR types).** RustJ keeps its canonical `j_graph_ir::Plan` and `logical_ir::Plan`; these names describe the graph produced or selected at each boundary:
+
+| Result | Owned by | Meaning |
+|---|---|---|
+| **J Operation Graph** | J Graph IR construction | Original applied J array-operation/data-dependency graph |
+| **Equivalent Graph Candidates** | Algebraic Expansion / graph optimization | Alternatives with proof/guard/resource obligations, not automatically committed or executable |
+| **Optimized J Graph** | Graph candidate selection | Selected admissible J Graph representation, possibly identical to the original when no rewrite is selected |
+| **Logical Operation Graph** | Execution Semantic Lowering / optional Logical Decomposition | Operation/SSA/dependency graph view **within the existing Logical Execution IR**, including `CellApply`, `SemanticCheck`, effect/first-error and origin provenance |
+
+`Logical Operation Graph` does **not** introduce a third canonical IR, nor does optional Logical Decomposition require every structured operator to become a low-level expansion. Physical loops, buffers, layouts and devices remain downstream.
+
 | Concern | Frontend / J Semantic Construction | J Graph IR |
 |---|---|---|
 | Primary object | J entities and composition meaning | Applied array-operation graph |
@@ -3018,7 +3029,7 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 <a id="conv-virtual-expansion"></a>
 **7.10.8 Algebraic Expansion (formerly Virtual Expansion): preserve the parameterized adverb and unexposed weights (2026-10-14; design only).**
 
-**Two distinct transformations (the older `Virtual Expansion` wording remains only as a naming note, in legacy anchors and in existing test identifiers).** Graph-time algebraic expansion and logical operation decomposition are distinct; neither mandates intermediate materialization.
+**Two distinct transformations (the older `Virtual Expansion` wording remains only as a naming note, in legacy anchors and in existing test identifiers).** The original J Graph IR result is the **J Operation Graph**; the admitted/selected graph after Algebraic Expansion is the **Optimized J Graph** (possibly unchanged); the operation/SSA view in the existing Logical Execution IR is the **Logical Operation Graph**. These do not create new IR types. Graph-time algebraic expansion and logical operation decomposition are distinct; neither mandates intermediate materialization.
 
 | Stage | Name | Inputs → result | Boundary |
 |---|---|---|---|

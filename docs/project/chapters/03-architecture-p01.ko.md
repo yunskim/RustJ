@@ -217,14 +217,14 @@ RustJ source frontend
         ↓
 J Semantic Construction IR / FunctionEntity
         ↓
-J Graph IR / Array Operation Graph IR
+J Graph IR: J Operation Graph
         ↓
 Graph Analysis / Algebraic Expansion / J-algebra optimization (optional)
-        ↓  selected, witnessed Graph candidate (or original)
-Execution Semantic Lowering
+        ↓  Optimized J Graph (original or witnessed selected candidate)
+Execution Semantic Lowering + optional Logical Decomposition
         ↓
-Logical Execution IR / Plan
-        ↳ optional Logical Decomposition / ExecutionBasisExpansion
+Logical Execution IR / Plan: Logical Operation Graph
+        ↳ optional ExecutionBasisExpansion
         ↓
 Route partition / export
    ├─ RustJ native: Logical Optimizer → Schedule → Physical Plan
@@ -327,6 +327,19 @@ Insert
 
 <a id="두-ir-사이의-최적화-책임"></a>
 #### 두 IR 사이의 최적화 책임
+
+**세 그래프의 결과물 명칭(새로운 독립 IR 타입이 아님).** Graph와 Logical의 정본 컨테이너는 계속 기존 `j_graph_ir::Plan`과 `logical_ir::Plan`이다. 아래 명칭은 각각 그 안에 표현·선택되는 **계산 그래프의 상태/관점**을 뜻한다.
+
+| 결과물 | 소유 단계 | 의미 |
+|---|---|---|
+| **J Operation Graph** (J 연산 그래프) | J Graph IR 생성 | 완료된 FunctionEntity를 실제 noun 인수에 적용한 원본 연산·의존성 그래프 |
+| **Equivalent Graph Candidates** (동등 그래프 후보) | Algebraic Expansion / Graph optimizer | 원본을 포함한 대수적 대안들. Proof·guard·비용·실행 경로 판단 전에는 원본과 동일한 정본/실행 그래프가 아님 |
+| **Optimized J Graph** (최적화된 J 그래프) | Graph 후보 선택 | 증명·조건을 만족해 선택된 J Graph IR 표현. 변환을 승인하지 않았다면 원본 J Operation Graph와 같을 수 있음 |
+| **Logical Operation Graph** (논리 연산 그래프) | Execution Semantic Lowering / Logical Decomposition | 선택된 J Graph를 정규화된 logical operation/SSA 의존성으로 표현한 `Logical Execution IR` 내부의 그래프 관점. `SemanticCheck`, effect/first-error, `CellApply`, `j_origin`도 포함 |
+
+**Logical Operation Graph는 별도의 세 번째 canonical IR이 아니다.** `Logical Decomposition`은 선택적이므로 `Structured(Conv2d)` 같은 고수준 노드를 그대로 포함할 수 있다. `Logical Operation Graph`의 간선은 단순 데이터 흐름뿐 아니라 의미 검사·효과·오류 순서도 설명하며, 물리 buffer, thread/loop, layout/device를 결정하지 않는다.
+
+개념 예: `J Operation Graph: Conv2D(X,K) → MatMul(P)`에서 대수적 조건을 갖춘 후보로 `Optimized J Graph: KernelContract(K,P) → Conv2D(X,K')`를 선택할 수 있다. 그 후 선택적 `Logical Decomposition`으로 `Logical Operation Graph: WindowView/IndexMap → Multiply → ReduceSum`을 얻거나 지원되는 고수준 Conv 경로를 유지할 수 있다. 이는 구현 완료나 자동적인 Exact-J 동등성의 선언이 아니다.
 
 **두 변환의 명명 계약:** `Algebraic Expansion`은 **Graph IR의 대수적 동등식 탐색**이며 출력은 원본을 포함한 동등 Graph 후보/증거다. `Logical Decomposition`은 **선택된 Graph의 Logical IR 연산 분해**이며 출력은 `IndexMap/WindowView/Multiply/ReduceSum` 등의 선택적 logical operation region이다. 과거 논의의 `Virtual Expansion`은 두 목적이 혼재될 수 있으므로 신규 단계 명칭으로 사용하지 않는다. Logical Decomposition은 J implicit rank loop를 전개하는 단계가 아니며, 그것은 `CellApply`/IterationDomain 의미론과 downstream schedule/backend에서 다룬다. 두 단계는 동일한 shape/rank/index/padding/numeric/error 의미 정의를 참조하되 독립된 증명 의무를 가진다. **어느 단계도 중간 배열 물질화나 실행 지원을 뜻하지 않는다.** [Conv 설계/예제](./11-roadmap-checklists-p04.ko.md#conv-virtual-expansion), [ExecutionBasisExpansion](./15-advanced-contracts-p10.ko.md#executionbasisexpansion)을 참고한다.
 

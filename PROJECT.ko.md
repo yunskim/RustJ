@@ -13,7 +13,7 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 ## 신규 설계 초안
 
 - [Conv1D blackbox · Algebraic Expansion · Adjoint · Logical Decomposition (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 제한적 프로토타입 구현, 정식 IR 통합 보류(NAME/locale 선행)
-- [Algebraic Expansion(Graph IR) / Logical Decomposition(Logical IR) 용어·경계](./docs/project/chapters/03-architecture-p01.ko.md#두-ir-사이의-최적화-책임) · [Conv2D 예제와 검증 의무](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion) — 설계 계약이며 최적화 구현·CI 수용 상태를 뜻하지 않음
+- [J Operation Graph → Optimized J Graph → Logical Operation Graph 및 변환 경계](./docs/project/chapters/03-architecture-p01.ko.md#두-ir-사이의-최적화-책임) · [Conv2D 예제와 검증 의무](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion) — 설계 계약이며 최적화 구현·CI 수용 상태를 뜻하지 않음
 
 ## 상세 문서
 
