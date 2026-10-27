@@ -12,7 +12,8 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 
 ## 신규 설계 초안
 
-- [Conv1D blackbox · Algebraic View · SPORES · Adjoint · Logical IR lowering (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 제한적 프로토타입 구현, 정식 IR 통합 보류(NAME/locale 선행)
+- [Conv1D blackbox · Algebraic Expansion · Adjoint · Logical Decomposition (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 제한적 프로토타입 구현, 정식 IR 통합 보류(NAME/locale 선행)
+- [J Operation Graph → Optimized J Graph → Logical Operation Graph 및 변환 경계](./docs/project/chapters/03-architecture-p01.ko.md#두-ir-사이의-최적화-책임) · [Conv2D 예제와 검증 의무](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion) — 설계 계약이며 최적화 구현·CI 수용 상태를 뜻하지 않음
 
 ## 상세 문서
 
@@ -70,10 +71,10 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 - [본문 3/5 — 최적화에 사용할 frontend 정보 보존 (2026-10-03)](./docs/project/chapters/11-roadmap-checklists-p03.ko.md)
 - [본문 4/5 — P2 — 하나의 9-row reduction engine으로 전환](./docs/project/chapters/11-roadmap-checklists-p04.ko.md)
 - [FGX-00–07 — Frontend → J Graph → Logical 경계 검증 체크리스트](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#fgx-frontend-graph-logical-경계-검증-체크리스트-2026-10-22)
-- [§7.10.8 — JAXA Convolution adverb의 인자와 SPORES 가상 전개 설계](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion)
-- [§7.10.9 — Virtual Expansion 실제 계산·SPORES 최적화 예제집](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-examples)
-- [§7.10.10 — Virtual Expansion 관련 연구·차별성·검증 체크리스트](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-related-work)
-- [§7.10.11 — Virtual Expansion 입력·출력·후보 선택과 자원 계산 예제](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-walkthrough)
+- [§7.10.8 — Graph IR Algebraic Expansion: JAXA Conv adverb·SPORES 설계](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion)
+- [§7.10.9 — Algebraic Expansion 계산·Graph 재작성 예제집](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-examples)
+- [§7.10.10 — Algebraic Expansion 관련 연구·검증 체크리스트](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-related-work)
+- [§7.10.11 — Algebraic Expansion 입력·출력·후보 선택 예제](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-walkthrough)
 - [본문 5/5 — A1.5.2 JAXA의 static-memory claim을 RustJ에서 해석하는 방식](./docs/project/chapters/11-roadmap-checklists-p05.ko.md)
 
 ### 11. 검증 정책

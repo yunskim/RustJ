@@ -4,7 +4,7 @@
 
 ## 1. 목표와 경계
 
-Conv1D는 Graph IR에서 **하나의 opaque primitive**이다. 사용자는 필터 원소별 곱셈, 윈도우, 축약 노드를 보지 않는다. 단, primitive 등록 시 forward 및 두 부분 adjoint의 **대수적 의미식(Algebraic View)** 을 함께 제공한다. SPORES 스타일 최적화기는 의미식을 조회하여 Graph IR을 더 좋은 **고수준 그래프**로 재작성할 수 있다. Graph IR → Logical IR lowering도 **같은 의미 정의**를 사용한다. 이 과정에서 가상 전개는 실행이나 중간 배열 물질화를 뜻하지 않는다.
+Conv1D는 Graph IR에서 **하나의 opaque primitive**이다. 사용자는 필터 원소별 곱셈, 윈도우, 축약 노드를 보지 않는다. 단, primitive 등록 시 forward 및 두 부분 adjoint의 **대수적 의미식(Algebraic View)** 을 함께 제공한다. SPORES 스타일 최적화기는 의미식을 조회하여 Graph IR을 더 좋은 **고수준 그래프**로 재작성할 수 있다. Graph IR → Logical IR lowering도 **같은 의미 정의**를 사용한다. 이 Graph 단계의 탐색을 **Algebraic Expansion(대수적 확장)**이라 부른다. 이후 선택된 Graph를 Logical IR의 `IndexMap/Multiply/ReduceSum` 접근 구조로 구체화하는 별도 단계는 **Logical Decomposition(논리적 연산 분해)**이다. 두 단계 모두 실행이나 중간 배열 물질화를 뜻하지 않으며 같은 정식 의미 정의를 참조한다.
 
 가중치 W는 예시에서는 Conv1D 호출의 *논리적 피연산자*이지만 원소별 내부 계산 노드로 공개되지 않는다. W가 구현 내부에 완전히 캡처된 경우, 최적화기가 W를 합치는 재작성을 수행하려면 별도의 합법적인 재구성 인터페이스가 필요하다. 의미식만으로 숨겨진 상태를 임의로 변경할 수 없다.
 
@@ -20,7 +20,7 @@ Y[2] = 3*2 + 4*3 = 18
 Output Y = [8,13,18]
 ```
 
-Graph IR 입력은 X, W 및 conv spec이고 출력은 Y이다:
+Graph IR 입력은 X, W 및 conv spec이고 출력은 Y이다. 이 원본을 **J Operation Graph**라 부른다:
 ```text
 %y = Conv1D(%x, %w, spec={stride:1,padding:0,dilation:1,groups:1})
 ```
@@ -54,7 +54,7 @@ primitive Conv1D {
 
 복소수는 켤레 인자, groups는 채널 그룹 제약을 포함한 별도 정의가 필요하다. Shape와 spec은 view의 정당성 조건이며 단순 주석이 아니다.
 
-## 4. Graph IR의 SPORES 스타일 처리: 입력과 출력
+## 4. Graph IR Algebraic Expansion과 SPORES 스타일 처리: 입력과 출력
 
 **입력:** `Y = Conv1D(X,W1) + Conv1D(X,W2)`, 동일 X, spec, 출력 shape, 적법하게 결합 가능한 W1/W2.
 
@@ -68,7 +68,7 @@ primitive Conv1D {
 sum_k X[p+k]*W1[k] + sum_k X[p+k]*W2[k]
   = sum_k X[p+k]*(W1[k]+W2[k])
 ```
-Reconstruction contract가 이 식을 Conv1D로 재인식할 수 있으면 **출력 Graph IR 후보**:
+Reconstruction contract가 이 식을 Conv1D로 재인식할 수 있으면 **동등 Graph IR 후보**(검증·비용 선택 후 **Optimized J Graph**):
 ```text
 %w = Add(%w1, %w2)      // [6,4]
 %y = Conv1D(%x, %w, spec)
@@ -94,17 +94,17 @@ Output dW = [14,20]
 
 검증: `dot(Conv1D(X,W),dY)=8*1+13*2+18*3=88`, `dot(X,dX)=2+14+36+36=88`, `dot(W,dW)=2*14+3*20=88`. 이는 **고정된 다른 인수에 대한 선형 사상의 adjoint**이지 일반 비선형 프로그램의 자동미분이 아니다.
 
-## 6. 동일한 view의 Logical IR lowering 재사용
+## 6. 동일한 view의 Logical IR Logical Decomposition 재사용
 
 **입력:** 최적화된 Graph IR `%w=Add(W1,W2); %y=Conv1D(X,%w,spec)` 및 정적 shape/spec.
-**출력:** 인덱스 관계, 곱셈, 축약이 명시된 Logical IR:
+**출력:** 인덱스 관계, 곱셈, 축약이 명시된 **Logical Operation Graph**(기존 Logical Execution IR의 operation/SSA 관점; 정식 구현 미완료):
 ```text
 %w = ElementwiseAdd(W1,W2)
 %window = IndexMap(X, [n,c,p+k])  // 논리적 view, materialization 아님
 %prod = Multiply(%window, %w[o,c,k])
 %y = ReduceSum(%prod, axes=[c,k])
 ```
-Graph IR SPORES의 조회와 Logical IR lowering은 **같은 정식 의미 정의**를 읽지만, 전자는 최적화 후보 탐색이고 후자는 선택한 실행 경로를 위한 표현 구체화다. Native 경로가 선택되면 전체 전개를 생략할 수 있다.
+Graph IR의 **Algebraic Expansion**과 Logical IR의 **Logical Decomposition**은 **같은 정식 의미 정의**를 읽지만, 전자는 주변 Graph 연산까지 포함한 동등한 고수준 후보 탐색이고 후자는 선택한 실행 경로의 인덱스 접근·축소 관계를 구체화한다. Native 경로가 선택되면 전체 전개를 생략할 수 있다.
 
 ## 7. 인터페이스 I/O 요약
 
@@ -112,9 +112,9 @@ Graph IR SPORES의 조회와 Logical IR lowering은 **같은 정식 의미 정�
 |---|---|---|
 | Primitive contract | X,W,spec | Y, shape/type facts |
 | Algebraic View lookup | primitive ID, mode(forward/input-adjoint/weight-adjoint), shape/spec | 인덱스·축약·피연산자 역할을 담은 분석용 의미식 |
-| Graph rewrite | Graph IR + views + legality/numerical constraints | 동등성 조건을 만족하는 고수준 Graph IR 후보 |
+| Algebraic Expansion / Graph rewrite | Graph IR + views + legality/numerical constraints | 동등성 조건을 만족하는 원본 및 새로운 고수준 Graph IR 후보 |
 | Reconstruction | 변형된 의미식 + primitive registry | Conv1D 형태의 재구성 가능 여부/새 노드 |
-| Logical lowering | 선택된 Graph IR + 동일한 view | IndexMap/Multiply/ReduceSum 등의 Logical IR |
+| Logical Decomposition / Logical lowering | 선택된 Graph IR + 동일한 view | 선택적인 IndexMap/Multiply/ReduceSum 등의 Logical IR |
 | Physical selection | Logical IR 또는 합법적인 native Conv1D 호출 | 실행 커널/계획 |
 
 ## 8. 검증 체크리스트 (미구현)

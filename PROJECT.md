@@ -287,6 +287,17 @@ This boundary is easy to misunderstand, so RustJ states it explicitly. **The two
 
 J Graph IR instead describes an **applied computation**: a completed function/entity acting on inputs. It therefore exposes producer/consumer, branch/join, rank/cell boundaries, reductions, and related array topology as first-class graph forms/bases. Shape/type/rank facts and optimization hints may be attached here, but this is still not a physical plan.
 
+**Names of the graph results (not new IR types).** RustJ keeps its canonical `j_graph_ir::Plan` and `logical_ir::Plan`; these names describe the graph produced or selected at each boundary:
+
+| Result | Owned by | Meaning |
+|---|---|---|
+| **J Operation Graph** | J Graph IR construction | Original applied J array-operation/data-dependency graph |
+| **Equivalent Graph Candidates** | Algebraic Expansion / graph optimization | Alternatives with proof/guard/resource obligations, not automatically committed or executable |
+| **Optimized J Graph** | Graph candidate selection | Selected admissible J Graph representation, possibly identical to the original when no rewrite is selected |
+| **Logical Operation Graph** | Execution Semantic Lowering / optional Logical Decomposition | Operation/SSA/dependency graph view **within the existing Logical Execution IR**, including `CellApply`, `SemanticCheck`, effect/first-error and origin provenance |
+
+`Logical Operation Graph` does **not** introduce a third canonical IR, nor does optional Logical Decomposition require every structured operator to become a low-level expansion. Physical loops, buffers, layouts and devices remain downstream.
+
 | Concern | Frontend / J Semantic Construction | J Graph IR |
 |---|---|---|
 | Primary object | J entities and composition meaning | Applied array-operation graph |
@@ -2961,7 +2972,7 @@ Each test records **Test/Purpose/Guarantee/Failure meaning/Status**, positive/ne
 
 **Decided boundary.** NN-04 `conv2d` does **not** need to be written or expanded into combinations of J primitives (`;._3`/Cut or Window/Multiply/Reduce) in source or Graph IR. A Conv2d reference implementation written in J is **not required**. Once the frontend resolves an ordinary J NAME, POS, and the derived computational function, J Graph IR retains **one high-level `Structured(Conv2d)` semantic operation**. *Blackbox* means the implementation body is hidden, **not** that shape, axis, Rank, operand bindings, access patterns, errors and effects are unknowable. NN-08 Conv1d/Conv3d, adjoints, other NN implementations and whole networks remain outside this focused decision. Multi-op fusion ideas in §7.10.4 remain longer-term research, not prerequisites for Conv2d analysis.
 
-**Where SPORES belongs.** **Graph IR optimization** uses an **optional semantic sidecar** attached to the original `Structured(Conv2d)` to generate an index/relational sum-product **projection for candidate exploration**. The projection is **not J source code**, **not a mandatory replacement Graph IR**, and **not automatically executable Logical IR**. The original node and projection share source/ValueId/FunctionEntity/parameter version and proof provenance. If required call-specific facts are unknown, retain `Opaque/Unknown`. Reuse existing `j_graph_access.rs` / `j_graph_rewrite.rs` analysis concepts; these interfaces have **not** yet been implemented for Conv2d.
+**Where SPORES belongs.** The non-destructive graph-time exploration is named **Algebraic Expansion**. **Graph IR optimization** uses an **optional semantic sidecar** attached to the original `Structured(Conv2d)` to generate an index/relational sum-product **projection for candidate exploration**. The projection is **not J source code**, **not a mandatory replacement Graph IR**, and **not automatically executable Logical IR**. The original node and projection share source/ValueId/FunctionEntity/parameter version and proof provenance. If required call-specific facts are unknown, retain `Opaque/Unknown`. Reuse existing `j_graph_access.rs` / `j_graph_rewrite.rs` analysis concepts; these interfaces have **not** yet been implemented for Conv2d.
 
 ~~~text
 ordinary J NAME / derived function
@@ -3016,11 +3027,22 @@ Graph IR: Structured(Conv2d) [source and weight/bias bindings retained]
 
 
 <a id="conv-virtual-expansion"></a>
-**7.10.8 Virtual Expansion: keep JAXA's parameterized adverb while leaving weight values unexposed (2026-10-14; design only).**
+**7.10.8 Algebraic Expansion (formerly Virtual Expansion): preserve the parameterized adverb and unexposed weights (2026-10-14; design only).**
+
+**Two distinct transformations (the older `Virtual Expansion` wording remains only as a naming note, in legacy anchors and in existing test identifiers).** The original J Graph IR result is the **J Operation Graph**; the admitted/selected graph after Algebraic Expansion is the **Optimized J Graph** (possibly unchanged); the operation/SSA view in the existing Logical Execution IR is the **Logical Operation Graph**. These do not create new IR types. Graph-time algebraic expansion and logical operation decomposition are distinct; neither mandates intermediate materialization.
+
+| Stage | Name | Inputs → result | Boundary |
+|---|---|---|---|
+| **J Graph IR** | **Algebraic Expansion** | Original StructuredConv plus its surrounding graph, symbolic ParameterRef and semantic contract → indexed sum-product/e-graph alternatives, including **new high-level graph candidates** with proof/guards | Preserve original FunctionEntity, NAME and StateResource versions; no J source rewriting, weight-value reads, materialized windows or unsupported exact e-class unions |
+| **Logical Execution IR** | **Logical Decomposition** | **Selected** Graph plus the same index/semantic contract → optional logical `WindowView/IndexMap → Multiply → ReduceSum/Contract` region | Optional logical-operation decomposition, compatible with the existing `ExecutionBasisExpansion` sidecar; IndexMap is an access relation, not implicit-rank loop expansion, and no physical im2col/materialization or target scheduling is implied |
+
+**Whole-graph rewrite example (mathematical candidate, not yet executable or Exact-J verified).** For pure shape-compatible `Y = MatMul(Conv2D(X,K), P)`, contract Conv's output-channel axis with P first: `K'[d,c,u,v] = sum_o K[o,c,u,v] * P[o,d]`. This yields the alternative **Graph** `Y = Conv2D(X,K')`; `KernelContract(K,P)` requires legal reconstruction and access to appropriately versioned operands, never exposure of hidden weights or mixing mutable StateResource/NAME versions. Assume groups=1, no intervening nonlinearity, compatible channel/stride/padding/dilation semantics. Reassociation is not automatically J/IEEE observationally exact; retain unproved candidates outside exact e-classes until numerical, error/effect, shape, guard and route obligations are discharged.
+
+The later **Logical Decomposition** refines the *selected* Conv only if its lowering needs indexed Window/Multiply/Reduce operations; a supported native DirectConv route may retain the high-level operation. Both stages share semantic/axis/rank/fill/error definitions, not the same output or optimization purpose.
 
 **Execution boundary.** Preserving StructuredConv does not create runtime support. The original can execute only when a real Logical/Physical route exists; otherwise report explicit UnsupportedRoute. Follow [the §7.10.7 execution boundary](#conv2d-graph-spores-semantic-blackbox).
 
-**Decision.** Reject the earlier proposal for a rank-only convolution adverb. Retain the **configuration/shape noun → convolution adverb → derived verb** pattern investigated in historical JAXA. Input/output channel counts, kernel dimensions, stride, padding and whether a bias exists are *operator configuration*, not exposed weight array values. The user should not have to pass a mutable weight noun into a Conv call. The authoritative J Graph IR still contains the original Structured Conv. An optional, non-executing and non-destructive **VirtualExpansion sidecar** exposes a symbolic weight ParameterRef and a sum-product/index description only when SPORES-style analysis asks for it. Do not expand all Conv calls into J primitives, rewrite J source, or add another mandatory IR stage.
+**Decision.** Reject the earlier proposal for a rank-only convolution adverb. Retain the **configuration/shape noun → convolution adverb → derived verb** pattern investigated in historical JAXA. Input/output channel counts, kernel dimensions, stride, padding and whether a bias exists are *operator configuration*, not exposed weight array values. The user should not have to pass a mutable weight noun into a Conv call. The authoritative J Graph IR still contains the original Structured Conv. An optional, non-executing and non-destructive **AlgebraicExpansion sidecar** exposes a symbolic weight ParameterRef and a sum-product/index description only when SPORES-style analysis asks for it. Do not expand all Conv calls into J primitives, rewrite J source, or add another mandatory IR stage.
 
 **Verified historical JAXA builder operand order**, from JAXA-complier Appendix B, docs/JAXA/primitives.py::_infer_conv and jaxa_enqueue.py::CUSTOM_PRIMITIVES. These are historical prototype contracts, **not current runnable RustJ ABI**:
 
@@ -3082,7 +3104,7 @@ Optional non-executing analysis:
 
 LayerInstanceId is not merely a source variable's spelling or a tensor shape. Bind it to a derived-function instance and state owner using witnessed source/name versions. Same-shaped C1/C2 weights must not be merged. Proven intentional weight sharing uses a common StateResource identity; J shadow/rebind, dynamic lookup, fixation and alias must not be guessed away. Historical JAXA paired conv_forward/conv_backward by a naming convention; that convention is **not** a RustJ proof of shared resources. W@v and W@(v+1) are distinct observed weight snapshots. An unresolved mutable read cannot be treated as a pure expression or floated across its effect barrier.
 
-**Virtual expansion procedure, respecting existing §7.10.1–5:**
+**Algebraic Expansion procedure, respecting existing §7.10.1–5:**
 
 1. **Resolve only on demand:** use original FunctionEntity, builder configuration, resolved input/output/weight ShapeSpec, Rank/frame/cell, dtype/numeric policy, source provenance, read resource token and version. If any required geometry/state/semantic fact is unavailable, yield Opaque, without reading or initializing actual weight values.
 2. **Build index relations:** reuse §7.10.1's grouped NCHW cross-correlation and §7.10.2 ConvAccessWitness. Preserve free and bound axes, bounds, zero-padding/fill predicates, and the ordered reduction. When the source schema is the historical JAXA form, only a proven conversion allows groups=1, dilation=1, stride=(s,s), padding=(p,p).
@@ -3098,7 +3120,7 @@ LayerInstanceId is not merely a source variable's spelling or a tensor shape. Bi
           |                       |
           |                  StateResource(weight@v, bias@v)
           v
-   optional VirtualExpansion sidecar [analysis only]
+   optional AlgebraicExpansion sidecar [analysis only]
       X + symbolic ParameterRef(C1, weight@v)
         -> index relation / ordered sum-product
         -> bounded SPORES search
@@ -3128,7 +3150,7 @@ LayerInstanceId is not merely a source variable's spelling or a tensor shape. Bi
 
 
 <a id="conv-virtual-expansion-examples"></a>
-**7.10.9 Virtual Expansion worked examples: numerical cells, relational views, candidate rewrites and deliberate rejections (2026-10-14; design only).**
+**7.10.9 Algebraic Expansion worked examples: numerical cells, relational views, candidate rewrites and deliberate rejections (2026-10-14; design only).**
 
 All conv2d source snippets below illustrate the *proposed* RustJ surface described in §7.10.8. They have not been verified as executable RustJ code. They reuse historical JAXA's seven-field configuration noun, not its RjP precision extension as an interpretation of ordinary J Rank. The array examples use ordinary 2D NCHW cross-correlation and exact-real symbolic arithmetic for illustration. Batch/channel axes of size one are suppressed in printed matrices. A **virtual relation is an analysis artifact**, not a newly allocated weight buffer, user-visible J noun, executable J expansion, rewritten authoritative Graph IR, or proof of a legal numeric optimization.
 
@@ -3142,7 +3164,7 @@ model =: relu @: C1
 
 C_in=1, C_out=1, kernel=(2,2), stride=1, padding=0, bias=0, cell rank=3. Given one-channel X=[[1,2,3],[4,5,6],[7,8,9]], X shape is [1,3,3] and Conv output shape is [1,2,2]. The *authoritative* graph is Input(X) → StructuredConv(C1,X) → ReLU → Output. A separate semantic resource record could associate C1 with StateResource(weight_C1, logical_shape=[1,1,2,2], version=7). The version is an illustrative snapshot marker, not evidence of a runtime read.
 
-When VirtualExpansion(C1) is requested, it may denote the symbolic ParameterRef(weight_C1@v7) as [[a,b],[c,d]] and produce:
+When AlgebraicExpansion(C1) is requested, it may denote the symbolic ParameterRef(weight_C1@v7) as [[a,b],[c,d]] and produce:
 
 ~~~text
 Y[0,0] = 1a + 2b + 4c + 5d
@@ -3302,7 +3324,7 @@ legality:  J-observational proof? state version/guard valid?
 
 **Acceptance additions (all [ ] UNRUN; map onto existing §7.10.8 owners rather than adding another roadmap):** E1 four-cell symbolic expansion plus hypothetical-weight hand check; E2 four virtual patch rows **without** physical allocation; E3 1×1 merge candidate with IEEE negative; E4 nonlinear non-distributivity; E5 8×8→10×10 exact/cover and empty-demand guards; E6 stride=2 original H=5 versus H=6 ambiguity; E7 distinct resource/version and explicit sharing; E8 roundtrip with unsupported route/timeout/budget failure. Assign them to conv_virtual_export_roundtrip, conv_virtual_legality_extract, conv_virtual_adjoint, conv_parameter_identity and conv_virtual_budget_cost. These are **documentation fixtures**, not run source code, reference oracle or CI validation.
 
-**Generalized interface.** VirtualExpansion should be an optional **AlgebraSignature → symbolic parameter/index relation → proved candidate → verified extraction** analysis interface supplied by high-level Graph primitives, not a Conv-specific executable lowering pass. Linear/MatMul/tensor contraction and eligible pure contraction subregions in attention are plausible next clients. This does **not** authorize applying SPORES sum-product equalities indiscriminately to softmax, RNG/dropout or stateful normalization. Preserve the original high-level structured operation as the default path; instantiate its sidecar only on demand.
+**Generalized interface.** AlgebraicExpansion should be an optional **AlgebraSignature → symbolic parameter/index relation → proved candidate → verified extraction** analysis interface supplied by high-level Graph primitives, not a Conv-specific executable lowering pass. Linear/MatMul/tensor contraction and eligible pure contraction subregions in attention are plausible next clients. This does **not** authorize applying SPORES sum-product equalities indiscriminately to softmax, RNG/dropout or stateful normalization. Preserve the original high-level structured operation as the default path; instantiate its sidecar only on demand.
 
 
 **E9–E14 — Numerical walkthroughs of optimizations from other array/tensor compilers (2026-10-23; design fixtures, RustJ execution UNRUN).**
@@ -3429,7 +3451,7 @@ SPORES/egg/TenSat-style exploration can discover mathematical alternatives, but 
 
 
 <a id="conv-virtual-expansion-related-work"></a>
-**7.10.10 Virtual Expansion and prior art: distinguish analogous mechanisms from the proposed semantic/algebraic interface (2026-10-14; literature review and design only).**
+**7.10.10 Algebraic Expansion and prior art: distinguish analogous mechanisms from the proposed semantic/algebraic interface (2026-10-14; literature review and design only).**
 
 **Numerical examples:** §7.10.9 E9 (Glenside Conv→MatMul), E10 (MLIR-style nested-window index composition), E11 (Halide stride/dilation demand), E12 (MLIR-style Conv→ReLU fusion), E13 (CUTLASS implicit-GEMM realization) and E14 (TASO/TenSat candidate admission). These are original explanatory fixtures, not RustJ implementation results or executions of those frameworks.
 
@@ -3451,7 +3473,7 @@ SPORES/egg/TenSat-style exploration can discover mathematical alternatives, but 
 
 ~~~text
 1. Compiler algebra / relation analysis:
-   RustJ VirtualExpansion, Glenside access rewrites, TenSat search,
+   RustJ AlgebraicExpansion, Glenside access rewrites, TenSat search,
    analogy with database view unfolding.
    -> Represent algebra and candidate relations; not necessarily execute them.
 
@@ -3498,7 +3520,7 @@ Input-linearity and weight-linearity refer to a **bias-separated bilinear core**
 | Database unfolding: Does discarding the analysis sidecar leave the original StructuredConv and J NAME/source provenance executable? | conv_candidate_fallback / conv_virtual_export_roundtrip, E8 | [ ] UNRUN |
 | SciPy/PyLops/JAX: Do explicit input- and weight-adjoints carry correct ShapeSpec, conjugation, state snapshots, and no automatic autograd requirement? | conv_virtual_adjoint / conv_parameter_identity, E6/E7 | [ ] UNRUN |
 
-**Claim of research contribution: strict bounds.** Existing research has already demonstrated **operator-property-based verified graph substitution (TASO)**, **access-pattern tensor rewrite IR (Glenside)**, **e-graph saturation/extraction (TenSat)**, and **implicit on-the-fly im2col realization (CUTLASS)**. Therefore do **not** claim to have invented Virtual Expansion, first-class algebraic operator properties, or the first algebraic tensor optimizer. RustJ's **proposed combination** is (a) preserving full-J modifier/derived-function and StructuredOp identity, (b) hiding mutable parameter *values* from the user graph while retaining separate, explicit StateResource identity/version, (c) generating relational/access/operator views lazily, (d) admitting only proved J numeric/Rank/NAME/error/effect rewrites and executable extractions, and (e) unifying explicit adjoints and original-Graph fallback in one contract. Its novelty as an academic contribution remains **an open hypothesis** pending a more exhaustive related-work review, implementation, benchmarks and counterexample studies.
+**Claim of research contribution: strict bounds.** Existing research has already demonstrated **operator-property-based verified graph substitution (TASO)**, **access-pattern tensor rewrite IR (Glenside)**, **e-graph saturation/extraction (TenSat)**, and **implicit on-the-fly im2col realization (CUTLASS)**. Therefore do **not** claim to have invented Algebraic Expansion, first-class algebraic operator properties, or the first algebraic tensor optimizer. RustJ's **proposed combination** is (a) preserving full-J modifier/derived-function and StructuredOp identity, (b) hiding mutable parameter *values* from the user graph while retaining separate, explicit StateResource identity/version, (c) generating relational/access/operator views lazily, (d) admitting only proved J numeric/Rank/NAME/error/effect rewrites and executable extractions, and (e) unifying explicit adjoints and original-Graph fallback in one contract. Its novelty as an academic contribution remains **an open hypothesis** pending a more exhaustive related-work review, implementation, benchmarks and counterexample studies.
 
 **Review and implementation status.** The cited primary paper abstracts, author/public documentation and APIs were checked for the correspondences above, but this does not constitute exhaustive source-level auditing or reproduction of the papers' formal claims. The RustJ sidecar, rewriting/proof infrastructure, target lowerings and performance tests remain **unimplemented/UNRUN**. This is documentation only and does not change M2→M3→M4 priorities or existing NN/GF/FW/IO gates.
 
@@ -3507,7 +3529,7 @@ Input-linearity and weight-linearity refer to a **bias-separated bilinear core**
 
 
 <a id="conv-virtual-expansion-walkthrough"></a>
-**7.10.11 Virtual Expansion inputs, outputs and optimization walkthrough: from an analysis request to candidate selection (2026-10-14).**
+**7.10.11 Algebraic Expansion inputs, outputs and optimization walkthrough: from an analysis request to candidate selection (2026-10-14).**
 
 Read the design in §7.10.8–10 as **inputs → analysis artifact → candidates → admission/rejection → execution route**. Request records, RuleIds and candidate names below are explanatory pseudointerfaces, not implemented Rust APIs. Arithmetic and array sizes are independently checked examples; RustJ Conv export, SPORES search, kernel execution and performance remain **UNRUN**. Evidence belongs to the existing NN/GF/FW/IO gates, not a new completion ledger.
 
@@ -3520,7 +3542,7 @@ Read the design in §7.10.8–10 as **inputs → analysis artifact → candidate
 | Semantic resource owner | layer L17, weight Rw@v7, bias Rb@v3, binding epoch; immutable snapshot or ordered-read obligation | Symbolic references, not values. Unknown version/sharing/effects stay Opaque or guarded |
 | Numeric/error contract | float32 storage, explicit accumulator/rounding/fold order, bias then ReLU, empty/fill and first-error obligations | Dtype alone licenses neither reassociation nor FMA. The example specifies c,r,s order; a final RustJ extension contract still needs independent acceptance |
 | Consumer demand | n=[0,1), o=[0,16), y=[10,18), x=[10,18) | An 8×8 final-output tile. Absent demand means full output; small demand does not license dropping original errors/effects |
-| Downstream planner | Actual target capabilities, layout, 8 KiB patch-scratch limit, empirical cost information | Physical conditions checked **after** VirtualExpansion, outside source meaning and FunctionEntity identity |
+| Downstream planner | Actual target capabilities, layout, 8 KiB patch-scratch limit, empirical cost information | Physical conditions checked **after** Algebraic Expansion, outside source meaning and FunctionEntity identity |
 
 ~~~text
 ExpansionRequest (proposed):
@@ -3594,7 +3616,7 @@ assert direct == [[-4, -4], [-4, -4]]
 assert via_patch == [-4, -4, -4, -4]
 ~~~
 
-Python allocates patches here solely to check an independent answer. VirtualExpansion stores the **coordinate map** of those rows while a,b,c,d remain symbolic. Passing this integer fixture proves neither general float32 GEMM reassociation/FMA legality nor J error equivalence.
+Python allocates patches here solely to check an independent answer. AlgebraicExpansion stores the **coordinate map** of those rows while a,b,c,d remain symbolic. Passing this integer fixture proves neither general float32 GEMM reassociation/FMA legality nor J error equivalence.
 
 **D. Two 1×1 Convs: a concrete candidate and rejection input.** With configuration 1→2→1, no bias, identical spatial domains and resources W1@v3=(a,b), W2@v8=(c,d), propose `(c*a+d*b)*x` for `c*(a*x)+d*(b*x)`. At x=2,a=3,b=4,c=5,d=6, the original is 5×6+6×8=78 and the candidate has k=39, k×2=78. This small integer case illustrates a mathematical candidate.
 

@@ -688,6 +688,8 @@ They must not be conflated.
 
 A graph-level convolution can remain structured while later realizing as a library kernel or WindowView + Contract.
 
+**Terminology:** Graph-time **Algebraic Expansion** non-destructively projects a high-level operation into an optional indexed sum-product view to discover equivalent graph alternatives, possibly across surrounding operators. Logical-time **Logical Decomposition** optionally decomposes the selected high-level operation into normalized operations such as `WindowView/IndexMap`, `Multiply` and `ReduceSum/Contract`. The existing `ExecutionBasisExpansion` is an internal sidecar/contract for such refinement, not proof of a mathematically minimal basis. `IndexMap` describes accesses; J's implicit rank iteration remains a separate `CellApply`/frame-and-cell semantic obligation. Neither step mandates physical loops, buffers or device scheduling. Call the original applied computation in J Graph IR the **J Operation Graph**; call its admitted, selected equivalent (or unchanged original) the **Optimized J Graph**; call the operation/SSA graph view within existing Logical Execution IR the **Logical Operation Graph**. These are result/view names, **not three additional canonical IR types**. The logical view may retain high-level operations and also carries semantic checks and effect/error ordering. See the [Conv design contract](PROJECT.md#conv-virtual-expansion).
+
 ---
 
 # Part XIII — Rewrite needs proof
