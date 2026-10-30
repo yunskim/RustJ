@@ -20,7 +20,7 @@ The canonical design now includes a **[falsifiable common array-algebra research
 
 **Prior-art first:** Rather than inventing array mathematics from scratch, use the [MoA (1988), APL operator calculus (1984), Remora (2019), Bird–Meertens, SPORES, Futhark and RISE mapping/checklist](docs/research/common-array-algebra-prior-art.md) as the research baseline. Admit only laws whose hypotheses have been revalidated for **actual J rank/shape, errors, NAME and floating semantics**. MoA's shape/Ψ calculus does not itself prove every J primitive lawful.
 
-**SPORES integration and E-Graph design:** [§7.9 relational access integration](PROJECT.md#spores-relational-integration) separates **which J array operations can be modeled using indexed access relations** from **which rewrites have actually been proven Exact-J**. It links the optional [§7.8 frontend-guided equality synthesis](PROJECT.md#frontend-equality-synthesis) and [§7.6 `egg` E-Graph](PROJECT.md#eqgraph-architecture) while preserving error/effect/Rank/empty-array semantics; unsound candidates never enter the selected executable plan. **This remains a design/checklist, not an implemented optimizer.**
+**SPORES integration and E-Graph design:** [`7.9 relational access integration](PROJECT.md#spores-relational-integration) separates **which J array operations can be modeled using indexed access relations** from **which rewrites have actually been proven Exact-J**. It links the optional [`7.8 frontend-guided equality synthesis](PROJECT.md#frontend-equality-synthesis) and [`7.6 `egg` E-Graph](PROJECT.md#eqgraph-architecture) while preserving error/effect/Rank/empty-array semantics; unsound candidates never enter the selected executable plan. **This remains a design/checklist, not an implemented optimizer.**
 
 J's rank, cell/frame semantics, derived entities, trains/composition, reductions/scans, and shape/reindex operations expose high-level information about **what is being computed**. RustJ tries to preserve that information for as long as possible and lets the compiler choose **how to realize it** subject to semantic legality, resource constraints, and cost.
 
@@ -39,6 +39,8 @@ CPU / SIMD / multicore / GPU / external route
 ```
 
 As a relational database separates a query from its physical plan, RustJ separates logical computation from physical realization. Fusion, materialization, layout, scheduling, and device/thread mapping are therefore not fixed by the source expression unless J semantics require them.
+
+**SQL query-planner analogy:** **Graph IR ≈ relational-algebra/equivalence rewrites** (retain Conv while exploring Window/MatMul alternatives); **Verified Logical IR ≈ an explicit logical execution plan** (selected operations, indexing, SSA dependencies, checks, effect/error order); **Route/Schedule/Physical Plan ≈ physical join-algorithm selection** (direct Conv, implicit GEMM, concrete im2col, tiling, buffers, devices). As with unfolding an SQL view, graph-time `Algebraic Expansion` is non-executing analysis; logical-time `Logical Decomposition` is separate. Conv lowering and these optimizations remain design work. See the [worked SQL-to-RustJ mapping and numeric Conv example (Korean)](docs/project/chapters/14-framework-research-p01.ko.md#sql-ir-planning-analogy).
 
 Full J is not a purely declarative SQL-like language: names, assignment, effects, observable errors, and control semantics still matter. RustJ preserves **correct J semantics first**, then exploits this “SQL for array operations” optimization freedom inside analyzable array regions.
 
@@ -194,7 +196,7 @@ The actual part of speech of an ordinary name is not permanently fixed during en
 
 `with` remains a conjunction extension bound to an ordinary J name and carries typed semantic annotations/contracts only. Physical policy such as tile, device, and register choices does not belong in `with`.
 
-The **static input contracts, DataSource I/O contracts, and backward data-demand analysis** proposal is documented in [PROJECT.md §13.5.1](PROJECT.md#io-static-source-contracts). `with` provides semantic inputs such as Shape/DType; storage access, consistency, chunk layouts and physical I/O policy remain separate. Track implementation and verification only through the existing [IO-01–IO-30 checklist](PROJECT.md#out-of-core-io-checklist).
+The **static input contracts, DataSource I/O contracts, and backward data-demand analysis** proposal is documented in [PROJECT.md `13.5.1](PROJECT.md#io-static-source-contracts). `with` provides semantic inputs such as Shape/DType; storage access, consistency, chunk layouts and physical I/O policy remain separate. Track implementation and verification only through the existing [IO-01–IO-30 checklist](PROJECT.md#out-of-core-io-checklist).
 
 Hardware lowering applies to built-in J primitives as well as extensions. Existing primitives such as `+`, `*`, `+/`, and `|:` participate in the same target-independent semantic capability and backend/architecture-specific lowering architecture. Target-specific tile/register numbers are not embedded in primitive meaning; lowering is looked up by primitive/op identity.
 
