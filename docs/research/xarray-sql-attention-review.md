@@ -113,3 +113,67 @@ J Frontend -> Graph IR
 - [ ] G8: Revisit egg/egglog extraction and cost-guided tiling only after G1–G7 demonstrate a useful optimization.
 
 **Recommended first implementation:** a narrow, semantics-checked FoldCandidate recognizer and a two-fold pipeline witness; defer general e-graph rule expansion until this path is independently tested.
+
+
+## Executable work plan / progress tracker
+
+**Tracking policy:** `[ ]` means not verified, `[x]` means completed with linked evidence. A design note alone does not count as implementation. Update this section whenever code or tests change. Keep a link to the relevant PR/commit beside each completed gate. Do not mark work done solely because the design has been described.
+
+**Dependency order:** P0 contracts → P1 recognition → P2 fusion proof → P3 Logical IR alternatives → P4 execution and numerical validation → P5 optional equality-saturation expansion. Preserve the existing Graph IR / Logical IR split; do not create a third mandatory IR.
+
+### P0 — Scope and contracts (design first)
+
+- [ ] P0.1 Inventory existing Graph IR, Logical IR, FactWitness, e-graph, NN extension and adjoint interfaces; record concrete integration points and avoid duplicate abstractions.
+- [ ] P0.2 Specify a `FoldCandidate` contract: source node IDs, operand/axis correspondence, reduction axes, row expression, output axes, domain predicate, dtype/rank/shape, effects, numeric policy, provenance.
+- [ ] P0.3 Specify a `FoldPipelineCandidate` contract: producer and consumer IDs, kept/summed dimensions, scale/normalizer, value operand, matching witness, fallback.
+- [ ] P0.4 Document legality and counterexamples: empty domains, rank/cell/frame, masked vs zero, NaN/Inf, signed zero, floating reduction order, J errors and effects.
+- **Exit:** reviewable contracts and at least one rejected counterexample per relevant legality family.
+
+### P1 — Graph IR fold recognition
+
+- [ ] P1.1 Detect basic reduction and sum-of-products contraction without lowering to explicit scalar loops.
+- [ ] P1.2 Classify generic fold, semiring fold and algebraic fold; allow distributivity only with an explicit law witness.
+- [ ] P1.3 Recognize Gaussian pair-score weighted aggregation as a non-attention case.
+- [ ] P1.4 Emit diagnostic evidence explaining why each candidate was accepted or rejected.
+- **Exit:** positive and negative matcher tests; unchanged Graph IR execution behavior.
+
+### P2 — Pipeline recognition and proof
+
+- [ ] P2.1 Detect producer score fold → transform/normalizer → consumer weighted reduction.
+- [ ] P2.2 Verify producer groups map to consumer groups plus eliminated dimensions; reject invalid joins/axis reuse.
+- [ ] P2.3 Recognize mathematically compatible softmax spellings only when J semantic and numeric policies permit.
+- [ ] P2.4 Preserve causal/sliding/band mask as domain restrictions, not zero multiplication.
+- **Exit:** independently tested fusion witness, with causal attention and Nadaraya–Watson positive cases and adversarial negatives.
+
+### P3 — Logical IR planning
+
+- [ ] P3.1 Lower a validated candidate into indexed Logical IR with explicit domain and axis mapping.
+- [ ] P3.2 Keep both materialized and fused/tiled alternatives; no eager `N×N` materialization requirement.
+- [ ] P3.3 Define online max/denominator/numerator accumulator and merge semantics, including all-masked/empty cases.
+- [ ] P3.4 Add device, memory-budget, layout and cost facts; reject infeasible plans.
+- [ ] P3.5 Ensure fallback to the original valid execution path when recognition, legality or resource checks fail.
+- **Exit:** plan comparison and reproducible selection rationale.
+
+### P4 — Kernels, tests, measurements
+
+- [ ] P4.1 Implement a minimal CPU reference executor and a fused tiled executor; do not assume GPU availability.
+- [ ] P4.2 Differential tests versus independent reference for attention and Gaussian weighted average, including adversarial numerical cases.
+- [ ] P4.3 Verify deterministic behavior under selected scheduling policy and document allowable numerical deviation.
+- [ ] P4.4 Validate explicit adjoint primitive compatibility without adding implicit autograd.
+- [ ] P4.5 Benchmark sequence length, tile size, memory peak, execution time and correctness; report failed/unsupported cases.
+- **Exit:** measurable benefit on at least one workload without violating the selected J semantics policy; otherwise retain the unfused path.
+
+### P5 — Optional e-graph expansion (after P4)
+
+- [ ] P5.1 Add proven fold and pipeline rewrites to the existing egg/e-graph framework only after checking preconditions.
+- [ ] P5.2 Compare bounded equality saturation against direct pattern detection in compilation cost and selected plan quality.
+- [ ] P5.3 Decide whether generalized cost-guided extraction is justified; keep direct recognition if not.
+- **Exit:** measured evidence for or against expanding the rule set.
+
+### Progress log
+
+| Date | Change | Evidence |
+| --- | --- | --- |
+| 2026-10-31 | Reviewed xarray-sql benchmark and einfold implementation; documented contracts and phased plan. No RustJ implementation or tests claimed. | Source links above and this document |
+
+**Next actionable item:** P0.1, followed by P0.2–P0.4. Do not begin kernel implementation before the semantics and witness boundaries are specified.
