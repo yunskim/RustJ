@@ -353,3 +353,36 @@ References:
 - [FAQ: Questions Asked Frequently, Abo Khamis, Ngo, Rudra](https://arxiv.org/abs/1504.04044)
 - [SPORES: Sum-Product Optimization via Relational Equality Saturation](https://arxiv.org/abs/2002.07951)
 - [Classical matrix-chain multiplication](https://en.wikipedia.org/wiki/Matrix_chain_multiplication) (background only)
+
+
+## P0.1 source inventory: actual RustJ IR boundaries (2026-10-31)
+
+Inspected repository source rather than assuming the proposed FAQ schema exists:
+
+| File | Observed source facts | Implication for FAQ |
+| --- | --- | --- |
+| [`src/j_graph_ir.rs`](../../src/j_graph_ir.rs) | `GraphBasisKind` already includes `Reduce`, `Window`, `CellApply`, `Structured`; `GraphBasis.layers` records composition; `NodeKind::Apply` preserves the function identity and operation contract. | Recognize aggregate/contraction candidates as analysis on existing graph nodes; do **not** add a new mandatory IR stage. |
+| [`src/logical_ir.rs`](../../src/logical_ir.rs) | `IterationAxis` has `position`, optional `extent`, `kind`, `role`; `AxisRole` includes `Reduction`; `ExecutionBasisPayload::Reduce` currently stores `ReductionAxis`. | Existing axis model is a starting point, but no demonstrated factor-scope graph or multi-variable elimination schedule; introduce those only as an opt-in candidate/plan descriptor. |
+| [`src/logical_ir.rs`](../../src/logical_ir.rs) | `FactWitness` currently covers `PrefixAgreement` and `CellFrameAgreement`. | It does **not** prove semiring laws, reassociation or numerical equivalence. Add distinct legality obligations rather than treating shape witnesses as algebraic proof. |
+| [`src/fusion_planning.rs`](../../src/fusion_planning.rs) | Readiness reports retain unresolved `ProofObligation`, `AwaitingSemanticProofs`, and `selected: false`. | Candidate generation can reuse the readiness/obligation boundary; never claim a fused candidate is executable merely because source bases are supported. |
+| [`src/physical_plan.rs`](../../src/physical_plan.rs) | Explicit physical buffers/views, execution device, memory space and physical operations exist. | Keep memory allocation and tiling decisions downstream of logical axis planning. |
+| [`src/facts.rs`](../../src/facts.rs), [`src/contracts.rs`](../../src/contracts.rs) | Existing shape/rank and operation contract infrastructure. | Reuse facts for dimensions, but algebraic legality needs a stronger, separately recorded contract. |
+
+### Decision and implementation boundary
+
+**Decision:** Keep the existing Graph IR → Logical IR → physical plan architecture. Attach `AggregateFoldCandidate` / `EliminationOrderCandidate` as analysis artifacts rather than introducing another IR layer. Proposed descriptors must refer to existing graph value IDs and explicitly list factor axis scopes, free/reduced axes, operations, semantic assumptions and outstanding proof obligations. Logical IR may then carry a chosen elimination schedule, if proved legal, with per-step output scopes and cost estimates.
+
+**Not yet present or demonstrated:** generalized contraction recognition across J expressions; FAQ variable-elimination enumerator; monoid/semiring legality witnesses; executable fold-pipeline fusion; cost-based plan selection. The source inventory is not evidence that these are implemented.
+
+### Updated P0.1 checklist
+
+- [x] P0.1.a Inspect Graph IR basis and application representation.
+- [x] P0.1.b Inspect Logical IR axes, reduction payload and FactWitness.
+- [x] P0.1.c Inspect fusion readiness and physical planning boundaries.
+- [x] P0.1.d Record the minimal-extension decision without a new IR layer.
+- [ ] P0.1.e Trace one real J contraction from frontend through both IRs; identify where factor scopes and legality information are lost.
+- [ ] P0.2 Define candidate descriptor fields against concrete existing types.
+- [ ] P0.3 Define producer/consumer pipeline scope and alignment checks.
+- [ ] P0.4 Specify proof obligations and safe fallback for J numeric semantics.
+
+**Next:** P0.1.e, then P0.2. No source code, runtime tests, or CI were changed/executed for this inventory.
