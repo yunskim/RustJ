@@ -409,3 +409,15 @@ Inspected repository source rather than assuming the proposed FAQ schema exists:
 - [ ] Only then define and attach the optional `AggregateFoldCandidate` / `EliminationOrderCandidate` descriptor and algebraic legality obligations.
 
 **P0.1.e status:** source trace and information-gap analysis complete; executable end-to-end trace remains open. No code or tests were run.
+
+
+## Two-reduction executable regression test (pending execution)
+
+Added [`tests/logical_ir.rs`](../../tests/logical_ir.rs) test `nested_reductions_preserve_two_distinct_reduction_operations` for `+/ (+/\"1) i.2 3`. It requests both `Engine::analyze_j_graph` and `Engine::analyze_a3`, verifies both IRs, checks graph-node provenance count and expects at least two Logical IR Reduce bases.
+
+**Not yet verified:** parser acceptance, actual nested-reduction lowering and test pass/fail; no local Rust toolchain or CI was run. This test is a probe, not proof that the optimizer can recognize a multi-factor Einstein contraction. If the test fails, diagnose parsing versus IR decomposition rather than relaxing the semantic assertion without evidence.
+
+- [x] Add an automated two-reduction IR preservation probe.
+- [ ] Execute `cargo test --test logical_ir nested_reductions_preserve_two_distinct_reduction_operations -- --nocapture`.
+- [ ] Inspect actual emitted IR, then distinguish sequential nested reductions from reorderable multi-factor contractions.
+- [ ] Only after a passing trace, mark P0.1.e executable portion complete.
