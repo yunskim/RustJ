@@ -460,3 +460,34 @@ fn a3_verifier_rejects_forged_search_meaning() {
     assert_eq!(err.operation, Some(op_id));
     assert!(err.message.contains("basis payload"));
 }
+
+
+#[test]
+fn nested_reductions_preserve_two_distinct_reduction_operations() {
+    // The inner rank-1 reduction reduces rows; the outer reduction consumes
+    // its vector result. This is a sequential two-reduction example, NOT a
+    // proven FAQ contraction or license to reorder the reductions.
+    let source = "+/ (+/\"1) i.2 3";
+    let engine = Engine::new();
+    let graph = engine.analyze_j_graph(source).unwrap();
+    graph.verify().unwrap();
+    let logical = engine.analyze_a3(source).unwrap();
+    logical.verify().unwrap();
+    assert_eq!(logical.j_graph_node_count, graph.nodes.len());
+
+    let reduce_count = logical
+        .operations
+        .iter()
+        .filter(|op| matches!(
+            &op.kind,
+            OpKind::Basis {
+                kind: ExecutionBasisKind::Reduce,
+                ..
+            }
+        ))
+        .count();
+    assert!(
+        reduce_count >= 2,
+        "expected both inner and outer reduction bases, got {reduce_count}"
+    );
+}
