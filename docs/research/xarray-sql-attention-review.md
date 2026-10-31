@@ -177,3 +177,82 @@ J Frontend -> Graph IR
 | 2026-10-31 | Reviewed xarray-sql benchmark and einfold implementation; documented contracts and phased plan. No RustJ implementation or tests claimed. | Source links above and this document |
 
 **Next actionable item:** P0.1, followed by P0.2–P0.4. Do not begin kernel implementation before the semantics and witness boundaries are specified.
+
+
+## Research lineage: folds, relational algebra and tensor execution
+
+This section distinguishes **documented upstream references**, **conceptual predecessors**, and **RustJ design proposals**. Similarity of ideas does not establish that einfold directly implements a named paper's algorithm.
+
+### A. Functional folds and algebraic aggregation
+
+Functional programming's `fold`/`reduce` abstracts iteration over a sequence using a state update. Parallel decomposition additionally needs a mergeable summary, often a **monoid** `(S, ⊕, e)`: closure, associativity and an identity. For example a mean can use summary `(sum,count)` with componentwise addition, followed by `sum/count`. This is a mathematical specification; IEEE floating-point addition is not strictly associative.
+
+A general state transition `s' = f(s,x)` does **not** imply a merge operator exists. In particular a J Fold conjunction (`F.` family) is a language-level iteration construct, while einfold's fold is an indexed aggregate over related inputs. A RustJ J-Fold implementation must preserve iteration order, control/termination, collected outputs, errors and effects. Only a *proved* aggregate subset can use mergeable-fold optimizations. Do not conflate the two or require J Fold as an input to the optimizer.
+
+References:
+- [J vocabulary: Fold conjunction](https://code.jsoftware.com/wiki/Vocabulary/fcap)
+- [Bird–Meertens formalism, overview](https://en.wikipedia.org/wiki/Bird%E2%80%93Meertens_formalism) (orientation only; prefer primary papers for laws)
+- [Gray et al., Data Cube: A Relational Aggregation Operator (1997)](https://doi.org/10.1023/A:1009726021843) — distributive/algebraic/holistic aggregate distinctions.
+
+### B. Database semirings, factorization and aggregate queries
+
+**Semiring provenance** (Green, Karvounarakis & Tannen, *Provenance Semirings*, PODS 2007) provides a principled algebra for relational operations. The broader lesson is that join/product and union/sum laws depend on the chosen semiring, rather than on syntax alone. In RustJ, any proposed distribution, reassociation or elimination rule needs its own dtype/shape/identity/effect witness.
+
+**Factorized databases** (Olteanu and collaborators) represent repeated relational structure compactly instead of expanding every join tuple. This motivates *avoiding materialization* but is not identical to tensor tile fusion: factorized representation, streamed join-aggregation and GPU tiling are distinct techniques.
+
+**FAQ / InsideOut** (Abo Khamis, Ngo & Rudra, *FAQ: Questions Asked Frequently*, 2016) studies functional aggregate queries over variables and semiring-like operations; variable elimination order and structural width drive complexity. For RustJ, contracted/reduced axes are candidates for variable elimination, and Logical IR can explore alternative orders subject to legality and cost. This does not mean every J array program is an FAQ instance.
+
+Primary sources:
+- [Green et al., Provenance Semirings (2007)](https://doi.org/10.1145/1265530.1265535)
+- [Abo Khamis, Ngo & Rudra, FAQ: Questions Asked Frequently (2016), arXiv](https://arxiv.org/abs/1504.04044)
+- [Olteanu & Závodný, Factorised Representations of Query Results (2012)](https://doi.org/10.1145/2213836.2213869)
+
+### C. Tensor-to-relational algebra and equality saturation
+
+A tensor contraction `C[i,k] = Σ_j A[i,j]·B[j,k]` corresponds to matching the shared `j` axis and aggregating over it. In SQL this is an equality join plus `GROUP BY i,k` and `SUM(A.v*B.v)`. The 2023 Einstein-summation-in-SQL work is a **directly acknowledged source in einfold's design**. The equivalence of a mathematical contraction to a SQL query does not imply the SQL engine will select a competitive physical algorithm.
+
+**SPORES** (*Sum-Product Optimization via Relational Equality Saturation*, 2020) uses a relational representation and equality saturation to explore alternative linear algebra expressions. This is conceptually complementary to FAQ's variable-elimination/order perspective: SPORES explores valid equivalent expressions; FAQ analyzes evaluation of aggregate queries. Neither is automatically a dependency of the current einfold implementation. einfold's design mentions egglog, but the implementation inspected above currently uses narrower pattern detectors and specialized kernels.
+
+Primary sources:
+- [Blacher et al., Efficient and Portable Einstein Summation in SQL (2023)](https://doi.org/10.1145/3589266)
+- [Wang et al., SPORES (2020)](https://arxiv.org/abs/2002.07951)
+- [einfold design and current-status distinction](https://github.com/xqlsystems/einfold/blob/main/docs/design.md)
+
+### D. Online normalization and I/O-aware attention
+
+**Memory-efficient attention** (Rabe & Staats, 2021) demonstrates attention without retaining a quadratic-size attention matrix. **FlashAttention** (Dao et al., 2022) exploits tiling and reduced memory traffic. An online stable softmax can maintain a row state `(m,l,a)` for maximum, shifted weight sum and weighted-value sum, then output `a/l`. The key opportunity is to fuse producer score computation with consumer weighted reduction so score tiles need not be materialized globally.
+
+These works justify the *execution algorithm*, not an arbitrary compiler rewrite. The compiler must separately establish producer/consumer index correspondence, mask domain, legal normalization, numerical policy, and fallback. einfold's distinctive contribution in this comparison is detecting such opportunities in an existing SQL logical plan.
+
+Primary sources:
+- [Rabe & Staats, Self-attention Does Not Need O(n²) Memory (2021)](https://arxiv.org/abs/2112.05682)
+- [Dao et al., FlashAttention (2022)](https://arxiv.org/abs/2205.14135)
+- [einfold Fold/Pipeline IR](https://github.com/xqlsystems/einfold/blob/main/crates/einfold-ir/src/pipeline.rs)
+
+### E. Comparative map for RustJ
+
+| Research tradition | Core question | RustJ placement | Evidence / limitation |
+| --- | --- | --- | --- |
+| J Fold / functional fold | How does sequential state evolve? | Frontend semantics; Graph IR state-flow analysis | Not necessarily mergeable |
+| Monoid / semiring / data cube | Which aggregates and rewrites are lawful? | Algebra contracts and FactWitness | Float and effects need explicit restrictions |
+| Factorized databases | How can repeated intermediate data be represented or avoided? | Logical IR representation and execution | Distinct from automatic tile fusion |
+| FAQ / InsideOut | Which index/variable should be eliminated first? | Logical IR alternative evaluation orders | Requires representable query structure |
+| SPORES | Which equivalent algebraic expressions can be explored? | Graph IR/e-graph, with verified laws | Equality saturation is not a proof of an unvalidated rule |
+| einfold | Can a fold/pipeline be recognized and mapped to kernels? | Graph IR candidates → Logical IR execution choices | Current implementation is narrower than its roadmap |
+| Online softmax / FlashAttention | How to compute weighted reductions with low memory traffic? | Tiled Logical IR/backend | Numerical semantics and hardware costs matter |
+
+### F. Research checklist to incorporate into the implementation gates
+
+- [ ] R1. Read FAQ/InsideOut and document a concrete RustJ contraction with two legal variable-elimination orders; record estimated intermediate shapes.
+- [ ] R2. Review factorized-query evaluation and distinguish **compact representation**, **streaming**, and **tiling** in the Logical IR design.
+- [ ] R3. State the exact monoid/semiring assumptions behind each candidate rewrite; include counterexamples for floating point and effects.
+- [ ] R4. Compare SPORES-style expression exploration with direct fold detection on one end-to-end example; do not assume egglog is already integrated upstream.
+- [ ] R5. Document whether and when J `F.` can be recognized as a mergeable aggregate; include a nonmergeable recurrence counterexample.
+- [ ] R6. Compare the materialized attention reference with online-softmax tile accumulation, including all-masked and nonfinite inputs.
+- [ ] R7. Verify primary-source metadata and link stability before using these references in a formal publication.
+
+**Recommended study order:** FAQ → semiring/aggregate laws → factorization → SPORES → einfold implementation → online softmax/FlashAttention. The first deliverable is an *index-elimination example with legality witnesses*, not an optimizer implementation.
+
+### Progress log addition
+
+- **2026-10-31:** Added a sourced research lineage and R1–R7 research checklist. These items are research tasks, not completed implementation.
