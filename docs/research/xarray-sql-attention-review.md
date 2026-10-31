@@ -256,3 +256,100 @@ Primary sources:
 ### Progress log addition
 
 - **2026-10-31:** Added a sourced research lineage and R1–R7 research checklist. These items are research tasks, not completed implementation.
+
+
+## FAQ / InsideOut worked example: variable elimination in Logical IR
+
+**Status:** design example only; no planner or proof checker implemented. This is a follow-up to research task R1.
+
+### 1. Query and axes
+
+Consider the chain contraction
+
+```text
+Y[i,l] = sum(j,k, A[i,j] * B[j,k] * C[k,l])
+A: [I,J]     B: [J,K]     C: [K,L]     Y: [I,L]
+free axes: i,l          reduced axes: j,k
+```
+
+In FAQ terms, each factor touches a subset of variables, and the optimizer may eliminate bound variables in different orders. The graph has edges `(i,j), (j,k), (k,l)`. The same mathematical expression admits multiple evaluation plans:
+
+**Plan A — eliminate j first**
+
+```text
+T[i,k] = sum_j A[i,j] * B[j,k]     # T: [I,K]
+Y[i,l] = sum_k T[i,k] * C[k,l]     # Y: [I,L]
+```
+
+**Plan B — eliminate k first**
+
+```text
+U[j,l] = sum_k B[j,k] * C[k,l]     # U: [J,L]
+Y[i,l] = sum_j A[i,j] * U[j,l]     # Y: [I,L]
+```
+
+Both avoid materializing a four-dimensional `[I,J,K,L]` product. The elimination order changes intermediate shape and arithmetic cost. For dense matrix products, approximate multiply-add counts are `I*J*K + I*K*L` (A) versus `J*K*L + I*J*L` (B), ignoring constant factors and hardware behavior.
+
+### 2. Concrete asymmetric dimensions
+
+Let `I=4096, J=16, K=4096, L=16`.
+
+| Metric | Plan A (j first) | Plan B (k first) |
+| --- | ---: | ---: |
+| First intermediate | `T[4096,4096]` | `U[16,16]` |
+| Intermediate elements | 16,777,216 | 256 |
+| Approx. multiply-adds | 269,484,032 | 1,048,576 |
+| Intermediate float32 storage (if materialized) | 64 MiB | 1 KiB |
+
+The counts assume dense operands and standard matrix-chain evaluation. They are **illustrative cost estimates**, not benchmark measurements. For different dimensions the preference may reverse. A streamed/tiled executor may reduce peak memory without changing the algebraic plan, so intermediate *logical shape* and *physical allocation* must be tracked separately.
+
+### 3. Suggested Graph IR / Logical IR contract
+
+Graph IR should retain a canonical contraction expression and candidate alternative factorizations, with provenance of the rewrite:
+
+```text
+Contraction {
+  factors: [A(i,j), B(j,k), C(k,l)],
+  free_axes: [i,l],
+  reduce_axes: [j,k],
+  combine: multiply,
+  aggregate: sum,
+  semantics_witness: ...
+}
+```
+
+Logical IR can then explore `Eliminate(j) -> Eliminate(k)` versus `Eliminate(k) -> Eliminate(j)`, attaching:
+- resulting axis sets and extents for each intermediate;
+- dense/sparse/storage layout assumptions and optional materialization/tiling;
+- estimated operations, bytes moved, peak live bytes, and backend capabilities;
+- legality witness and a safe fallback to the original evaluation order.
+
+This is a **proposed schema**, not an assertion about existing RustJ types. Check P0.1 before introducing types or new IR layers. The same planner can later consider a producer→normalizer→weighted-reduction pipeline, but normalizers and masks impose additional dependencies beyond a plain sum-product contraction.
+
+### 4. Correctness boundary and counterexamples
+
+For exact arithmetic over a suitable semiring, reassociating finite sums/products and eliminating independent variables in either order is legal. For J semantics, the optimizer must separately account for:
+- floating-point reassociation/rounding, signed zero, NaN/Inf, overflow and the language's tolerance policy;
+- noncommutative or order-sensitive combining/aggregation operators;
+- missing values, masks, shape/rank behavior and zero-length dimensions;
+- effects, errors, evaluation order and explicit adjoint contracts.
+
+**A J approximate-equality threshold is not by itself a proof** that reassociation is legal or that results remain within tolerance for arbitrary input sizes. If the necessary witness is absent, do not generate the alternative plan.
+
+### 5. FAQ versus matrix-chain optimization
+
+This three-factor example is also classical **matrix-chain multiplication order optimization**. FAQ/InsideOut generalizes the idea to factor scopes, variable elimination and aggregate query structure; this example alone does not demonstrate FAQ's full complexity or width analysis. A subsequent test should use a branched factor graph and compare variable-elimination orders with different intermediate scopes.
+
+### R1 completion criteria and follow-up
+
+- [x] R1.a Write one contraction with two elimination orders and explicit intermediate shapes.
+- [x] R1.b Calculate representative operation/storage estimates and note the assumptions.
+- [x] R1.c Identify legality witnesses and numerical counterexamples to investigate.
+- [ ] R1.d Cross-check the example against RustJ's current IR types and FactWitness implementation (P0.1).
+- [ ] R1.e Add a branched-factor example and test legality/cost estimates in code.
+- [ ] R1.f Read the FAQ paper's formal elimination definitions and record where this design diverges.
+
+References:
+- [FAQ: Questions Asked Frequently, Abo Khamis, Ngo, Rudra](https://arxiv.org/abs/1504.04044)
+- [SPORES: Sum-Product Optimization via Relational Equality Saturation](https://arxiv.org/abs/2002.07951)
+- [Classical matrix-chain multiplication](https://en.wikipedia.org/wiki/Matrix_chain_multiplication) (background only)
