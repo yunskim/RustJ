@@ -386,3 +386,26 @@ Inspected repository source rather than assuming the proposed FAQ schema exists:
 - [ ] P0.4 Specify proof obligations and safe fallback for J numeric semantics.
 
 **Next:** P0.1.e, then P0.2. No source code, runtime tests, or CI were changed/executed for this inventory.
+
+
+## P0.1.e trace: concrete J reduction and the missing contraction metadata
+
+**Source-level trace (not a runtime execution):** take the J expression `+/ 1 2 3`, a monadic reduction by addition. The code paths below were inspected; the example was **not** run through a parser or printed as an actual IR dump.
+
+1. **Frontend handoff:** `src/frontend_handoff.rs` exposes `FrontendHandoff::from_program` and `lower_name_effects`. Graph IR has `Plan::from_bound` and `from_capture` constructors. These are distinct entrypoints; a verified end-to-end runtime trace is still pending.
+2. **Graph IR classification:** `src/j_graph_ir.rs::classify_function` explicitly matches `PrimitiveAdverb(AdverbId::Slash)` and returns `GraphForm::Reduce { operand }` plus `GraphHint::ReductionStructure`. `GraphBasisKind::Reduce` records the basis while retaining the reducer's function identity. This is direct source evidence that `+/` is recognized as a reduction *family*.
+3. **Logical IR representation:** `src/logical_ir.rs` represents `ExecutionBasisKind::Reduce` with `ExecutionBasisPayload::Reduce { axis: ReductionAxis::LeadingCellAxis }`. Its `IterationAxis` records role/extent but not named factor-variable incidences; `FactWitness` only covers prefix/frame agreement. The operation can be described as a reduction, but there is no demonstrated generalized factor-scope or elimination-order descriptor.
+4. **Target lowering:** `src/lowering.rs` maps graph `Reduce` to execution `Reduce` and registers `OrderedReduction` for a CPU target. Ordered reduction is **not** permission to reassociate or parallelize it. Target feasibility and fusion legality remain distinct.
+
+**Boundary of this trace:** `+/ 1 2 3` has only one reduced axis, so it cannot itself demonstrate alternative FAQ elimination orders. The three-factor expression `Σ_{j,k} A[i,j] B[j,k] C[k,l]` in the earlier example is mathematical pseudocode; we have **not** established a valid equivalent J source spelling or verified that RustJ's current frontend accepts and preserves its multi-factor contraction as one analyzable graph. Do not claim this example is currently executable.
+
+**Observed information gap:** the existing reduction basis identifies a reducer and (in the logical payload) a leading-cell axis, but it does not expose a canonical set of factor axis scopes `{i,j}, {j,k}, {k,l}`, a list of free/reduced symbolic variables, or a legal variable-elimination schedule. These should be computed as **optional analysis descriptors** from actual graph structure and validated facts, rather than guessed from shape alone.
+
+### Next executable acceptance test
+
+- [ ] Build a frontend-to-Graph-IR-to-Logical-IR test for `+/ 1 2 3` and assert reduction identity, axis role and provenance.
+- [ ] Identify a *currently supported* J expression for a two-axis contraction, then inspect its real graph and logical operations.
+- [ ] Record the first transformation at which symbolic factor incidence is no longer recoverable, if any.
+- [ ] Only then define and attach the optional `AggregateFoldCandidate` / `EliminationOrderCandidate` descriptor and algebraic legality obligations.
+
+**P0.1.e status:** source trace and information-gap analysis complete; executable end-to-end trace remains open. No code or tests were run.
