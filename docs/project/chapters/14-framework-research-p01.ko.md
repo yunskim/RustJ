@@ -9,7 +9,7 @@
 <a id="참고-구현과-jaxa-설계-배경--필요할-때-읽는-심화-자료"></a>
 ### 참고 구현과 JAXA 설계 배경 — 필요할 때 읽는 심화 자료
 
-이하의 선행 구현·JAXA 역사와 source 비교는 설계 근거다. **처음 읽는 사람은 §1~§8의 본문을 먼저 읽어도 된다.** 과거 소제목의 번호는 기존 참조·앵커 보존을 위해 유지한다.
+이하의 선행 구현·JAXA 역사와 source 비교는 설계 근거다. **처음 읽는 사람은 `1~`8의 본문을 먼저 읽어도 된다.** 과거 소제목의 번호는 기존 참조·앵커 보존을 위해 유지한다.
 
 <a id="참고-구현reference-implementations"></a>
 ### 참고 구현(reference implementations)
@@ -51,7 +51,7 @@ array-compiler middle-end    → APEX / Co-dfns / TAIL-Futhark
 rank/structured-IR comparison → Remora / Bohrium / Lift / MLIR Linalg
 ```
 
-ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 §13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
+ArrayFire 관련 구체적인 Source → Observation → RustJ 적용·비채택 사항은 `13의 **ArrayFire / J ArrayFire add-on / fusion systems** 절을 따른다.
 
 현재 구현은 목표 compiler pipeline 전체를 완성한 상태가 아니다. 제한된 J frontend와 CPU 직접 실행 경로, Semantic IR, J Graph와 canonical Logical IR 분석, CPU storage/SIMD, sparse/boxed 기초, 읽기 전용 affine PhysicalArray가 함께 존재하는 **전환 단계**다.
 
@@ -80,17 +80,61 @@ execution planning / route selection
 CPU / SIMD / multicore / GPU / external compiler / library
 ~~~
 
-SQL 비유의 대응 관계는 역할 수준에서 다음과 같다.
+<a id="sql-ir-planning-analogy"></a>
+**SQL 관계대수 → 논리적 실행 계획 → 물리적 실행 계획: RustJ IR 경계의 비유.**
+
+SQL 옵티마이저의 역할에 대응하면 각 IR의 질문을 쉽게 구분할 수 있다. 다만 실제 DBMS는 관계대수식과 논리적 질의 계획을 하나의 IR로 다루기도 한다. 아래는 **RustJ 내부 책임의 개념적 대응**이지 DBMS가 모두 동일한 세 개의 IR을 사용한다는 뜻은 아니다.
+
+| SQL/DB 개념 | RustJ 대응 | 묻는 질문 |
+|---|---|---|
+| 파싱과 의미 분석 | Frontend / J Semantic Construction | 원본 J 표현의 name, rank, derived function과 계산 의미는? |
+| **관계대수 및 논리적 동치 재작성** | **J Graph IR / Graph Analyzer / Algebraic Expansion** | 같은 결과를 내는 다른 계산 그래프를 찾을 수 있는가? |
+| **논리적 실행 계획의 명시화** | **Execution Semantic Lowering → Verified Logical IR / Plan** | 선택된 계산의 접근 관계, 연산, SSA 의존성, checks, effect/error order는? |
+| **물리적 조인 알고리즘 선택** | **Route / Schedule / Physical Plan 또는 검증된 external lowering** | 어떤 kernel, 타일, 버퍼, layout, device로 실행할 것인가? |
+| 실행 엔진 | RustJ Runtime / backend | 선택된 계획을 실행 |
+
+SQL의 `(A JOIN B) JOIN C` ↔ `A JOIN (B JOIN C)` 같은 **관계대수 재작성**은 Graph의 동등 계산 후보 탐색에 가깝다. SQL의 **Hash Join / Merge Join / Nested Loop Join 선택**은 Physical 실행 방법 선택에 가깝다. 그 사이의 **Logical IR은 단순한 커널 선택 단계가 아니라 선택한 계산을 실제 데이터 접근·연산·검사·의존성으로 구체화**하는 단계다. RustJ에는 Logical Optimizer도 있으므로 동등성에 기반한 변경이 오직 Graph에만 존재한다고 해석해서는 안 된다.
+
+**Conv로 보는 세 단계 (문서 E9의 수치 fixture; 실제 RustJ IR 출력이 아닌 설계 의사 코드).**
 
 ~~~text
-SQL / relational system          RustJ
----------------------------      --------------------------------
-query                             J array computation
-logical query plan                J Graph + Logical Execution IR
-logical rewrite                   J-algebra / logical rewrite
-physical planner                  schedule / route / physical planner
-execution engine                  CPU/GPU/runtime/external backend
+X = [[1,2,3],      W = [[ 2,-1],
+     [4,5,6],           [ 0, 3]]
+     [7,8,9]]
+
+(1) Graph 원본:
+    Y = StructuredConv2D(X, ParameterRef(C1, weight@v7))
+
+(2) Graph의 선택적 Algebraic Expansion (SQL VIEW unfolding에 해당):
+    win[oh,ow,kh,kw] = X[oh+kh,ow+kw]
+    Y[oh,ow] = sum_(kh,kw) win[oh,ow,kh,kw] * W[kh,kw]
+    // 원본 StructuredConv를 보존하는 비실행 analysis sidecar
+
+(3) Graph 동등 후보 탐색:
+    VirtualIm2col(X) =
+      [[1,2,4,5], [2,3,5,6], [4,5,7,8], [5,6,8,9]]
+    Flatten(W) = [2,-1,0,3]
+    Reshape(MatMul(VirtualIm2col(X), Flatten(W)),[2,2])
+      = [[15,19],[27,31]]
+    // 이 숫자들의 일치는 일반 J floating 동치의 증명이 아님
+
+(4) Logical IR의 선택적 Logical Decomposition:
+    %x = Input(X)
+    %w = ParameterRead(C1, weight@v7)
+    %a = WindowView(%x, kernel=[2,2], stride=1, pad=0)
+    %y = OrderedContract(%a, %w, axes=[kh,kw])
+    Result(%y)
+    // 선택된 Graph가 고수준 Conv라면 검증된 경로에서 그대로 유지할 수도 있음
+    // Logical은 SSA, shape/rank, guards, effect/error order 등을 기록
+
+(5) Physical 후보:
+    direct Conv | implicit GEMM | tiled im2col+GEMM | full im2col+GEMM
+    // tile, concrete buffer, layout, SIMD/GPU, materialization 결정
 ~~~
+
+SQL의 **뷰 전개가 실제 테이블의 생성이나 조인 실행을 뜻하지 않듯**, Graph의 `Algebraic Expansion`은 Window의 인덱스·sum-product 관계를 **분석용으로 노출**하는 것이다. Logical의 `Logical Decomposition`은 선택된 계산을 **명시적 논리 연산으로 표현**하는 별도 과정이다. 둘 다 실행 loop나 실제 window/im2col 배열의 물질화를 강제하지 않는다.
+
+**중요한 한계:** J Graph IR 자체가 관계대수 IR인 것은 아니다. J의 Rank/Cell/Frame, 동적 NAME·assignment, 효과 및 오류 관찰 순서, 부동소수점 reduction 순서는 일반적인 SQL 동치 법칙과 다르다. 후보의 수학적 표현 가능성과 Exact-J 합법성·parameter snapshot/version·target/실제 lowering 가능성을 따로 검증해야 한다. 현재 Conv2D Algebraic Expansion / Contract SSA lowering / 관련 물리 경로는 **설계 단계이며 아직 실행 기능으로 구현되지 않았다**. 자세한 사례는 [Conv E9–E14](./11-roadmap-checklists-p04.ko.md#conv-virtual-expansion-examples), 단계 계약은 [`2 아키텍처](./03-architecture-p01.ko.md#sql-graph-logical-physical-analogy)를 참고한다.
 
 사용자는 가능한 한 계산의 의미와 필요한 semantic/storage obligation을 표현하고, 다음 사항은 analyzer/compiler/backend에 맡긴다.
 
@@ -234,7 +278,7 @@ RustJ의 J Graph IR은 이 질문에 대한 현재의 구현 답변이다.
 <a id="j-graph용-소스-대조최적화-계열-조사"></a>
 ### J Graph용 소스 대조·최적화 계열 조사
 
-다음은 기존 §4.1.3의 근거 자료를 본문 흐름에서 분리한 것이다. 하위 제목·링크는 유지한다.
+다음은 기존 `4.1.3의 근거 자료를 본문 흐름에서 분리한 것이다. 하위 제목·링크는 유지한다.
 
 <a id="413-배열-컴파일-프레임워크와의-소스-기반-대조"></a>
 #### 4.1.3 배열 컴파일 프레임워크와의 소스 기반 대조

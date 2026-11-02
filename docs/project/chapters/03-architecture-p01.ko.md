@@ -103,6 +103,17 @@ route boundaries are bridged after representation requirements are known
 | 아직 하지 않는 것 | graph optimization, physical execution 결정 | kernel/buffer/layout/device/schedule 결정 |
 | 다음 단계 | J Graph IR construction | Execution Semantic Lowering |
 
+<a id="sql-graph-logical-physical-analogy"></a>
+**SQL 옵티마이저에 빗댄 구분:** Graph IR을 **관계대수적 동등 계산 탐색**, Logical IR을 **선택된 계산의 명시적 논리 계획**, Physical planning을 **구체 실행 알고리즘 결정**에 대응시키면 이해하기 쉽다.
+
+| SQL에서의 역할 | RustJ 단계 | Conv2D의 예 |
+|---|---|---|
+| 관계대수식·논리적 재작성 | **Graph IR / Algebraic Expansion** | 고수준 Conv를 유지하며 Window+Contract/MatMul 후보를 비실행 관계식으로 탐색 |
+| 논리적 실행 계획 | **Verified Logical IR / Logical Decomposition** | WindowView·OrderedContract 등의 연산, SSA 의존성, Rank·오류·효과 검사와 순서 명시 |
+| Hash/Merge/Nested Loop Join의 구체 알고리즘 선택 | **Route / Schedule / Physical Plan** | Direct Conv/implicit GEMM/tiled im2col, buffer·layout·device 선택 |
+
+**SQL VIEW 전개가 조인 실행은 아니듯**, Graph의 `Algebraic Expansion`도 실제 윈도우 생성이나 implicit loop가 아니다. Logical의 `Logical Decomposition` 역시 실제 버퍼를 강제하지 않는다. J IR이 SQL 관계대수와 동일하다는 뜻도 아니다. J의 NAME, Rank, empty/fill, floating reduction, first-error/effect 제약으로 인해 각 후보에는 별도 합법성 증명이 필요하며, Conv2D 전 경로는 아직 설계 단계다. 단계별 **계산 가능한 예제**는 [`1.1 배열 연산의 SQL](./14-framework-research-p01.ko.md#sql-ir-planning-analogy)에 있다.
+
 **Rank 예:** `(f"1) y`에서 frontend는 `"`를 `f`의 단순 attribute로 접어 넣지 않는다. Rank는 conjunction이고, 왼쪽 function operand `f`와 오른쪽 rank operand `1`을 받아 derived function을 만들며, 그 derived function이 `y`에 적용된다는 J 의미 구조를 보존한다. 실제 `FunctionEntity` 형태는 jsource parser reduction 규칙을 따르며, 아래 표기는 설명용 개념도다.
 
 ~~~text
@@ -178,7 +189,7 @@ Physical planning / backend
 <a id="기억용-4단계-요약--상세-구현에서-다시-확인할-경계"></a>
 #### 기억용 4단계 요약 — 상세 구현에서 다시 확인할 경계
 
-처음 읽는 사람은 [도입부의 네 단계 모델](./01-introduction.ko.md#read-intro)부터 읽는다. 이 절의 Rank/Fork 예제와 아래 §2.1 이후 계약은 그 모델을 구현 관점에서 구체화한 것이다.
+처음 읽는 사람은 [도입부의 네 단계 모델](./01-introduction.ko.md#read-intro)부터 읽는다. 이 절의 Rank/Fork 예제와 아래 `2.1 이후 계약은 그 모델을 구현 관점에서 구체화한 것이다.
 
 **Execution IR은 semantic execution plan이지 하드웨어 실행 계획이 아니다.** Check·effect·error ordering과 SSA dependency는 여기서 확정하지만, AVX2 선택, GPU block 크기, concrete BufferId와 materialization은 physical planning이 담당한다. 동일한 `CellApply(f, y)`도 여러 backend realization을 가질 수 있다.
 
@@ -420,7 +431,7 @@ Verified frontend / bounded independent graph admission
     -> route partition / physical planning
 ```
 
-`Candidate` 생성, 동등성 근거 확인, target feasibility, resource feasibility, cost, **selected/committed transformation**은 서로 다른 상태다. 현재의 graph resource/target readiness를 곧바로 변환 실행 허가로 승격하지 않는다. 선택/증명이 미완성이면 원본 graph를 보수적으로 lowering하는 경로를 유지한다. 단, 원본 graph라도 이미 드러난 **verifier defect**를 정상 fallback으로 무시해서는 안 된다. 더 구체적인 candidate lifecycle 계약은 [§4.1.4](./05-graph-execution-lowering-p02.ko.md#414-candidate-lifecycle와-proof-discharge-contract)를 따른다.
+`Candidate` 생성, 동등성 근거 확인, target feasibility, resource feasibility, cost, **selected/committed transformation**은 서로 다른 상태다. 현재의 graph resource/target readiness를 곧바로 변환 실행 허가로 승격하지 않는다. 선택/증명이 미완성이면 원본 graph를 보수적으로 lowering하는 경로를 유지한다. 단, 원본 graph라도 이미 드러난 **verifier defect**를 정상 fallback으로 무시해서는 안 된다. 더 구체적인 candidate lifecycle 계약은 [`4.1.4](./05-graph-execution-lowering-p02.ko.md#414-candidate-lifecycle와-proof-discharge-contract)를 따른다.
 
 **이후 — CFG 확대는 별도 단계:** A3-v0 `logical_ir::Plan::verify()`는 function/region/block을 각각 하나로 제한한다. 이는 현재 straight-line 배열 계산의 명시된 범위이지 RustJ 언어 전체가 single-block이라는 뜻이 아니다. explicit definition의 control flow를 graph/logical로 실제 lowering할 때 다중 block, terminator, block argument/phi, effect/first-error 및 dominance 검증을 도입한다. 그 전까지 실행 인터프리터의 제어 흐름 지원을 compiled CFG 지원으로 표기하지 않는다.
 

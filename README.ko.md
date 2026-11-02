@@ -20,7 +20,7 @@ JAXA에서는 한때 **“NN의 SQL”**, 또는 **“배열 연산의 SQL”**�
 
 **선행 연구 기반:** 새 배열 수학을 처음부터 발명하기보다 [MoA(1988)·APL Operator Calculus(1984)·Remora(2019)·Bird–Meertens·SPORES·Futhark·RISE의 비교 및 검증 체크리스트](docs/research/common-array-algebra-prior-art.ko.md)를 출발점으로 삼습니다. 각 논문의 정리를 **J의 실제 rank/shape·오류·NAME·부동소수점 의미론에 맞춰 재검증한 법칙만** 동등성 후보로 인정합니다. MoA의 shape/Ψ 개념을 참고하지만 모든 J primitive의 정리가 이미 증명됐다고 주장하지 않습니다.
 
-**SPORES 통합·E-Graph 설계:** [§7.9 관계형 접근 대수 통합](PROJECT.ko.md#spores-relational-integration)은 **다양한 J 배열 연산을 인덱스·접근 관계로 표현할 수 있는 범위**와 **실제로 J 동치성이 증명되어 재작성할 수 있는 범위**를 분리합니다. [§7.8 Frontend 기반 동치 규칙 합성](PROJECT.ko.md#frontend-equality-synthesis)과 [§7.6 `egg` E-Graph](PROJECT.ko.md#eqgraph-architecture)를 선택적 최적화 경로로 연결하며, 오류·효과·Rank·빈 배열의 의미를 보존하지 못하는 후보는 버립니다. 이는 **설계/체크리스트 상태이며 아직 실행 최적화로 구현되지 않았습니다.**
+**SPORES 통합·E-Graph 설계:** [`7.9 관계형 접근 대수 통합](PROJECT.ko.md#spores-relational-integration)은 **다양한 J 배열 연산을 인덱스·접근 관계로 표현할 수 있는 범위**와 **실제로 J 동치성이 증명되어 재작성할 수 있는 범위**를 분리합니다. [`7.8 Frontend 기반 동치 규칙 합성](PROJECT.ko.md#frontend-equality-synthesis)과 [`7.6 `egg` E-Graph](PROJECT.ko.md#eqgraph-architecture)를 선택적 최적화 경로로 연결하며, 오류·효과·Rank·빈 배열의 의미를 보존하지 못하는 후보는 버립니다. 이는 **설계/체크리스트 상태이며 아직 실행 최적화로 구현되지 않았습니다.**
 
 J의 rank, cell/frame, derived entity, train/composition, reduce/scan, shape/reindex 의미는 **무엇을 계산하는가**를 높은 수준에서 드러냅니다. RustJ는 이 정보를 가능한 한 오래 보존하고, **어떻게 실행하는가**는 legality·resource·cost를 고려해 compiler가 선택하도록 설계합니다.
 
@@ -39,6 +39,8 @@ CPU / SIMD / multicore / GPU / external route
 ```
 
 관계형 DB에서 query와 physical plan을 분리하는 것처럼, RustJ에서도 logical computation과 physical realization을 분리합니다. 따라서 fusion, materialization, layout, schedule, device/thread mapping은 J source가 직접 고정하는 사항이 아닙니다.
+
+**SQL 계획 비유:** **Graph IR ≈ 관계대수·논리적 동치 재작성**(Conv를 유지하면서 Window/MatMul 후보 탐색), **Verified Logical IR ≈ 명시적 논리 실행 계획**(선택된 연산·데이터 접근·SSA·검사와 오류/효과 순서), **Route/Schedule/Physical Plan ≈ 물리적 조인 알고리즘 선택**(Direct Conv, implicit GEMM, 실제 im2col·타일·버퍼·장치). SQL의 VIEW 전개처럼 Graph의 `Algebraic Expansion`은 비실행 분석이고 Logical의 `Logical Decomposition`은 별도 과정입니다. Conv 경로는 아직 설계 단계입니다. [대응표와 숫자 Conv 예제](docs/project/chapters/14-framework-research-p01.ko.md#sql-ir-planning-analogy)를 참고하세요.
 
 full J는 name, assignment, effect, error/control semantics가 있으므로 순수 SQL 같은 declarative language라고 볼 수는 없습니다. RustJ의 의미는 **J를 정확하게 보존하는 것**이 우선이고, 그중 분석 가능한 array region에서 “배열 연산의 SQL”과 같은 optimization freedom을 활용합니다.
 
@@ -194,7 +196,7 @@ ordinary name의 실제 품사는 enqueue에서 고정하지 않고 **parser가 
 
 `with`는 ordinary J name에 binding되는 conjunction extension으로 유지하되, typed semantic annotation/contract만 결합합니다. tile/device/register 같은 physical policy를 `with`에 넣지 않습니다.
 
-**정적 입력 계약·DataSource I/O 계약·역방향 데이터 요구량 분석**은 [PROJECT.ko.md §8.5.5](PROJECT.ko.md#io-static-source-contracts)를 참고합니다. `with`에 Shape/DType 등 의미론적 계약을 제공하고, 저장소의 access/consistency/chunk 계약과 물리적 I/O 정책은 분리합니다. 구현·검증 상태는 기존 [IO-01~IO-30 체크리스트](PROJECT.ko.md#out-of-core-io-checklist)에서만 관리합니다.
+**정적 입력 계약·DataSource I/O 계약·역방향 데이터 요구량 분석**은 [PROJECT.ko.md `8.5.5](PROJECT.ko.md#io-static-source-contracts)를 참고합니다. `with`에 Shape/DType 등 의미론적 계약을 제공하고, 저장소의 access/consistency/chunk 계약과 물리적 I/O 정책은 분리합니다. 구현·검증 상태는 기존 [IO-01~IO-30 체크리스트](PROJECT.ko.md#out-of-core-io-checklist)에서만 관리합니다.
 하드웨어 lowering은 extension에만 적용하지 않습니다. `+`, `*`, `+/`, `|:` 같은 **기존 J primitive도** target-independent semantic capability와 backend/architecture별 lowering capability를 가집니다. 특정 GPU의 tile/register 숫자를 primitive 의미에 넣는 대신, primitive/op identity를 key로 target lowering을 조회합니다.
 
 GPU/CPU target은 하나의 `TargetProfile` blob으로 보지 않고 다음처럼 구분합니다.
