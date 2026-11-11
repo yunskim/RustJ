@@ -2868,12 +2868,11 @@ impl Engine {
 
     fn commit_runtime_binding(&mut self, name: &str, value: JEntity) -> Result<JEntity> {
         if name.contains("__") && !name.ends_with('_') {
+            // Resolve the holder after the RHS and before mutating any target.
+            // An indirect locative selects the same locale table for nouns and
+            // functions. Function *reads/calls* remain a separate unsupported
+            // capability until their lookup and execution timing is verified.
             let (key, locale) = self.resolve_indirect_noun_address(name)?;
-            if !matches!(value, JEntity::Noun(_)) {
-                return Err(Error::Unsupported(
-                    "indirect-locative function assignment".into(),
-                ));
-            }
             self.ensure_named_locale(&locale)?;
             if locale == "base" {
                 return self.commit_binding(key, value);

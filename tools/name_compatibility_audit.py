@@ -253,6 +253,23 @@ SCOPE_FIXTURES = [
         "op_probe_=:+", "call 4"]),
     # Isolate already-noun lookup from a right-hand nounifying side effect.
     # Run each fixture in its own fresh J and RustJ interpreter.
+    ("indirect_function_assignment_own_locale", [
+        "fn_z_=:+", "holder=:<'probe'",
+        "fn__holder=:-", "fn_probe_ 4", "fn_z_ 4",
+        "holder=:<'other'", "fn__holder=:-",
+        "fn_other_ 5", "fn_probe_ 4", "fn_z_ 4",
+        "holder=:<'base'", "fn__holder=:-",
+        "fn 6", "fn_other_ 5"]),
+    ("indirect_function_assignment_first_error", [
+        "holder=:<'probe'", "fn_probe_=:+",
+        "fn__holder=:1 2+1 2 3", "fn_probe_ 4",
+        "holder=:<'bad_name'", "fn__holder=:-",
+        "fn_probe_ 4", "holder=:<'probe'",
+        "fn__holder=:-", "fn_probe_ 4"]),
+    ("indirect_function_assignment_local_holder", [
+        "holder=:<'other'", "fn_other_=:+",
+        "writer=:3 : 0\nholder=.<'probe'\nfn__holder=.-\ny\n)",
+        "writer 9", "fn_probe_ 4", "fn_other_ 4", "holder"]),
     ("named_direct_body_noun_before_call", [
         "op_probe_=:+", "call=:{{op_probe_ y}}", "call 4",
         "op_probe_=:7", "call 4", "op_probe_",
