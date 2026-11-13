@@ -2,7 +2,7 @@
 
 # RustJ 프로젝트 문서 — 개요와 목차
 
-RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 다양한 경로로 실행할 수 있는 배열 컴파일러를 목표로 합니다.
+RustJ의 **중심 목표는 J의 함수 합성과 배열 대수를 컴파일러가 이해하여 동등한 계산 형태와 최적화 기회를 발견·검증하고, J 의미론을 보존하면서 실행에 활용하는 것**입니다. CPU·GPU·외부 backend는 이를 실현하는 수단이며, 모든 실행 경로나 선행연구를 직접 완성하는 것이 목표는 아닙니다. [§1 프로젝트 목적·성공 기준](docs/project/chapters/02-project-goal.ko.md#11-핵심-목표와-개발-우선순위)을 따릅니다.
 
 **문서 정본 구조:** 이 페이지는 진입점이며, 상세 설계·구현 상태·체크리스트는 아래 연결된 `docs/project/chapters/*.ko.md`가 주제별 정본입니다. 영어 문서 [PROJECT.md](PROJECT.md)는 별도 분할 전까지 기존 통합 영어 문서를 유지합니다. [FOUNDATIONS.ko.md](FOUNDATIONS.ko.md)는 필수 설계 기반 문서입니다.
 
@@ -11,6 +11,7 @@ RustJ는 J 언어의 관찰 가능한 의미론을 보존하면서 CPU·GPU 등 
 - [라이선스](LICENSE) · [기여자 계약](CLA.ko.md)
 
 ## 신규 설계 초안
+- [Futhark compiler 선행연구와 Graph/Logical IR 구현 경계 — Redomap·flattening·accumulator (2026-11-13)](./docs/research/futhark-compiler-ir-prior-art.ko.md) — **구조 변경 없음 / FUT-01~12 검증 미완료**
 
 - [Conv1D blackbox · Algebraic Expansion · Adjoint · Logical Decomposition (입출력 예제)](docs/project/conv1d-algebraic-view.ko.md) — 제한적 프로토타입 구현, 정식 IR 통합 보류(NAME/locale 선행)
 - [J Operation Graph → Optimized J Graph → Logical Operation Graph 및 변환 경계](./docs/project/chapters/03-architecture-p01.ko.md#두-ir-사이의-최적화-책임) · [Conv2D 예제와 검증 의무](./docs/project/chapters/11-roadmap-checklists-p04.ko.md#conv-virtual-expansion) — 설계 계약이며 최적화 구현·CI 수용 상태를 뜻하지 않음

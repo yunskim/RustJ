@@ -1,5 +1,7 @@
 # RustJ 공통배열대수 선행 연구와 J 의미론의 대응표
 
+> **Futhark 후속 원문 검토(2026-11-13):** [Redomap(2016), moderate/incremental/full flattening(2017/2019/2026), accumulator(2026), Graph/Logical/Physical 단계별 적용 및 FUT-01~12 체크리스트](futhark-compiler-ir-prior-art.ko.md). 기존 IR 구조는 그대로 유지한다.
+
 > 상태: **문헌·설계 검토 완료(1차) / 개별 법칙의 RustJ 정형 증명·재작성 승인은 미완료**.
 > `PROJECT.ko.md`가 아키텍처·상태의 정본이며, 이 문서는 기존 [R0 공통 접근 관계 실험](common-array-access-composition.ko.md)과 [수치 오차 정책](common-array-numeric-error-policy.ko.md)에 딸린 **비교 연구·검증 체크리스트**다. 별도의 새로운 필수 IR이나 완성된 보편 배열대수를 선언하지 않는다.
 

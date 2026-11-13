@@ -24,6 +24,8 @@ Review these foundations before changing:
 - unsupported-form policy;
 - graph rewrite / resource analysis when semantic observability may change.
 
+**Research purpose behind this architecture:** RustJ is not intended merely to execute J on GPUs or to reproduce all features of Futhark, XLA or other compilers. Its differentiating goal is to recognize **J function composition, Rank and array algebra as computation structure**, explore and validate otherwise missed equivalent graphs, and make those transformations executable. Preserving J-observable semantics is a necessary condition; CPU, GPU and external backends are means of realization. The [canonical project mission and admission policy](docs/project/chapters/02-project-goal.ko.md#11-핵심-목표와-개발-우선순위) govern implementation scope and priority. This purpose never licenses a narrower parser semantics or an unproved rewrite.
+
 ---
 
 # Part I — The central question

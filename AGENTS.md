@@ -12,7 +12,7 @@ Every work iteration must:
 1. **Observe:** read the latest `main` head, open issues/PRs, exact-commit CI runs,
    relevant canonical checklist items, and pinned jsource evidence. Do not infer
    branch freshness or milestone success from a PR description or historical run.
-2. **Select:** pick the smallest unblocking vertical slice. Prioritize baseline
+2. **Select:** apply the [project's J-algebra optimization mission and non-goals](docs/project/chapters/02-project-goal.ko.md#11-핵심-목표와-개발-우선순위) when admitting new optimizer research. Require a specific J-computation opportunity, exact semantic evidence, and a bounded executable or falsifiable slice; do not turn every external compiler paper into a required RustJ feature. Pick the smallest unblocking vertical slice. Prioritize baseline
    test/CI failures and semantic correctness over M2 frontend convergence,
    then M3 legality/route proof, M4 single-CPU physical execution, and later
    M5/M6 heterogeneous optimization. Independent nonblocking research may

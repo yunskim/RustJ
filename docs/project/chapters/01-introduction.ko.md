@@ -6,7 +6,7 @@
 # RustJ 통합 프로젝트 문서
 
 > 상태: **유일한 권위 문서(authoritative project document)**  
-> 문서 갱신일: 2026-10-13
+> 문서 갱신일: 2026-11-13
 >
 > 앞으로 아키텍처, 설계 결정, 구현 계획, 지원 범위, 진행 상태, 검증 정책과 주요 검증 결과는 이 문서에 통합한다.  
 > [FOUNDATIONS.ko.md](../../../FOUNDATIONS.ko.md)는 RustJ가 왜 compiler-oriented architecture를 택하는지, interpreter 전통에서 무엇을 보존해야 하는지, 어떤 compiler 설계가 J에서 회귀가 되는지를 규정하는 **필수 설계 기반 문서**다. frontend·Semantic IR·runtime/JIT/AOT 경계·rank/CellApply·target 설계를 변경하기 전 반드시 함께 검토한다.  
@@ -21,7 +21,7 @@
 <a id="rustj를-한-문장으로-설명하면"></a>
 ### RustJ를 한 문장으로 설명하면
 
-RustJ는 **J의 언어 의미를 jsource와 호환되게 보존하면서, 그 의미를 분석 가능한 배열 계산으로 바꾸고, 최적화한 뒤 CPU·GPU·외부 compiler 등 여러 실행 경로로 내릴 수 있게 만드는 compiler/runtime**다.
+RustJ는 **J의 함수 합성과 배열 대수를 컴파일러가 이해하여 동등한 계산 형태와 최적화 기회를 발견·검증하고, J의 관찰 가능한 의미를 보존한 채 실행할 수 있게 만드는 compiler/runtime**다. CPU·GPU·외부 compiler는 이러한 계산을 실현하는 선택적 실행 경로다. **정확한 J 실행과 작게 검증된 배열 최적화**가 먼저이며, 모든 backend나 선행연구 기능의 완성이 프로젝트의 성공 조건은 아니다. [§1 중심 목표와 성공 기준](./02-project-goal.ko.md#11-핵심-목표와-개발-우선순위)을 따른다.
 
 중요한 점은 J source를 곧바로 loop나 GPU kernel로 번역하지 않는다는 것이다. J에는 Rank, adverb, conjunction, hook/fork/train, name lookup처럼 **언어 의미 자체가 계산 구조를 만드는 요소**가 많다. 이 의미를 너무 일찍 loop나 kernel로 바꾸면 J의 의미도 잃고 optimizer가 사용할 고수준 정보도 잃는다.
 
