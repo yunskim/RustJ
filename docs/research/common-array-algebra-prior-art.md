@@ -1,5 +1,7 @@
 # RustJ common array algebra: prior art and J-semantics mapping
 
+> **Futhark follow-up (2026-11-13):** [Redomap, moderate/incremental/full flattening, parallel accumulators, and RustJ layer-specific proof gates](futhark-compiler-ir-prior-art.md). The existing IR architecture is unchanged.
+
 > **Status:** initial literature/design review documented; formal RustJ translations, J-differential proofs and executable rewrites **NOT YET VERIFIED**. `PROJECT.ko.md` is the canonical architecture/status authority. This is a companion research checklist to [R0 access composition](common-array-access-composition.md) and [numeric policy](common-array-numeric-error-policy.md), not a new mandatory IR or a claimed universal algebra.
 
 ## 1. Revised research position
