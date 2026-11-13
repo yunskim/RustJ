@@ -370,6 +370,17 @@ Physical/Schedule
 
 현재 `StructuralOpportunity`는 이 두 층을 연결하는 bridge다. 앞으로는 J Graph IR의 `GraphForm/GraphHint`가 source이며, Execution lowering이 이를 실제 execution ValueId에 투영해 `StructuralOpportunity<ValueId>`를 만든다. 후자가 generic DAG를 다시 pattern-match해서 원래 J topology를 복원하는 경로는 보조 수단으로만 사용한다.
 
+<a id="futhark-ir-implementation-research"></a>
+##### Futhark 컴파일러 연구를 두 IR의 구현에 적용하는 경계 (2026-11-13, 문헌 분석만)
+
+**기존 Graph / Logical / Schedule / Physical 구조는 변경하지 않는다.** [Futhark의 Redomap·moderate/incremental/full flattening·parallel accumulator 상세 연구](../../research/futhark-compiler-ir-prior-art.ko.md)는 각 단계의 변환 방식과 검증 의무를 참고하기 위한 것으로, 새 mandatory IR 또는 Futhark 의존 backend 도입 제안이 아니다.
+
+- **J Graph IR**: `map`·`reduce`·`scan`·고수준 Conv의 대수적 의미와 producer-consumer/horizontal fusion 후보를 **원본 graph를 보존하면서** 탐색한다. Algebraic Expansion은 비실행 의미식 조회·동등 Graph 후보이며, 실행용 loop 전개가 아니다.
+- **Verified Logical Execution IR**: 선택된 Graph에 대해 **선택적** Logical Decomposition을 수행하고 frame/cell·IndexMap·세그먼트 경계·축약 영역·alias/누적·검사/첫 오류·효과 의존성을 표현하고 검증한다. Futhark의 `segscan`이나 `with_acc`를 J primitive로 강제하지 않는다.
+- **기존 Route/Schedule/Physical**: 검증된 Logical 계산에서 fusion/fission의 실제 적용, loop interchange, vectorization avoidance, uniform fast path, segmented kernel, 여러 물리 버전 및 guard, atomic/결정적 reduction, memory/layout 선택을 맡는다. **Logical IR 자체가 target-specific 실행법을 결정하지 않는다.**
+
+모든 후보는 J Rank/empty-frame/fill/prototype/NAME/effect/first-error와 수치 정책을 통과해야 한다. Futhark의 순수 함수형 전제나 부동소수점 재결합을 자동적인 Exact-J 동등성으로 취급하지 않는다. 현재 **설계 검토만 완료했으며 FUT-01~FUT-12 구현·테스트 체크는 열려 있다.**
+
 <a id="212-frontend-j-graph-logical-handoff-검증-계약"></a>
 ### 2.1.2 Frontend → J Graph IR → Logical IR: 검증 경계와 구현 상태 감사 (2026-10-22)
 
