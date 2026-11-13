@@ -1,17 +1,17 @@
 # Futhark compiler prior art for RustJ's existing Graph/Logical IR
 
-> Reviewed 2026-11-13. **Literature/design study only, not an implemented or verified RustJ optimization.** Keep the existing canonical J Graph IR (\`j_graph_ir::Plan\`) → Verified Logical Execution IR (\`logical_ir::Plan\`) → Route/Schedule/Physical pipeline. Do not introduce a mandatory Futhark IR, a third canonical IR, implicit autodiff, or a required Futhark backend.
+> Reviewed 2026-11-13. **Literature/design study only, not an implemented or verified RustJ optimization.** Keep the existing canonical J Graph IR (`j_graph_ir::Plan`) → Verified Logical Execution IR (`logical_ir::Plan`) → Route/Schedule/Physical pipeline. Do not introduce a mandatory Futhark IR, a third canonical IR, implicit autodiff, or a required Futhark backend.
 > Detailed Korean primary study: [futhark-compiler-ir-prior-art.ko.md](futhark-compiler-ir-prior-art.ko.md). Architecture contract: [Graph/Logical responsibilities](../project/chapters/03-architecture-p01.ko.md#두-ir-사이의-최적화-책임).
 
 ## What the Futhark-J Bridge does and does not prove
 
-The [Futhark-J Bridge](https://web.liminal.cafe/~byakuren/j/futhark/) compiles **separately authored Futhark functions** with \`futhark multicore --library\`, builds a native library, caches it, and invokes it through J's FFI. It is **not** automatic compilation or optimization of arbitrary J programs. The author's benchmark claims (e.g. Mandelbrot 1525x and dot product 0.3x relative speed) are not transferable to RustJ. They require comparable algorithms, exact output checks, execution time separated from FFI/compilation, equivalent threading, and independent measurement.
+The [Futhark-J Bridge](https://web.liminal.cafe/~byakuren/j/futhark/) compiles **separately authored Futhark functions** with `futhark multicore --library`, builds a native library, caches it, and invokes it through J's FFI. It is **not** automatic compilation or optimization of arbitrary J programs. The author's benchmark claims (e.g. Mandelbrot 1525x and dot product 0.3x relative speed) are not transferable to RustJ. They require comparable algorithms, exact output checks, execution time separated from FFI/compilation, equivalent threading, and independent measurement.
 
 The useful research lies in the compiler's IR and transformation discipline:
 
 | Source | Main insight | Mapping to RustJ |
 |---|---|---|
-| [Redomap, ARRAY 2016](https://www.futhark-lang.org/publications/array16.pdf) | Producer/consumer and horizontal fusion of map/reduce; \`redomap\` as an internal high-level operator; subsequent memory-coalesced lowering | Graph equivalence and fanout constraints; Logical reduction semantics; Physical kernel choice |
+| [Redomap, ARRAY 2016](https://www.futhark-lang.org/publications/array16.pdf) | Producer/consumer and horizontal fusion of map/reduce; `redomap` as an internal high-level operator; subsequent memory-coalesced lowering | Graph equivalence and fanout constraints; Logical reduction semantics; Physical kernel choice |
 | [Futhark, PLDI 2017](https://doi.org/10.1145/3062341.3062354); [book Chapter 8](https://futhark-book.readthedocs.io/en/latest/regular-flattening.html) | Moderate flattening for regular nested map/reduce/scan; segmented scans and selective mapping to hardware | Logical cell/segment/domain witnesses; downstream scheduling |
 | [Incremental Flattening, PPoPP 2019](https://futhark-lang.org/publications/ppopp19.pdf) | Multiple code versions for different depths of nested parallelism, guarded by hardware/data-tuned predicates | Multiple Schedule/Physical variants of **one** verified Logical computation |
 | [Full flattening, July 2026](https://futhark-lang.org/blog/2026-07-31-full-flattening.html) | Fission, segmented representations, branch packing, nonuniform loops, vectorization avoidance, uniform fast paths | Optional shape/domain decomposition and proof obligations; no mandatory ragged-array IR |
@@ -21,10 +21,10 @@ The useful research lies in the compiler's IR and transformation discipline:
 
 Fusion merges traversals:
 
-\`\`\`text
+```text
 map f (map g xs) => map (f ∘ g) xs
 reduce op z (map f xs) => fused map/reduce candidate
-\`\`\`
+```
 
 Flattening maps *nested parallelism* to execution patterns supported by hardware. Fission is often needed to split complex map bodies into operations that can be flattened. Excessive fission can increase intermediate buffers and kernel traffic. Optimal compilation balances fusion, fission, locality, and available parallelism, rather than maximizing any one of them.
 
@@ -32,12 +32,12 @@ Redomap treats map/reduce combinations as compiler-level operators, not user syn
 
 ### 2. Moderate/regular flattening and segmented scans
 
-\`\`\`text
+```text
 map (\row -> scan op identity row) rows
     -> regular segmented scan, when the segment mapping is proven
-\`\`\`
+```
 
-For values \`[1,2,3,4,5,6]\` and segment-head flags \`[T,T,F,T,F,F]\`, segmented addition scan produces \`[1,2,5,4,9,15]\`. A scan over pairs \`(value,head_flag)\` resets accumulation at a segment head; associativity and identity still need an operator-specific proof. Uniform nested map/map and map/scan cases have efficient flattening rules; nonuniform J rank/frame/cell semantics must not be assumed identical to Futhark's regular arrays.
+For values `[1,2,3,4,5,6]` and segment-head flags `[T,T,F,T,F,F]`, segmented addition scan produces `[1,2,5,4,9,15]`. A scan over pairs `(value,head_flag)` resets accumulation at a segment head; associativity and identity still need an operator-specific proof. Uniform nested map/map and map/scan cases have efficient flattening rules; nonuniform J rank/frame/cell semantics must not be assumed identical to Futhark's regular arrays.
 
 A map-over-loop can either keep an inner sequential loop per parallel element or, when shape-preserving and legal, interchange map and loop. This choice belongs to Schedule/Physical after the Logical verifier preserves the iteration-domain and error/effect obligations.
 
@@ -49,12 +49,12 @@ The PPoPP 2019 work produces several valid code versions and runtime predicates 
 
 The 2026 design handles cases like:
 
-\`\`\`text
+```text
 map (\n -> reduce (+) 0 (iota n)) [1,3,2]
 lengths=[1,3,2], offsets=[0,1,4]
 values=[0,0,1,2,0,1]
 heads =[T,T,F,F,T,F]
-\`\`\`
+```
 
 This representation is **explanatory**, not a proposed mandatory RustJ IR. The Futhark design fissions map bodies, generates segmented counterparts, packs branch lanes and tracks live lanes in nonuniform loops. It avoids fission of scalar “super-statements” to preserve locality. Size types permit uniform fast paths without segment metadata, improving downstream analysis/tiling. The July 2026 post described a near-merge compiler implementation; it does not establish that every nonuniform workload is efficient or that RustJ already supports it.
 
@@ -62,22 +62,22 @@ This representation is **explanatory**, not a proposed mandatory RustJ IR. The F
 
 An explicit gather input-adjoint needs a scatter accumulation:
 
-\`\`\`text
+```text
 y[k] = x[index[k]]
 dx[index[k]] += dy[k]   # potential duplicate index
-\`\`\`
+```
 
-Naively generating an entire dense contribution array per iteration risks excessive memory. Futhark's **IR-only** \`with_acc\` / \`update_acc\` employs \`acc(c,t)\`: a certificate-tagged, linear, write-only view. The certificate ties an accumulator to its scope; linear use prevents accidental duplication or observation; a special \`map\` rule logically splits/joins accumulators. The denotational model is a list of index/value updates; actual execution may use atomic operations. Associativity, commutativity, bounds, aliasing, races and floating-point nondeterminism must be treated explicitly.
+Naively generating an entire dense contribution array per iteration risks excessive memory. Futhark's **IR-only** `with_acc` / `update_acc` employs `acc(c,t)`: a certificate-tagged, linear, write-only view. The certificate ties an accumulator to its scope; linear use prevents accidental duplication or observation; a special `map` rule logically splits/joins accumulators. The denotational model is a list of index/value updates; actual execution may use atomic operations. Associativity, commutativity, bounds, aliasing, races and floating-point nondeterminism must be treated explicitly.
 
-RustJ keeps **explicit adjoint primitives**, does not enable implicit autograd, and does not conflate Futhark \`with_acc\` with RustJ's existing \`with\` conjunction. Consider a restricted Logical IR accumulation contract and only then alternative physical implementations.
+RustJ keeps **explicit adjoint primitives**, does not enable implicit autograd, and does not conflate Futhark `with_acc` with RustJ's existing `with` conjunction. Consider a restricted Logical IR accumulation contract and only then alternative physical implementations.
 
 ## Layer-by-layer contract
 
 | Layer | Allowed | Not allowed |
 |---|---|---|
 | J semantic frontend | J function construction, rank, names, binding/version, effects | Eager SOAC rewriting or semantic changes |
-| **Graph IR** | Preserve \`StructuredConv\`, reduction/scan, Algebraic Views, candidate rewrites with witness and provenance | Threads, buffers, tiles, device layout |
-| **Verified Logical IR** | Optional \`IndexMap\`/Window/Contract decomposition, SSA/checks, segment domains, accumulate/alias/error facts, \`CellApply\` | Actual atomic instructions, hardware thread blocks |
+| **Graph IR** | Preserve `StructuredConv`, reduction/scan, Algebraic Views, candidate rewrites with witness and provenance | Threads, buffers, tiles, device layout |
+| **Verified Logical IR** | Optional `IndexMap`/Window/Contract decomposition, SSA/checks, segment domains, accumulate/alias/error facts, `CellApply` | Actual atomic instructions, hardware thread blocks |
 | **Schedule/Physical** | Fusion/fission execution, loop interchange, segmentation, tiling, kernel variant choice and guards | Redefining J primitive semantics |
 | Executor | Verified fallback, benchmarks, runtime guards | Silent changes to first-error or numerical contract |
 
@@ -87,7 +87,7 @@ The bridge to [SPORES/egg](common-array-algebra-prior-art.md) and [einfold](xarr
 
 - [ ] **FUT-01** Map/map fusion: fanout, NAME, effect/first-error, provenance and counterexamples.
 - [ ] **FUT-02** Map/reduce/redomap: associative vs commutative, empty, IEEE, overflow, dtype.
-- [ ] **FUT-03** \`CellApply(Scan)\` frame/cell/segment proof against J-C; empty/prototype.
+- [ ] **FUT-03** `CellApply(Scan)` frame/cell/segment proof against J-C; empty/prototype.
 - [ ] **FUT-04** Uniform/nonuniform shape witnesses, offsets/flags and bounds.
 - [ ] **FUT-05** Loop/map interchange: shape-preserving iteration, first error and ordered effects.
 - [ ] **FUT-06** Fusion/fission costs: memory traffic, temporary bytes, launches and locality.
@@ -96,7 +96,7 @@ The bridge to [SPORES/egg](common-array-algebra-prior-art.md) and [einfold](xarr
 - [ ] **FUT-09** Atomic vs deterministic segmented reduction and Exact-J vs approximate numerical policy.
 - [ ] **FUT-10** Independently benchmark bridge workloads with equal algorithms, output checks and FFI separated.
 - [ ] **FUT-11** Pin and inspect the actual upstream full-flattening compiler implementation before adopting details.
-- [ ] **FUT-12** Confirm integration with existing \`j_graph_ir.rs\`, \`logical_ir.rs\`, \`fusion_planning.rs\` and \`physical_plan.rs\`.
+- [ ] **FUT-12** Confirm integration with existing `j_graph_ir.rs`, `logical_ir.rs`, `fusion_planning.rs` and `physical_plan.rs`.
 
 Documentation alone never closes an implementation/testing gate.
 
