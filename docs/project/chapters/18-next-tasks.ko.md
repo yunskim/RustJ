@@ -5,6 +5,8 @@
 
 작업 순서는 [§10 M0–M6](./11-roadmap-checklists-p01.ko.md#architecture-migration-checklist)만 유지하고, 현재 구현 상태는 [§12](./13-current-status.ko.md#current-implementation-status)를 따른다. 이 절에 별도의 Proof Slice 완료표나 과거 단계별 상태표를 복제하지 않는다.
 
+**프로젝트 목적에 따른 우선순위:** [§1의 중심 목표](./02-project-goal.ko.md#11-핵심-목표와-개발-우선순위)는 **J의 함수 합성과 배열 대수에서 검증 가능한 최적화 기회를 발견·활용하는 것**이다. 하지만 이 연구 목표를 달성하려면 먼저 의미를 보존하는 실행 기준선이 필요하다. 따라서 아래 **M2→M3→M4 순서를 변경하지 않으며**, 고급 Graph rewrite·e-graph·Futhark식 flattening·GPU와 외부 경로는 첫 CPU 수직 실행의 선행조건이 아니다. 이후에는 `작은 J 계산 예 → Graph 원본·동치 후보 → Logical 적법성·검사 → CPU 결과·오류 비교 → 성능/메모리 실측`의 한 사례씩 채택한다. 검증되지 않거나 비용상 불리한 후보는 기본 실행을 유지한다.
+
 1. **M2/frontend**: F0–F2/P0–P8의 jsource-compatible construction/name/assignment cutover를 완료한다. M1 canonical Logical IR cutover는 완료 상태다.
 2. **M3/배열 경계**: logical value와 physical representation의 code/API 분리를 수렴시킨다.
 3. **M4/CPU vertical slice**: verified Logical IR → 최소 Schedule/Physical Plan → CPU Physical Executor를 연결한다. [matrix mean 표본](./15-advanced-contracts-p04.ko.md#mean-proof-example)은 implicit cell semantics를 검증하며 analyzer smoke test만으로 실행 완료를 판정하지 않는다.
