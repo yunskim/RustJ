@@ -2,11 +2,20 @@
 
 # RustJ — J 배열 컴파일러
 
-RustJ는 J의 언어·배열 의미론을 보존하면서 CPU와 GPU를 동등한 실행 대상으로 삼는 Rust 기반 배열 컴파일러를 목표로 합니다.
+RustJ의 중심 목표는 **J의 함수 합성과 배열 대수를 컴파일러가 이해하여 새로운 동등 계산 형태와 최적화 기회를 발견·검증하고, J 의미론을 보존하면서 실제 실행에 활용하는 것**입니다. CPU와 GPU는 이러한 계산을 실현할 수 있는 실행 대상이지, 모든 backend를 동시에 완성해야 한다는 뜻이 아닙니다.
 
 `jsource`를 줄 단위로 번역하는 프로젝트가 아니라, J frontend·semantic analysis·logical/physical planning·backend를 분리한 하나의 compiler system으로 설계합니다.
 
 `Jaxa`는 현재 아키텍처의 별도 컴포넌트명이 아닙니다. 과거 `jaxa-analyzer` 연구 저장소의 아이디어는 RustJ middle-end 설계에 흡수합니다.
+
+## 프로젝트의 중심과 범위
+
+- **왜 만드는가?** J의 hook/fork/train·함수 합성·Rank·배열 연산이 드러내는 고수준 계산 구조를 분석하여, 기존 실행 방식이 놓치기 쉬운 동치 변환을 발견한다.
+- **무엇이 필수인가?** J의 값·shape/rank·NAME·효과·오류·수치 의미를 검증한다. 동치성이 입증되지 않은 재작성은 실행에 채택하지 않는다.
+- **무엇부터 완료하는가?** M2 frontend → M3 의미·표현 경계 → M4 **검증 가능한 native CPU 수직 경로**를 우선한다. 이후 작은 최적화 사례를 정확성·실측 성능으로 수용한다.
+- **무엇이 수단인가?** GPU, 외부 backend, SPORES/egg, Futhark 등은 필요한 범위만 선택적으로 활용한다. 기존 연구를 전부 다시 구현하거나 최고 GPU 성능을 단기 성공 조건으로 삼지 않는다.
+
+자세한 목표·성공 기준·기능 도입 기준은 [§1 프로젝트 목적](docs/project/chapters/02-project-goal.ko.md#11-핵심-목표와-개발-우선순위)에 정의합니다. Graph IR / Logical IR의 기존 계층은 그대로 유지합니다.
 
 ## JAXA에서 이어받은 설계 방향 — “배열 연산의 SQL”
 
