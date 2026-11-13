@@ -2,11 +2,20 @@
 
 # RustJ — A J Array Compiler
 
-RustJ aims to be a Rust-based array compiler that preserves J's language and array semantics while treating CPU and GPU as peer execution targets.
+RustJ's central aim is to **understand J's function composition and array algebra as computable structure, discover and validate equivalent computation graphs and optimization opportunities, and execute them while preserving J semantics**. CPU and GPU are possible execution targets, not a requirement to finish every backend simultaneously.
 
 It is not a line-by-line translation of `jsource`. RustJ is designed as a compiler system with explicit boundaries between the J frontend, semantic analysis, logical/physical planning, and backends.
 
 `Jaxa` is not the name of a separate component in the current architecture. Ideas developed in the historical `jaxa-analyzer` research repository are incorporated into RustJ's middle-end design.
+
+## Core mission and scope
+
+- **Why RustJ?** Exploit the high-level structure of J hooks/forks/trains, function composition, Rank and array operators to expose equivalent computations that a conventional execution path may miss.
+- **What must remain correct?** J-observable values, shape/rank, NAME/binding, effects, first errors and numerical policies. Reject rewrites without the necessary equivalence evidence.
+- **What comes first?** M2 frontend semantics → M3 semantic/representation boundary → M4 **verified native CPU vertical slice**. Adopt subsequent small optimizations only with correctness evidence and measured runtime/memory benefits.
+- **What are enabling tools?** GPU execution, external backends, SPORES/egg, Futhark and related work are optional means. Reimplementing every research compiler or producing the fastest GPU kernels is not a near-term success criterion.
+
+The [canonical Korean §1 project goal](docs/project/chapters/02-project-goal.ko.md#11-핵심-목표와-개발-우선순위) and its [English companion](docs/project/chapters/02-project-goal.md) define the scope and admission criteria. The existing Graph IR / Logical IR architecture is unchanged.
 
 ## JAXA design influence — “SQL for array operations”
 
